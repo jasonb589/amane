@@ -20,8 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up UV
+        uses: astral-sh/setup-uv@v9.0.0
+
       - name: Python syntax check
-        run: python3 -m compileall -q src/amane
+        run: uv run --no-project --python 3.14 python -m compileall -q src/amane
 
       - name: Image name
         run: echo "IMAGE=${REGISTRY}/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/amane" >> "$GITHUB_ENV"
