@@ -1,0 +1,62 @@
+/*
+ * 演员海报卡 (多选).
+ * 选择圆点是卡片内唯一的交互控件, 叠在 `<Link>` 上: 组件里已 preventDefault + stopPropagation,
+ * 点它只切换选中, 不会跳转详情. 配色沿用卡片角标 (OVERLAY_CHIP_STYLE) 的深色半透明底.
+ */
+.toggle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--mantine-color-white);
+  /* 未选中: 空心圆 — 白色描边 + 半透明底, 在深浅头像上都读得出. */
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(6px);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 90ms ease-out;
+}
+
+.toggle:hover {
+  background: rgba(0, 0, 0, 0.58);
+  border-color: var(--mantine-color-blue-2);
+}
+
+/* 按下即时收缩: 反馈不等选中态重渲染. */
+.toggle:active {
+  transform: scale(0.88);
+}
+
+/* 选中: 实心 + 勾 — 与列表视图选中行的 blue-light 同色系. */
+.toggle[data-selected="true"] {
+  background: var(--mantine-color-blue-filled);
+  border-color: var(--mantine-color-white);
+}
+
+/* 圆点尺寸小, 焦点用外描边而不是内描边. */
+.toggle:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-4);
+  outline-offset: 2px;
+}
+
+/* 选中卡片: 卡片没有表格行底色可改, 用描边 + 1px 光圈表达 (蓝色填充色与列表视图一致). */
+.card[data-selected="true"] {
+  border-color: var(--mantine-color-blue-filled);
+  box-shadow: 0 0 0 1px var(--mantine-color-blue-filled);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle {
+    transition: none;
+  }
+}

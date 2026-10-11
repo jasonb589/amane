@@ -79,6 +79,9 @@ class CronScheduler:
                     CleanupPayload(
                         remove_missing_files=payload.get("remove_missing_files", True),
                         remove_unreferenced_resources=payload.get("remove_unreferenced_resources", True),
+                        remove_orphan_actors=payload.get("remove_orphan_actors", True),
+                        remove_empty_facets=payload.get("remove_empty_facets", True),
+                        remove_empty_resource_dirs=payload.get("remove_empty_resource_dirs", True),
                     ),
                 )
             case RoutineType.UPSCALE:

@@ -132,7 +132,10 @@
     "commentDeleted": "评论已删除"
   },
   "batch": {
-    "selected": "已选 {{count}} 项"
+    "selected": "已选 {{count}} 项",
+    "selectAll": "全选",
+    "clearSelection": "清空选择",
+    "toggleSelect": "选择「{{name}}」"
   },
   "about": {
     "version": "v{{version}}",

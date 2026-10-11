@@ -453,6 +453,7 @@ function MetaIndexPage() {
             items={gridItems}
             loading={gridQuery.isLoading && gridItems.length === 0}
             emptyMessage={t("empty")}
+            selectable
           />
           {gridItems.length > 0 && (
             <InfiniteScrollSentinel

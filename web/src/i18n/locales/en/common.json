@@ -141,7 +141,10 @@
   "batch": {
     "selected": "{{count}} selected",
     "selected_one": "{{count}} selected",
-    "selected_other": "{{count}} selected"
+    "selected_other": "{{count}} selected",
+    "selectAll": "Select all",
+    "clearSelection": "Clear selection",
+    "toggleSelect": "Select {{name}}"
   },
   "about": {
     "version": "v{{version}}",

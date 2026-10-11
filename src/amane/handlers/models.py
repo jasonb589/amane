@@ -259,11 +259,11 @@ class CleanupPayload(BaseModel):
     remove_unreferenced_resources: bool = Field(
         default=True, description="删除不被任何 Metadata URL 字段引用的 Resource (含派生裁剪)"
     )
-    remove_orphan_actors: bool = Field(default=False, description="删除没有任何影片关联的演员 (0 作品)")
+    remove_orphan_actors: bool = Field(default=True, description="删除没有任何影片关联的演员 (0 作品)")
     remove_empty_facets: bool = Field(
-        default=False, description="删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)"
+        default=True, description="删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)"
     )
-    remove_empty_resource_dirs: bool = Field(default=False, description="删除资源目录下已空的分片目录")
+    remove_empty_resource_dirs: bool = Field(default=True, description="删除资源目录下已空的分片目录")
 
 
 class CleanupResult(BaseModel):

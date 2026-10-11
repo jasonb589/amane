@@ -156,10 +156,12 @@ interface FilePhaseOverlayProps {
   phase: FilePhaseLike | FilePhaseSummary | null | undefined;
   /** 左下角追加 (出演年龄), 与中字/分辨率同组. */
   bottomExtra?: ReactNode;
+  /** 左上马赛克角标的右移量 (px), 给卡片选择圆点让位; 只影响左上角, 默认 0. */
+  topLeftInset?: number;
 }
 
 /** 海报/封面 CSS 水印. 左上马赛克, 左下中字+分辨率; 样式对齐评分/日期 chip. */
-export function FilePhaseOverlay({ phase, bottomExtra }: FilePhaseOverlayProps) {
+export function FilePhaseOverlay({ phase, bottomExtra, topLeftInset = 0 }: FilePhaseOverlayProps) {
   const { t } = useTranslation("metadata");
   const mosaic = phase != null ? mosaicChips(phase, t) : [];
   const media = phase != null ? mediaChips(phase, t) : [];
@@ -167,7 +169,14 @@ export function FilePhaseOverlay({ phase, bottomExtra }: FilePhaseOverlayProps) 
   return (
     <>
       {mosaic.length > 0 && (
-        <Group pos="absolute" top={6} left={6} gap={4} wrap="wrap" style={CORNER_GROUP}>
+        <Group
+          pos="absolute"
+          top={6}
+          left={6 + topLeftInset}
+          gap={4}
+          wrap="wrap"
+          style={CORNER_GROUP}
+        >
           {mosaic.map((chip) => (
             <PhaseOverlayChip key={chip.key} chip={chip} />
           ))}

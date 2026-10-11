@@ -1,5 +1,11 @@
 import { AspectRatio, Box, Card, Center, Group, Stack, Text } from "@mantine/core";
-import { IconCalendar, IconGenderFemale, IconGenderMale, IconMovie } from "@tabler/icons-react";
+import {
+  IconCalendar,
+  IconCheck,
+  IconGenderFemale,
+  IconGenderMale,
+  IconMovie,
+} from "@tabler/icons-react";
 import { Link } from "@tanstack/react-router";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,9 +14,17 @@ import { OverlayChip, OverlayChipLabel } from "@/components/media/overlay-chip";
 import { ProxyImage } from "@/components/media/proxy-image";
 import { ageFromBirthday } from "@/lib/format-birthday";
 import { proxyImageUrl } from "@/lib/utils";
+import classes from "./actor-card.module.css";
+
+/** 选择圆点的占位宽度 (圆点 22px + 间距): 左上角性别角标按它右移, 避免叠在一起. */
+const SELECT_TOGGLE_RESERVE = 28;
 
 interface ActorCardProps {
   item: ActorResponse;
+  /** 选中态 (演员海报视图多选). */
+  selected?: boolean;
+  /** 传入时左上角出现选择圆点: 点击只切换选中, 不打开详情. 不传即纯展示卡片. */
+  onToggleSelect?: (id: number) => void;
 }
 
 /** 海报墙性别符号角标: 仅已知性别渲染, unknown 不显示 (避免满墙灰色符号噪音). */
@@ -27,9 +41,14 @@ const GENDER_CHIP = {
   },
 } as const;
 
-export const ActorCard = memo(function ActorCard({ item }: ActorCardProps) {
-  const { t } = useTranslation("metadata");
+export const ActorCard = memo(function ActorCard({
+  item,
+  selected = false,
+  onToggleSelect,
+}: ActorCardProps) {
+  const { t } = useTranslation(["metadata", "common"]);
   const [errored, setErrored] = useState(false);
+  const selectable = onToggleSelect != null;
   const imageUrl = proxyImageUrl(item.image_urls?.[0]);
   const showImage = Boolean(imageUrl) && !errored;
   const age = ageFromBirthday(item.birthday);
@@ -51,7 +70,14 @@ export const ActorCard = memo(function ActorCard({ item }: ActorCardProps) {
       params={{ actorId: String(item.id) }}
       style={{ textDecoration: "none", color: "inherit", display: "block" }}
     >
-      <Card padding={0} radius="md" withBorder style={{ overflow: "hidden" }}>
+      <Card
+        padding={0}
+        radius="md"
+        withBorder
+        className={classes.card}
+        data-selected={selected ? "true" : undefined}
+        style={{ overflow: "hidden" }}
+      >
         <Box pos="relative">
           <AspectRatio ratio={0.75}>
             {showImage ? (
@@ -70,6 +96,24 @@ export const ActorCard = memo(function ActorCard({ item }: ActorCardProps) {
               </Center>
             )}
           </AspectRatio>
+          {selectable && (
+            /* 圆点叠在 `<Link>` 上: 两个都要拦 — stopPropagation 挡住 Link 的 onClick,
+               preventDefault 挡住锚点的浏览器默认跳转. */
+            <button
+              type="button"
+              className={classes.toggle}
+              data-selected={selected ? "true" : undefined}
+              aria-pressed={selected}
+              aria-label={t("common:batch.toggleSelect", { name: item.name })}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleSelect?.(item.id);
+              }}
+            >
+              {selected && <IconCheck size={13} stroke={3} />}
+            </button>
+          )}
           <Box pos="absolute" top={6} right={6}>
             <OverlayChip>
               <IconMovie size={11} color="var(--mantine-color-grape-3)" />
@@ -77,7 +121,7 @@ export const ActorCard = memo(function ActorCard({ item }: ActorCardProps) {
             </OverlayChip>
           </Box>
           {genderChip != null && (
-            <Box pos="absolute" top={6} left={6}>
+            <Box pos="absolute" top={6} left={selectable ? 6 + SELECT_TOGGLE_RESERVE : 6}>
               <OverlayChip title={t(genderChip.label)} aria-label={t(genderChip.label)}>
                 <genderChip.Icon size={12} color={genderChip.color} />
               </OverlayChip>
