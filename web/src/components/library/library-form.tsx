@@ -82,6 +82,7 @@ export const LIBRARY_AUTOMATION_BADGE_COLOR = {
   none: "gray",
   watch: "blue",
   scrape: "teal",
+  scrape_organize: "grape",
 } as const satisfies Record<LibraryAutomation, string>;
 
 export interface LibraryFormState {

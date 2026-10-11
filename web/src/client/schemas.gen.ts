@@ -3552,10 +3552,11 @@ export const LibraryAutomationSchema = {
     enum: [
         'none',
         'watch',
-        'scrape'
+        'scrape',
+        'scrape_organize'
     ],
     title: 'LibraryAutomation',
-    description: '媒体库自动化级别. 含更低级别的行为; 自动整理尚未开放.'
+    description: '媒体库自动化级别. 含更低级别的行为; SCRAPE_ORGANIZE 在刮削成功后自动整理这一部.'
 } as const;
 
 export const LibraryCreateRequestSchema = {

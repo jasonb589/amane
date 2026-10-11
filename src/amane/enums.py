@@ -88,11 +88,12 @@ class LinkMode(StrEnum):
 
 
 class LibraryAutomation(StrEnum):
-    """媒体库自动化级别. 含更低级别的行为; 自动整理尚未开放."""
+    """媒体库自动化级别. 含更低级别的行为; SCRAPE_ORGANIZE 在刮削成功后自动整理这一部."""
 
     NONE = "none"
     WATCH = "watch"
     SCRAPE = "scrape"
+    SCRAPE_ORGANIZE = "scrape_organize"
 
 
 class LibraryIngest(StrEnum):

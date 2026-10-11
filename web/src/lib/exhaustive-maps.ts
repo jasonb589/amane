@@ -102,7 +102,7 @@ export const DOWNLOADABLE_RESOURCES = exhaustiveTuple<DownloadableResource>()(
   "trailer",
 );
 
-export const LIBRARY_AUTOMATIONS = exhaustiveTuple<LibraryAutomation>()("none", "watch", "scrape");
+export const LIBRARY_AUTOMATIONS = exhaustiveTuple<LibraryAutomation>()("none", "watch", "scrape", "scrape_organize");
 
 export const LIBRARY_INGESTS = exhaustiveTuple<LibraryIngest>()("native", "clouddrive");
 

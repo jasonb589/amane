@@ -1811,9 +1811,9 @@ export type Language = 'zh_cn' | 'zh_tw' | 'jp' | 'en';
 /**
  * LibraryAutomation
  *
- * 媒体库自动化级别. 含更低级别的行为; 自动整理尚未开放.
+ * 媒体库自动化级别. 含更低级别的行为; SCRAPE_ORGANIZE 在刮削成功后自动整理这一部.
  */
-export type LibraryAutomation = 'none' | 'watch' | 'scrape';
+export type LibraryAutomation = 'none' | 'watch' | 'scrape' | 'scrape_organize';
 
 /**
  * LibraryCreateRequest

@@ -572,15 +572,7 @@ async def delete_link_facet(session: AsyncSession, spec: _LinkFacetSpec, facet_i
     entity = await session.get(spec.entity, facet_id)
     if entity is None:
         return False
-    if spec.kind in SCRAPE_FACET_KINDS:
-        if spec.kind == FacetKind.ACTOR:
-            assert isinstance(entity, Actor)
-            blocked = await _actor_delete_block_names(session, entity)
-            for name in blocked:
-                await _upsert_block(session, spec.kind, name)
-        else:
-            blocked = await _upsert_block(session, spec.kind, entity.name)
-        await _strip_names_from_link_metadata(session, spec, blocked)
+    # 行为改动: 只删实体与关联, 不写剔除规则、不改已有影片真值.
     await session.exec(sqla_delete(spec.link).where(col(spec.link_fk) == facet_id))
     if spec.kind == FacetKind.ACTOR:
         # 显式删除别名行与用户标签挂载, 不依赖 FK pragma.
@@ -595,8 +587,7 @@ async def delete_scalar_facet(session: AsyncSession, spec: _ScalarFacetSpec, fac
     entity = await session.get(spec.entity, facet_id)
     if entity is None:
         return False
-    blocked = await _upsert_block(session, spec.kind, entity.name)
-    await _strip_names_from_scalar_metadata(session, spec.kind, blocked)
+    # 行为改动: 只删实体, 不写剔除规则.
     await session.delete(entity)
     await session.commit()
     return True

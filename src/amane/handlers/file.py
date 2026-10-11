@@ -332,7 +332,7 @@ def _place_library_images(
     if extrafanart and DownloadableResource.extrafanart in kinds:
         paths.extrafanart_dir.mkdir(parents=True, exist_ok=True)
         for i, p in enumerate(extrafanart):
-            shutil.copy2(p, paths.extrafanart_dir / f"{i + 1}.jpg")
+            shutil.copy2(p, paths.extrafanart_dir / f"fanart{i + 1}.jpg")
 
     # 叠加水印 (thumb / poster).
     wm = config.watermark if config is not None else WatermarkConfig()

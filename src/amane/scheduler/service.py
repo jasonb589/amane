@@ -478,7 +478,10 @@ class WatcherService:
         library = await self._repo.get_library(library_id)
         if parsed is not None and parsed.number is not None:
             await self._repo.update_media_file(media.id, number=parsed.number)
-            if library is not None and library.automation == LibraryAutomation.SCRAPE:
+            if library is not None and library.automation in {
+                LibraryAutomation.SCRAPE,
+                LibraryAutomation.SCRAPE_ORGANIZE,
+            }:
                 task = await self._repo.create_task(
                     task_type=TaskType.SCRAPE,
                     payload=ScrapePayload(

@@ -7,13 +7,13 @@ from ..aggregate import SCALAR_FIELDS, AggregatedMetadata, CrawlerLike, FieldLan
 from ..crawlers.models import SearchQuery
 from ..crawlers.site_roles import builtin_descriptors
 from ..db.models import TaskType
-from ..enums import ActorGender, MetadataField
+from ..enums import ActorGender, LibraryAutomation, MetadataField
 from ..media import materialize_images
 from ..observability import current
 from ..observability.models import SiteOutcomeKind
 from ..plugins.models import SourceDescriptor, SourceTrait
 from ._common import ensure_oshash, finalize_media_file
-from .models import ActorScrapePayload, CacheKind, ScrapePayload, ScrapeResult
+from .models import ActorScrapePayload, CacheKind, OrganizePayload, ScrapePayload, ScrapeResult
 from .protocol import FollowupTask, TaskHandler, TaskResult
 
 if TYPE_CHECKING:
@@ -200,6 +200,8 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
 
         # 为尚未刮削的演员扇出 ACTOR_SCRAPE.
         actor_followups = await self._actor_scrape_followups(meta.actors)
+        organize_followups = await self._organize_followups(payload.media_file_id)
+        followups = [*actor_followups, *organize_followups]
 
         await self.report_progress(progress_total, progress_total, "done")
 
@@ -210,6 +212,7 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             fields_resolved=len(result.field_sources),
             failed_sites=result.failed_sites,
             actor_followups=len(actor_followups),
+            organize_followups=len(organize_followups),
         )
 
         assert meta.id is not None
@@ -221,7 +224,7 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
                 failed_sites=result.failed_sites,
                 outcomes=current().site_outcomes(),
             ),
-            followups=actor_followups,
+            followups=followups,
         )
 
     def failure_result(self, payload: ScrapePayload) -> ScrapeResult | None:
@@ -234,6 +237,32 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             failed_sites=[row.site for row in outcomes if row.outcome is SiteOutcomeKind.FAILED],
             outcomes=outcomes,
         )
+
+    async def _organize_followups(self, media_file_id: int | None) -> list[FollowupTask]:
+        """库自动化级别含"整理"时, 为本片描述一个 ORGANIZE 后继; 失败不阻断主流程."""
+
+        if media_file_id is None:
+            return []
+        try:
+            file = await self._repo.get_media_file(media_file_id)
+            if file is None:
+                return []
+            library = await self._repo.get_library(file.library_id)
+            if library is None or library.id is None:
+                return []
+            if library.automation is not LibraryAutomation.SCRAPE_ORGANIZE:
+                return []
+            payload = OrganizePayload(library_id=library.id, media_file_ids=[media_file_id])
+            return [
+                FollowupTask(
+                    key=f"organize:{media_file_id}",
+                    task_type=TaskType.ORGANIZE,
+                    payload=payload.model_dump(mode="json"),
+                )
+            ]
+        except Exception:
+            current().warning("failed to build organize followup", media_file_id=media_file_id)
+            return []
 
     async def _actor_scrape_followups(self, actor_names: list[str]) -> list[FollowupTask]:
         """为尚未刮削的影片演员描述 ACTOR_SCRAPE 后继; 失败不阻断主流程.
