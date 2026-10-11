@@ -20,6 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Python syntax check
+        run: python3 -m compileall -q src/amane
+
       - name: Image name
         run: echo "IMAGE=${REGISTRY}/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/amane" >> "$GITHUB_ENV"
 

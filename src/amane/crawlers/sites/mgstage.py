@@ -70,12 +70,30 @@ class MGStageCrawler(Crawler):
 
         tags = extract_all_texts(html, '//th[contains(text(),"ジャンル")]/following-sibling::td/a/text()')
 
-        cover = extract_text(html, '//a[@id="EnlargeImage"]/@href', '//img[@class="enlarge_image"]/@src')
-        thumb_url = cover or None
+        # 封面: 页面小图是 pf_o1_ (166x236), "画像を拡大する" 指向 pb_e_ (840x472 横版包装图),
+        # 竖版大封面是同目录的 pf_e_ (422x600), 由 pf_o1_ 改写前缀取得; 下载按顺序取第一个成功者.
+        cover_thumb = extract_text(html, '//img[@class="enlarge_image"]/@src')
+        cover_enlarge = extract_text(html, '//a[@id="EnlargeImage"]/@href')
+        thumb_urls: list[str] = []
+        if cover_thumb:
+            big = re.sub(r"/pf_o1_", "/pf_e_", cover_thumb)
+            thumb_urls.append(big)
+            if big != cover_thumb:
+                thumb_urls.append(cover_thumb)
+        if cover_enlarge and cover_enlarge not in thumb_urls:
+            thumb_urls.append(cover_enlarge)
 
-        extrafanart = extract_all_texts(html, '//ul[@id="sample-photo"]/li/a/@href')
+        # 剧照: 实际结构是 dl#sample-photo > dd > ul > li > a.sample_image; 旧选择器保留作退路.
+        extrafanart = extract_all_texts(
+            html,
+            '//*[@id="sample-photo"]//a[@class="sample_image"]/@href',
+            '//ul[@id="sample-photo"]/li/a/@href',
+        )
 
-        plot = extract_text(html, '//dl[@id="introduction"]/dd/p[@class="introduction"]/text()')
+        # 简介: class 是 "txt introduction" (不是恰好 introduction), 且文本在嵌套 p 里.
+        plot = "\n".join(
+            extract_all_texts(html, '//dl[@id="introduction"]//p[contains(@class,"introduction")]//text()')
+        )
 
         return MediaMetadata(
             number=number,
@@ -88,7 +106,7 @@ class MGStageCrawler(Crawler):
             tags=tags,
             series=series or None,
             plot=plot or None,
-            thumb_urls=[thumb_url] if thumb_url else [],
+            thumb_urls=thumb_urls,
             extrafanart=extrafanart,
             source_url=url,
             external_id=url,
