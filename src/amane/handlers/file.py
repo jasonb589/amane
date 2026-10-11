@@ -473,6 +473,10 @@ class OrganizeHandler(TaskHandler[OrganizePayload, OrganizeResult]):
         )
         live: list[MediaFile] = []
         skipped = 0
+        if payload.media_file_ids and not indexed:
+            # 勾选快照里的行在本次运行前已消失 (自动整理的单文件范围是主要来源): 不是「空跑」, 记一次跳过.
+            logger.warning("organize scope missing", library_id=library.id, media_file_ids=payload.media_file_ids)
+            skipped += 1
         prune_total = len(indexed)
         if prune_total:
             await self.report_progress(0, prune_total, "prune")

@@ -258,6 +258,7 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
                     key=f"organize:{media_file_id}",
                     task_type=TaskType.ORGANIZE,
                     payload=payload.model_dump(mode="json"),
+                    priority=-1,  # 自动整理不抢占用户交互提交的整理
                 )
             ]
         except Exception:
