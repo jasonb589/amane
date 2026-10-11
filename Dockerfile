@@ -36,4 +36,8 @@ ENV AMANE_LOG_DIR=/data/logs
 ENV PATH="/app/.venv/bin:$PATH"
 ENV UV_NO_SYNC=1
 
+# 自定义镜像构建时注入的版本标签 (空 = 用包自身版本)
+ARG AMANE_VERSION=""
+ENV AMANE_VERSION=$AMANE_VERSION
+
 CMD ["python", "-m", "amane.server"]

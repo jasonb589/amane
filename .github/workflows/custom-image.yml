@@ -29,6 +29,17 @@ jobs:
       - name: Python syntax check
         run: uv run --no-project --python 3.14 python -m compileall -q src/amane
 
+      - name: Stamp custom version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            BASE="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+            V="${BASE}-custom.dev.$(git rev-parse --short HEAD)"
+          fi
+          echo "STAMPED_VERSION=$V" >> "$GITHUB_ENV"
+          echo "version stamp = $V"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -80,6 +91,8 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          build-args: |
+            AMANE_VERSION=${{ env.STAMPED_VERSION }}
           # 与上游一致: 同时出 amd64 和 arm64, 任何 NAS 都能用 (arm64 走 QEMU, 慢一些)
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
