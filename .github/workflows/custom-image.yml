@@ -1,11 +1,14 @@
 name: custom image
 
 # 用途: 在自己 fork 里构建带补丁的镜像, 推到自己的 GHCR.
-# 触发: 只跟 custom 分支 (避免在网页 Sync fork 时用未打补丁的 main 覆盖 :custom 标签),
-#       也可以在 Actions 页面手动 Run workflow.
+# 触发: ① custom 分支 push (给 :custom 与 :sha-xxxxxxx)
+#       ② 推 v* 标签, 如 v0.19.0-custom.1 (额外给 :0.19.0-custom.1 这样的版本号)
+#       ③ Actions 页面手动 Run workflow
+#       只管 custom 分支, 避免在网页 Sync fork 时用未打补丁的 main 覆盖 :custom.
 on:
   push:
     branches: ["custom"]
+    tags: ["v*"]
   workflow_dispatch:
 
 env:
@@ -50,6 +53,7 @@ jobs:
           tags: |
             type=raw,value=custom
             type=sha,format=short
+            type=semver,pattern={{version}}
 
       - name: Build and push
         uses: docker/build-push-action@v7
