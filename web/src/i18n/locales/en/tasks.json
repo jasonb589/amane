@@ -170,6 +170,18 @@
       "remove_unreferenced_resources": {
         "label": "Remove unreferenced resources",
         "description": "Delete resource files that no film references"
+      },
+      "remove_orphan_actors": {
+        "label": "Remove orphan actors",
+        "description": "Delete actors that no movie links to"
+      },
+      "remove_empty_facets": {
+        "label": "Remove empty facets",
+        "description": "Delete tags / directors / studios / publishers / series that no movie links to"
+      },
+      "remove_empty_resource_dirs": {
+        "label": "Remove empty resource dirs",
+        "description": "Delete empty shard directories under the resource store"
       }
     },
     "organize": {

@@ -146,6 +146,18 @@
       "remove_unreferenced_resources": {
         "label": "移除未引用资源",
         "description": "删除没有任何影片引用的资源文件"
+      },
+      "remove_orphan_actors": {
+        "label": "移除空演员",
+        "description": "删除没有任何影片关联的演员 (0 作品)"
+      },
+      "remove_empty_facets": {
+        "label": "移除空分类",
+        "description": "删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)"
+      },
+      "remove_empty_resource_dirs": {
+        "label": "移除空资源目录",
+        "description": "删除资源目录下已空的分片目录"
       }
     },
     "organize": {

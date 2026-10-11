@@ -90,9 +90,14 @@ class MGStageCrawler(Crawler):
             '//ul[@id="sample-photo"]/li/a/@href',
         )
 
-        # 简介: class 是 "txt introduction" (不是恰好 introduction), 且文本在嵌套 p 里.
+        # 简介: 文本在 dd 内, class 是 "txt introduction"; 部分版式下解析器会把嵌套 p 拆成兄弟节点,
+        # 因此按 dd 收文本, 只排除 "更多" 那一段.
         plot = "\n".join(
-            extract_all_texts(html, '//dl[@id="introduction"]//p[contains(@class,"introduction")]//text()')
+            extract_all_texts(
+                html,
+                '//dl[@id="introduction"]/dd/p[not(contains(@class,"more"))]//text()',
+                '//dl[@id="introduction"]/dd//text()[not(ancestor::p[contains(@class,"more")])]',
+            )
         )
 
         return MediaMetadata(

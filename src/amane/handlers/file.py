@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from ..config import HotSettings, WatermarkConfig
-from ..db.models import Library, MediaFile
+from ..db.models import FacetKind, Library, MediaFile
 from ..db.repo_types import MediaFileUpdates
 from ..enums import ActorGender, DownloadableResource, LinkMode
 from ..library import MEDIA_EXTENSIONS, LibraryFileKind, LibraryScan, ancestor_dirs, prune_empty_dirs
@@ -699,6 +699,71 @@ class CleanupHandler(TaskHandler[CleanupPayload, CleanupResult]):
             live_urls, live_hashes = await _collect_live_resource_refs(self._repo)
             resources_removed = await self._resource_store.purge_unreferenced(live_urls, live_hashes)
 
-        logger.info("cleanup completed", files_removed=files_removed, resources_removed=resources_removed)
+        # 删除 0 作品的演员 (走面板删除同一路径, 不写剔除规则).
+        actors_removed = 0
+        if payload.remove_orphan_actors:
+            actors_removed = await self._remove_orphan_facets([FacetKind.ACTOR])
 
-        return TaskResult(True, result=CleanupResult(files_removed=files_removed, resources_removed=resources_removed))
+        # 删除 0 作品的分类; 用户标签不在其列 (那是用户自己维护的).
+        facets_removed = 0
+        if payload.remove_empty_facets:
+            facets_removed = await self._remove_orphan_facets(
+                [FacetKind.TAG, FacetKind.DIRECTOR, FacetKind.STUDIO, FacetKind.PUBLISHER, FacetKind.SERIES]
+            )
+
+        # 删除资源目录下已空的分片目录.
+        dirs_removed = self._remove_empty_resource_dirs() if payload.remove_empty_resource_dirs else 0
+
+        logger.info(
+            "cleanup completed",
+            files_removed=files_removed,
+            resources_removed=resources_removed,
+            actors_removed=actors_removed,
+            facets_removed=facets_removed,
+            dirs_removed=dirs_removed,
+        )
+
+        return TaskResult(
+            True,
+            result=CleanupResult(
+                files_removed=files_removed,
+                resources_removed=resources_removed,
+                actors_removed=actors_removed,
+                facets_removed=facets_removed,
+                dirs_removed=dirs_removed,
+            ),
+        )
+
+    async def _remove_orphan_facets(self, kinds: Sequence[FacetKind]) -> int:
+        """删除没有任何影片关联的分类 (0 作品). 先收齐 id 再删, 避免边删边分页错位."""
+        removed = 0
+        for kind in kinds:
+            targets: list[int] = []
+            offset = 0
+            page = 200
+            while True:
+                items, total = await self._repo.list_facets(kind, offset=offset, limit=page)
+                targets.extend(item.id for item in items if item.count == 0)
+                offset += len(items)
+                if not items or offset >= total:
+                    break
+            for facet_id in targets:
+                if await self._repo.delete_facet(kind, facet_id):
+                    removed += 1
+        return removed
+
+    def _remove_empty_resource_dirs(self) -> int:
+        """删除资源目录下已空的分片目录 (resources/<哈希前两位>/); 根目录与有内容的目录不动."""
+        resources_dir = self._resource_store.data_dir / "resources"
+        if not resources_dir.is_dir():
+            return 0
+        removed = 0
+        for sub in resources_dir.iterdir():
+            if not sub.is_dir() or any(sub.iterdir()):
+                continue
+            try:
+                sub.rmdir()
+            except OSError:
+                continue
+            removed += 1
+        return removed
