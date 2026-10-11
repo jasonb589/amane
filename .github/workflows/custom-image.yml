@@ -1,10 +1,11 @@
 name: custom image
 
 # 用途: 在自己 fork 里构建带补丁的镜像, 推到自己的 GHCR.
-# 触发: 推送到 main / custom 分支, 或在 Actions 页面手动 Run workflow.
+# 触发: 只跟 custom 分支 (避免在网页 Sync fork 时用未打补丁的 main 覆盖 :custom 标签),
+#       也可以在 Actions 页面手动 Run workflow.
 on:
   push:
-    branches: ["main", "custom"]
+    branches: ["custom"]
   workflow_dispatch:
 
 env:
