@@ -98,6 +98,12 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=custom
+      - name: Show stamped version
+        run: |
+          echo "STAMPED_VERSION=${STAMPED_VERSION}"
+          grep -n '_BUILD_VERSION' src/amane/version.py
+          git log --oneline -1
+          git status --short
             type=sha,format=short
             type=semver,pattern={{version}}
 
