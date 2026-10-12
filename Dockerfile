@@ -36,13 +36,6 @@ ENV AMANE_LOG_DIR=/data/logs
 ENV PATH="/app/.venv/bin:$PATH"
 ENV UV_NO_SYNC=1
 
-# 自定义镜像构建时注入的版本标签 (空 = 用包自身版本)
-ARG AMANE_VERSION
-# 版本落一份文件: 优先用构建参数; 参数被构建缓存吃掉时退回源码里的 stamp (CI 写进 version.py).
-RUN set -e; \
-    v="$AMANE_VERSION"; \
-    if [ -z "$v" ]; then v="$(sed -n 's/^_BUILD_VERSION = "\(.*\)"$/\1/p' /app/src/amane/version.py | head -1)"; fi; \
-    printf '%s' "$v" > /app/.amane-build-version; \
-    echo "image version file: '$v'"
-ENV AMANE_VERSION=$AMANE_VERSION
+# 版本号来自源码里的 amane/_custom_version.py (发版时跟代码一起提交, 不依赖构建参数/缓存);
+# 想临时覆盖面板显示时, 在 compose 里给 AMANE_VERSION 赋值即可.
 CMD ["python", "-m", "amane.server"]

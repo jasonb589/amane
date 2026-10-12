@@ -27,31 +27,34 @@ jobs:
       - name: Python syntax check
         run: uv run --no-project --python 3.14 python -m compileall -q src/amane
 
-      - name: Stamp custom version
+      - name: Check custom version
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             V="${GITHUB_REF_NAME#v}"
+            echo "EXPECTED_VERSION=$V" >> "$GITHUB_ENV"
           else
-            BASE="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
-            V="${BASE}-custom.dev.$(git rev-parse --short HEAD)"
+            V=""
           fi
-          echo "STAMPED_VERSION=$V" >> "$GITHUB_ENV"
-          echo "version stamp = $V"
-          python3 - "$V" <<'PY'
-          import pathlib
-          import re
-          import sys
+          COMMITTED="$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' src/amane/_custom_version.py | head -1)"
+          echo "ref 版本: '${V}'  源码内版本: '${COMMITTED}'"
+          if [ -n "$V" ] && [ "$V" != "$COMMITTED" ]; then
+            echo "::error::tag 版本 ($V) 与 src/amane/_custom_version.py 里的版本 ($COMMITTED) 不一致: 先改版本文件、提交后再打 tag。"
+            exit 1
+          fi
+          # 兜底: 尽力把版本写进 version.py 的 _BUILD_VERSION (构建缓存偶尔会吃掉, 只当 fallback)。
+          {
+            python3 - "$COMMITTED" <<'PY'
+          import pathlib, re, sys
           v = sys.argv[1]
+          if not v:
+              raise SystemExit(0)
           p = pathlib.Path("src/amane/version.py")
           s = p.read_text(encoding="utf-8")
           s2 = re.sub(r'(?m)^_BUILD_VERSION = ".*"$', f'_BUILD_VERSION = "{v}"', s, count=1)
-          assert s2 != s, "version.py 未找到 _BUILD_VERSION 行"
           p.write_text(s2, encoding="utf-8")
           print(f"stamped src/amane/version.py: {v}")
           PY
-          # 把 stamp 也落进本地提交: 万一构建上下文取的是提交内容而不是工作区, 版本号同样能带上.
-          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" \
-            commit -q -am "ci: stamp ${V}" || true
+          } || true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -96,14 +99,15 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=custom
-      - name: Show stamped version
-        run: |
-          echo "STAMPED_VERSION=${STAMPED_VERSION}"
-          grep -n '_BUILD_VERSION' src/amane/version.py
-          git log --oneline -1
-          git status --short
             type=sha,format=short
             type=semver,pattern={{version}}
+
+      - name: Show version info
+        run: |
+          echo "expected version: ${EXPECTED_VERSION:-<none, 分支/手动触发>}"
+          grep -n 'VERSION = ' src/amane/_custom_version.py
+          grep -n '_BUILD_VERSION' src/amane/version.py
+          git log --oneline -1
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -111,8 +115,6 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          build-args: |
-            AMANE_VERSION=${{ env.STAMPED_VERSION }}
           # 与上游一致: 同时出 amd64 和 arm64, 任何 NAS 都能用 (arm64 走 QEMU, 慢一些)
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
@@ -120,22 +122,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify injected version
+      - name: Verify image version label
         continue-on-error: true
         run: |
           python3 - <<'PY'
           import json, os, sys, urllib.request
+          expected = os.environ.get("EXPECTED_VERSION", "")
+          if not expected:
+              print("非 tag 触发, 跳过版本自检")
+              raise SystemExit(0)
           repo = os.environ["GITHUB_REPOSITORY"].lower()
-          tag = os.environ.get("STAMPED_VERSION", "")
           tok = json.load(urllib.request.urlopen(f"https://ghcr.io/token?service=ghcr.io&scope=repository:{repo}:pull"))["token"]
           def get(url, accept):
               req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "Accept": accept})
               return json.load(urllib.request.urlopen(req))
-          idx = get(f"https://ghcr.io/v2/{repo}/manifests/{tag}", "application/vnd.oci.image.index.v1+json")
+          idx = get(f"https://ghcr.io/v2/{repo}/manifests/{expected}", "application/vnd.oci.image.index.v1+json")
           amd = next(m["digest"] for m in idx["manifests"] if m["platform"]["architecture"] == "amd64")
           man = get(f"https://ghcr.io/v2/{repo}/manifests/{amd}", "application/vnd.oci.image.manifest.v1+json")
           cfg = get(f"https://ghcr.io/v2/{repo}/blobs/{man['config']['digest']}", "application/json")
-          envs = [e for e in cfg["config"].get("Env", []) if e.startswith("AMANE_VERSION=")]
-          print("image env:", envs, "expected:", tag)
-          sys.exit(0 if f"AMANE_VERSION={tag}" in envs else 1)
+          label = (cfg["config"].get("Labels") or {}).get("org.opencontainers.image.version", "")
+          print("image label version:", label, "expected:", expected)
+          raise SystemExit(0 if label == expected else 1)
           PY
