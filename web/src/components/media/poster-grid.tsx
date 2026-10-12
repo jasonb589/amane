@@ -203,7 +203,7 @@ export function PosterGrid({
             disabled={selectionCount === 0}
             onClick={() => void handleBatchDelete()}
           >
-            {t("actions.batchDelete")}
+            {selectionCount > 1 ? t("actions.batchDelete") : t("common:actions.delete")}
           </Button>
           <Button
             size="xs"

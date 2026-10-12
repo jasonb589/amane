@@ -293,7 +293,7 @@ export function MetaTable({
               disabled={selected.size === 0}
               onClick={() => void handleBatchDelete()}
             >
-              {t("actions.batchDelete")}
+              {selected.size > 1 ? t("actions.batchDelete") : t("common:actions.delete")}
             </Button>
           </SelectionBar>
         }
