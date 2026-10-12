@@ -103,6 +103,8 @@ class ScrapePayload(BaseModel):
     number: str
     content_type: ContentType = ContentType.CENSORED
     media_file_id: int | None = None
+    path: str | None = None
+    """源文件路径; 媒体记录被删掉时靠它重新登记, 保证自动整理不被静默跳过. 手动提交可留空."""
     use_cache: set[CacheKind] = {CacheKind.metadata, CacheKind.trans}
 
 

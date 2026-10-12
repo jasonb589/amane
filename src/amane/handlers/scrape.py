@@ -1,4 +1,5 @@
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from structlog.contextvars import bind_contextvars
@@ -6,13 +7,14 @@ from structlog.contextvars import bind_contextvars
 from ..aggregate import SCALAR_FIELDS, AggregatedMetadata, CrawlerLike, FieldLanguage, aggregate, compile_priority
 from ..crawlers.models import SearchQuery
 from ..crawlers.site_roles import builtin_descriptors
-from ..db.models import TaskType
+from ..db.models import Library, MediaFile, MediaFileStatus, TaskType
 from ..enums import ActorGender, LibraryAutomation, MetadataField
 from ..media import materialize_images
 from ..observability import current
 from ..observability.models import SiteOutcomeKind
 from ..plugins.models import SourceDescriptor, SourceTrait
-from ._common import ensure_oshash, finalize_media_file
+from ..utils.threads import path_exists
+from ._common import ensure_oshash, finalize_media_file, register_media_file
 from .models import ActorScrapePayload, CacheKind, OrganizePayload, ScrapePayload, ScrapeResult
 from .protocol import FollowupTask, TaskHandler, TaskResult
 
@@ -200,7 +202,7 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
 
         # 为尚未刮削的演员扇出 ACTOR_SCRAPE.
         actor_followups = await self._actor_scrape_followups(meta.actors)
-        organize_followups = await self._organize_followups(payload.media_file_id)
+        organize_followups = await self._organize_followups(payload.media_file_id, meta.id, payload.path)
         followups = [*actor_followups, *organize_followups]
 
         await self.report_progress(progress_total, progress_total, "done")
@@ -238,24 +240,32 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             outcomes=outcomes,
         )
 
-    async def _organize_followups(self, media_file_id: int | None) -> list[FollowupTask]:
-        """库自动化级别含"整理"时, 为本片描述一个 ORGANIZE 后继; 失败不阻断主流程."""
+    async def _organize_followups(
+        self, media_file_id: int | None, metadata_id: int | None, path: str | None
+    ) -> list[FollowupTask]:
+        """库自动化级别含"整理"时, 为本片描述一个 ORGANIZE 后继; 失败不阻断主流程.
 
-        if media_file_id is None:
+        媒体记录可能在抓取期间被删掉 (整理把源文件移走、改名都会触发删除事件), 那样整理会因为
+        "没有元数据" 被静默跳过. 因此记录缺失时按源路径重新登记, 并挂回本次的 metadata.
+        """
+
+        if metadata_id is None:
             return []
         try:
-            file = await self._repo.get_media_file(media_file_id)
+            file = await self._repo.get_media_file(media_file_id) if media_file_id is not None else None
             if file is None:
+                file = await self._reregister_for_organize(metadata_id, path)
+            if file is None or file.id is None:
                 return []
             library = await self._repo.get_library(file.library_id)
             if library is None or library.id is None:
                 return []
             if library.automation is not LibraryAutomation.SCRAPE_ORGANIZE:
                 return []
-            payload = OrganizePayload(library_id=library.id, media_file_ids=[media_file_id])
+            payload = OrganizePayload(library_id=library.id, media_file_ids=[file.id])
             return [
                 FollowupTask(
-                    key=f"organize:{media_file_id}",
+                    key=f"organize:{file.id}",
                     task_type=TaskType.ORGANIZE,
                     payload=payload.model_dump(mode="json"),
                     priority=-1,  # 自动整理不抢占用户交互提交的整理
@@ -264,6 +274,34 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
         except Exception:
             current().warning("failed to build organize followup", media_file_id=media_file_id)
             return []
+
+    async def _reregister_for_organize(self, metadata_id: int, path: str | None) -> MediaFile | None:
+        """记录被删时按源路径补一条并挂回 metadata; 文件已不在或找不到归属库则放弃."""
+        if not path:
+            return None
+        target = Path(path)
+        if not await path_exists(target):
+            return None
+        libraries = await self._repo.list_libraries()
+        owner: Library | None = None
+        for lib in libraries:
+            if lib.id is None or lib.automation is not LibraryAutomation.SCRAPE_ORGANIZE:
+                continue
+            root = lib.path.rstrip("/") or "/"
+            if path != root and not path.startswith(f"{root}/"):
+                continue
+            if owner is None or len(lib.path) > len(owner.path):
+                owner = lib
+        if owner is None or owner.id is None:
+            return None
+        created = await register_media_file(self._repo, owner.id, target)
+        if created.id is None:
+            return None
+        updated = await self._repo.update_media_file(
+            created.id, metadata_id=metadata_id, status=MediaFileStatus.SCRAPED
+        )
+        current().info("media file re-registered for organize", media_file_id=created.id, path=path)
+        return updated or created
 
     async def _actor_scrape_followups(self, actor_names: list[str]) -> list[FollowupTask]:
         """为尚未刮削的影片演员描述 ACTOR_SCRAPE 后继; 失败不阻断主流程.

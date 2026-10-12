@@ -141,6 +141,7 @@ class RefreshHandler(TaskHandler[RefreshPayload, RefreshResult]):
                         media_file_id=f.id,
                         number=parsed.number,
                         content_type=parsed.content_type,
+                        path=f.path,
                         use_cache=payload.use_cache,
                     ).model_dump(mode="json"),
                 )
