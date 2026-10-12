@@ -51,6 +51,9 @@ jobs:
           p.write_text(s2, encoding="utf-8")
           print(f"stamped src/amane/version.py: {v}")
           PY
+          # 把 stamp 也落进本地提交: 万一构建上下文取的是提交内容而不是工作区, 版本号同样能带上.
+          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" \
+            commit -q -am "ci: stamp ${V}" || true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

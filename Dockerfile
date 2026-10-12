@@ -38,6 +38,8 @@ ENV UV_NO_SYNC=1
 
 # 自定义镜像构建时注入的版本标签 (空 = 用包自身版本)
 ARG AMANE_VERSION
+# 版本落一份文件: RUN 的缓存键包含 ARG 展开值, 比 ENV / COPY 更不容易被构建缓存吃掉
+RUN printf '%s' "$AMANE_VERSION" > /app/.amane-build-version
 ENV AMANE_VERSION=$AMANE_VERSION
 
 CMD ["python", "-m", "amane.server"]
