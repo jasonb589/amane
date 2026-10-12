@@ -32,12 +32,11 @@ jobs:
           set -euo pipefail
           IMG="ghcr.io/${{ github.repository_owner }}/amane"
           SRC="${{ inputs.source }}"
-          echo "before:"
-          docker buildx imagetools inspect "$IMG:$DST" | head -5 || true
+          DST="${{ inputs.target }}"
+          echo "== before: $IMG:$DST"
+          docker buildx imagetools inspect "$IMG:$DST" > before.txt || echo "(tag not found)"
+          grep -E 'Digest|MediaType' before.txt || true
           docker buildx imagetools create -t "$IMG:$DST" "$IMG:$SRC"
-          echo "after:"
-          docker buildx imagetools inspect "$IMG:$DST" | head -5 || true
-          docker buildx imagetools inspect "$IMG:$DST" | head -5 || true
-          docker buildx imagetools create -t "$IMG:$DST" "$IMG:$SRC"
-          echo "after:"
-          docker buildx imagetools inspect "$IMG:$DST" | head -5
+          echo "== after: $IMG:$DST"
+          docker buildx imagetools inspect "$IMG:$DST" > after.txt || true
+          grep -E 'Digest|MediaType' after.txt || true
