@@ -387,8 +387,13 @@ async def _download_images_via_store(
     if DownloadableResource.poster in kinds:
         poster_urls = metadata.poster_urls
         poster_local = await _acquire_first_local(poster_urls, store, client) if poster_urls else None
-        # 横版候选 (目前只有素人 MGStage 会给出) 供背景图使用; 逐个解析, 命中即止.
-        for url in poster_urls:
+        # 横版候选 (目前只有素人 MGStage 会给出) 供背景图使用. poster_urls 可能已被裁切结果替换,
+        # 因此同时看原始快照里的 poster_urls; 逐个解析, 命中即止.
+        wide_candidates = list(poster_urls)
+        for site_raw in (metadata.raw or {}).values():
+            if isinstance(site_raw, dict):
+                wide_candidates.extend(u for u in site_raw.get("poster_urls") or [] if u not in wide_candidates)
+        for url in wide_candidates:
             local = await _resolve_local(url, store, client)
             if local is not None and _is_landscape(local):
                 poster_wide_local = local
