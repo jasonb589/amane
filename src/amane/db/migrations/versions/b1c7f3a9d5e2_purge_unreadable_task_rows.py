@@ -16,20 +16,21 @@ down_revision: str | None = "1f050b272f7d"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# 与 amane.db.models 的枚举取值一致. 枚举删值 / 改名后, 库里残留的旧取值会让
-# SQLAlchemy 在读取该行时直接抛错, 一旦被列表 / 批量操作选中就整批 500.
+# 与 amane.db.models 的枚举**成员名**一致 (自上游 05ee7dd4c06d 起, 枚举列存的是成员名, 大写).
+# 枚举删值 / 改名后, 库里残留的旧取值会让 SQLAlchemy 读该行时直接抛错 (LookupError),
+# 一旦被列表 / 批量操作选中就整批 500. 比较一律走 UPPER(), 兼容更早的取值写法.
 _TYPES = (
-    "scrape",
-    "organize",
-    "refresh",
-    "cleanup",
-    "upscale",
-    "actor_scrape",
-    "rescrape",
-    "scan_invalid",
-    "delete",
+    "SCRAPE",
+    "ORGANIZE",
+    "REFRESH",
+    "CLEANUP",
+    "UPSCALE",
+    "ACTOR_SCRAPE",
+    "RESCRAPE",
+    "SCAN_INVALID",
+    "DELETE",
 )
-_STATUSES = ("queued", "running", "done", "failed")
+_STATUSES = ("QUEUED", "RUNNING", "DONE", "FAILED")
 
 
 def _in_clause(values: tuple[str, ...]) -> str:
@@ -39,8 +40,8 @@ def _in_clause(values: tuple[str, ...]) -> str:
 def _unreadable() -> str:
     return (
         "type IS NULL OR status IS NULL"
-        f" OR type NOT IN ({_in_clause(_TYPES)})"
-        f" OR status NOT IN ({_in_clause(_STATUSES)})"
+        f" OR UPPER(type) NOT IN ({_in_clause(_TYPES)})"
+        f" OR UPPER(status) NOT IN ({_in_clause(_STATUSES)})"
     )
 
 def _json_valid_available() -> bool:
@@ -59,7 +60,7 @@ def upgrade() -> None:
 
     边先删, 免得留下指向已删任务的悬空行 (外键开启的库会拒绝删除被引用的行).
     """
-    op.execute(sa.text("UPDATE tasks SET type = 'delete' WHERE type = 'trash'"))
+    op.execute(sa.text("UPDATE tasks SET type = 'DELETE' WHERE UPPER(type) = 'TRASH'"))
 
     condition = _unreadable()
     if _json_valid_available():

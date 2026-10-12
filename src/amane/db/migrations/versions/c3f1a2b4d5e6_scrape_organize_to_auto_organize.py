@@ -31,18 +31,24 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """数据改写: 自定义档位折进上游 ``auto_organize``.
+
+    枚举列自上游 ``05ee7dd4c06d`` 起存的是**成员名**(``SCRAPE``), 不是取值(``scrape``) ——
+    这里两种写法都认, 统一改写成 ``SCRAPE`` + ``auto_organize = 1``, 行为与原档位一致.
+    """
     bind = op.get_bind()
-    columns = {column["name"] for column in sa.inspect(bind).get_columns("libraries")}
-    if "auto_organize" in columns:
-        op.execute(
-            sa.text(
-                "UPDATE libraries SET automation = 'scrape', auto_organize = 1"
-                " WHERE automation = 'scrape_organize'"
+    has_auto_organize = "auto_organize" in {c["name"] for c in sa.inspect(bind).get_columns("libraries")}
+    for legacy in ("SCRAPE_ORGANIZE", "scrape_organize"):
+        if has_auto_organize:
+            op.execute(
+                sa.text(
+                    f"UPDATE libraries SET automation = 'SCRAPE', auto_organize = 1"
+                    f" WHERE automation = '{legacy}'"
+                )
             )
-        )
-        return
-    # 异常顺序 (上游支线未跑到): 至少把旧枚举取值归一到上游能读的值, 不再阻断启动.
-    op.execute(sa.text("UPDATE libraries SET automation = 'scrape' WHERE automation = 'scrape_organize'"))
+        else:
+            # 异常顺序 (上游支线未跑到): 至少把旧枚举取值归一到上游能读的值, 不再阻断启动.
+            op.execute(sa.text(f"UPDATE libraries SET automation = 'SCRAPE' WHERE automation = '{legacy}'"))
 
 
 def downgrade() -> None:
