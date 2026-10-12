@@ -12,7 +12,7 @@ from ..db.repo_types import MediaFileUpdates
 from ..enums import ActorGender, DownloadableResource, LinkMode
 from ..library import MEDIA_EXTENSIONS, LibraryFileKind, LibraryScan, ancestor_dirs, prune_empty_dirs
 from ..library.rules import is_in_trash
-from ..media import ResourceStore, apply_cover_watermarks_from_info, crop_poster
+from ..media import ResourceStore, apply_cover_watermarks_from_info, crop_poster, probe_size
 from ..media import write_nfo as write_nfo_file
 from ..media.resource_store import internal_url_hash
 from ..net.http import WebClient
@@ -291,6 +291,12 @@ async def _acquire_first_local(urls: list[str], store: ResourceStore, client: We
     return None
 
 
+def _is_landscape(path: Path) -> bool:
+    """宽大于高 = 横版图; 读不出尺寸时按非横版处理."""
+    size = probe_size(path)
+    return size is not None and size[0] > size[1]
+
+
 @in_thread
 def _place_library_images(
     paths: ResolvedPaths,
@@ -310,7 +316,9 @@ def _place_library_images(
         shutil.copy2(thumb_local, paths.thumb)
         paths.fanart.parent.mkdir(parents=True, exist_ok=True)
         if not paths.fanart.exists():
-            shutil.copy2(thumb_local, paths.fanart)
+            # 横版候选 (目前只有素人 MGStage 会给出) 更适合当背景图; 没有则退回封面副本.
+            wide = poster_local is not None and _is_landscape(poster_local)
+            shutil.copy2(poster_local if wide and poster_local is not None else thumb_local, paths.fanart)
 
     if DownloadableResource.poster in kinds:
         if poster_local is not None:

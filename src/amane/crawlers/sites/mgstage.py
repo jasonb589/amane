@@ -3,6 +3,7 @@ import re
 from parsel import Selector
 
 from ...enums import SiteName
+from ...parsing.file_info import ContentType
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
 from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
@@ -42,6 +43,20 @@ class MGStageCrawler(Crawler):
                 seen.add(r)
                 urls.append(r)
         return urls[0] if urls else None
+
+    async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
+        """素人条目额外带上页面唯一的横版图 (pb_e), 落盘时被当作背景图使用.
+
+        横版候选只在这里产出 (content_type = 素人); 其它来源与内容类型不带该字段, 落盘行为不变.
+        """
+        meta = await super().fetch(query, options)
+        if meta is None or query.content_type is not ContentType.AMATEUR or meta.poster_urls:
+            return meta
+        cover = next((url for url in meta.thumb_urls if "/pf_" in url), "")
+        wide = re.sub(r"/pf_[a-z0-9]+_", "/pb_e_", cover)
+        if wide and wide != cover:
+            return meta.model_copy(update={"poster_urls": [wide]})
+        return meta
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         text = await self.client.get_html(url, cookies=self.cookies)
