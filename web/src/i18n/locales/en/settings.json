@@ -528,6 +528,10 @@
       "media_extensions": {
         "label": "Media Extensions",
         "description": "Media file extensions to watch and scan, comma-separated"
+      },
+      "escape_strings": {
+        "label": "Filename Junk Filters",
+        "description": "Strings removed from the filename before parsing the number; entries starting with r: are treated as regexes"
       }
     },
     "sr": {

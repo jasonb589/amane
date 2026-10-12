@@ -36,6 +36,7 @@ from ..llm import TranslationCache, build_translator
 from ..media.watermarks import user_watermark_dir
 from ..net.browser import BrowserPool
 from ..net.http import RateLimiters, WebClient
+from ..parsing.file_info import set_escape_strings
 from ..playback import PlaybackFactory, PlaybackState
 from ..plugins.manager import PluginManager
 from ..plugins.packaging import install_plugin_path, install_plugin_zip, uninstall_plugin_tree
@@ -254,6 +255,9 @@ class AppRuntime:
 
         # 日志级别即时生效, 无需重建
         logging.getLogger("amane").setLevel(hot.logging.level)
+
+        # 文件名垃圾信息过滤: 解析番号前从文件名中移除的字符串 (热更新即时生效)
+        set_escape_strings(hot.watcher.escape_strings)
 
         # r18 配置变更时重建只读引擎与新句柄; 旧句柄随退役 worker 释放
         if hot.r18 != self._r18_config:

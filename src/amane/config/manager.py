@@ -527,6 +527,9 @@ class WatcherConfig(BaseModel):
         default_factory=lambda: [".mp4", ".mkv", ".avi", ".wmv", ".flv", ".mov", ".ts", ".iso", ".strm"]
     )
 
+    escape_strings: list[str] = Field(default_factory=list)
+    """解析番号前从文件名中移除的字符串 (文件名垃圾信息过滤); ``r:`` 开头的按正则处理, 忽略大小写."""
+
 
 class LoggingConfig(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")

@@ -528,6 +528,10 @@
       "media_extensions": {
         "label": "媒体扩展名",
         "description": "监控和扫描的媒体文件扩展名列表, 逗号分隔"
+      },
+      "escape_strings": {
+        "label": "文件名垃圾信息过滤",
+        "description": "解析番号前从文件名中移除的字符串 (垃圾信息); 以 r: 开头的按正则处理"
       }
     },
     "sr": {

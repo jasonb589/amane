@@ -222,6 +222,18 @@ DEFINITION_VALUES: tuple[str, ...] = tuple(dict.fromkeys(value for value, _ in _
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_ESCAPE_STRINGS: list[str] = []
+
+
+def set_escape_strings(patterns: list[str] | None) -> None:
+    """设置解析番号前从文件名中移除的字符串 (全局默认; ``r:`` 前缀按正则处理, 忽略大小写).
+
+    由 runtime 在热配置重建时调用; 显式传 ``escape_strings`` 的调用点不受影响.
+    """
+    global _DEFAULT_ESCAPE_STRINGS
+    _DEFAULT_ESCAPE_STRINGS = [p for p in (patterns or []) if p]
+
+
 def parse_file_info(
     path: str | Path | None = None, *, text: str | None = None, escape_strings: list[str] | None = None
 ) -> FileInfo:
@@ -234,7 +246,7 @@ def parse_file_info(
     """
     if path is None and text is None:
         raise ValueError("path or text required")
-    escape = escape_strings or []
+    escape = list(escape_strings) if escape_strings is not None else list(_DEFAULT_ESCAPE_STRINGS)
     if path is not None:
         # 路径: 文件名优先识别; 目录可覆盖类型, 分集可回退父目录.
         p = Path(path)
@@ -387,9 +399,15 @@ def _prepare(basename: str, escape_strings: list[str]) -> _Prepared:
 
 
 def _remove_escape_strings(filename: str, escape_strings: list[str]) -> str:
-    upper = filename.upper()
+    text = filename
     for string in escape_strings:
-        if string:
+        if string.startswith("r:"):
+            # r: 前缀 = 正则 (忽略大小写); 写错的正则忽略, 不影响解析.
+            with contextlib.suppress(re.error):
+                text = re.sub(string[2:], "", text, flags=re.IGNORECASE)
+    upper = text.upper()
+    for string in escape_strings:
+        if string and not string.startswith("r:"):
             upper = upper.replace(string.upper(), "")
     for marker in _ESCAPE_MARKERS:
         upper = re.sub(rf"[-_ .\[]{marker}[-_ .\]]", "-", upper)
