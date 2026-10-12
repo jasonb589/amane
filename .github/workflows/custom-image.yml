@@ -39,6 +39,18 @@ jobs:
           fi
           echo "STAMPED_VERSION=$V" >> "$GITHUB_ENV"
           echo "version stamp = $V"
+          python3 - "$V" <<'PY'
+          import pathlib
+          import re
+          import sys
+          v = sys.argv[1]
+          p = pathlib.Path("src/amane/version.py")
+          s = p.read_text(encoding="utf-8")
+          s2 = re.sub(r'(?m)^_BUILD_VERSION = ".*"$', f'_BUILD_VERSION = "{v}"', s, count=1)
+          assert s2 != s, "version.py 未找到 _BUILD_VERSION 行"
+          p.write_text(s2, encoding="utf-8")
+          print(f"stamped src/amane/version.py: {v}")
+          PY
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -81,6 +93,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
+            type=raw,value=latest
             type=raw,value=custom
             type=sha,format=short
             type=semver,pattern={{version}}
