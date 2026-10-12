@@ -32,8 +32,11 @@ jobs:
           set -euo pipefail
           IMG="ghcr.io/${{ github.repository_owner }}/amane"
           SRC="${{ inputs.source }}"
-          DST="${{ inputs.target }}"
           echo "before:"
+          docker buildx imagetools inspect "$IMG:$DST" | head -5 || true
+          docker buildx imagetools create -t "$IMG:$DST" "$IMG:$SRC"
+          echo "after:"
+          docker buildx imagetools inspect "$IMG:$DST" | head -5 || true
           docker buildx imagetools inspect "$IMG:$DST" | head -5 || true
           docker buildx imagetools create -t "$IMG:$DST" "$IMG:$SRC"
           echo "after:"
