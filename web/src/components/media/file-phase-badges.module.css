@@ -1,0 +1,14 @@
+/*
+ * 海报角标 (FilePhaseOverlay) 的让位动画.
+ * 左上角马赛克角标的 left 由卡片提供的 CSS 变量 `--select-inset` 驱动:
+ * 选择圆点不显形时角标停在原位, 圆点显形时才滑开, 所以过渡写在这里 (而不是行内样式).
+ */
+.topLeft {
+  transition: left 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topLeft {
+    transition: none;
+  }
+}

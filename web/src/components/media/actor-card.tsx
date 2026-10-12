@@ -16,8 +16,6 @@ import { ageFromBirthday } from "@/lib/format-birthday";
 import { proxyImageUrl } from "@/lib/utils";
 import classes from "./actor-card.module.css";
 
-/** 选择圆点的占位宽度 (圆点 22px + 间距): 左上角性别角标按它右移, 避免叠在一起. */
-const SELECT_TOGGLE_RESERVE = 28;
 
 interface ActorCardProps {
   item: ActorResponse;
@@ -79,6 +77,8 @@ export const ActorCard = memo(function ActorCard({
         withBorder
         className={classes.card}
         data-selected={selected ? "true" : undefined}
+        data-selectable={selectable ? "true" : undefined}
+        data-select-active={selectActive ? "true" : undefined}
         style={{ overflow: "hidden" }}
       >
         <Box pos="relative">
@@ -125,7 +125,7 @@ export const ActorCard = memo(function ActorCard({
             </OverlayChip>
           </Box>
           {genderChip != null && (
-            <Box pos="absolute" top={6} left={selectable ? 6 + SELECT_TOGGLE_RESERVE : 6}>
+            <Box pos="absolute" top={6} className={classes.chipTopLeft}>
               <OverlayChip title={t(genderChip.label)} aria-label={t(genderChip.label)}>
                 <genderChip.Icon size={12} color={genderChip.color} />
               </OverlayChip>

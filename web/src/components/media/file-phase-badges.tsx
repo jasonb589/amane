@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import type { ContentType, FilePhaseSummary, Mosaic } from "@/client/types.gen";
 import { OverlayChip, OverlayChipLabel } from "@/components/media/overlay-chip";
 import { exhaustiveRecord } from "@/lib/exhaustive";
+import classes from "./file-phase-badges.module.css";
 
 export type FilePhaseLike = {
   has_subtitle?: boolean;
@@ -156,7 +157,8 @@ interface FilePhaseOverlayProps {
   phase: FilePhaseLike | FilePhaseSummary | null | undefined;
   /** 左下角追加 (出演年龄), 与中字/分辨率同组. */
   bottomExtra?: ReactNode;
-  /** 左上马赛克角标的右移量 (px), 给卡片选择圆点让位; 只影响左上角, 默认 0. */
+  /** 左上马赛克角标的额外右移量 (px), 默认 0. 实际让位由卡片提供的 CSS 变量 `--select-inset` 驱动
+   *  (圆点显形时才让位); 只影响左上角. */
   topLeftInset?: number;
 }
 
@@ -172,10 +174,11 @@ export function FilePhaseOverlay({ phase, bottomExtra, topLeftInset = 0 }: FileP
         <Group
           pos="absolute"
           top={6}
-          left={6 + topLeftInset}
+          left={`calc(6px + ${topLeftInset}px + var(--select-inset, 0px))`}
           gap={4}
           wrap="wrap"
           style={CORNER_GROUP}
+          className={classes.topLeft}
         >
           {mosaic.map((chip) => (
             <PhaseOverlayChip key={chip.key} chip={chip} />

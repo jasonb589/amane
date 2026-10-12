@@ -86,3 +86,34 @@
     transition: none;
   }
 }
+
+/* 左上角性别角标: 常规停在 6px, 圆点显形时随 --select-inset 滑开 (变量定义见文件末). */
+.chipTopLeft {
+  left: calc(6px + var(--select-inset, 0px));
+  transition: left 120ms ease;
+}
+
+/* 角标让位量: 圆点不显形时角标停在原位, 圆点显形 (悬停 / 键盘焦点 / 已进入选择) 时才滑开 28px.
+ * 只作用于可多选的卡片 (属性选择器), 纯展示卡片不受影响. */
+.card[data-selectable="true"] {
+  --select-inset: 0px;
+}
+
+.card[data-selectable="true"]:hover,
+.card[data-selectable="true"]:focus-within,
+.card[data-selectable="true"][data-select-active="true"] {
+  --select-inset: 28px;
+}
+
+/* 触屏没有 hover: 圆点常显, 角标常让位. */
+@media (hover: none) {
+  .card[data-selectable="true"] {
+    --select-inset: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chipTopLeft {
+    transition: none;
+  }
+}

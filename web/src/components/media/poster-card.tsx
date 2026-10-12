@@ -12,8 +12,6 @@ import { formatReleaseYearMonth } from "@/lib/format-release";
 import { proxyImageUrl } from "@/lib/utils";
 import classes from "./poster-card.module.css";
 
-/** 选择圆点的占位宽度 (圆点 22px + 间距): 左上角角标按它右移, 避免叠在一起. */
-const SELECT_TOGGLE_RESERVE = 28;
 
 interface PosterCardProps {
   item: MetadataResponse;
@@ -57,6 +55,8 @@ export function PosterCard({
         withBorder
         className={classes.card}
         data-selected={selected ? "true" : undefined}
+        data-selectable={selectable ? "true" : undefined}
+        data-select-active={selectActive ? "true" : undefined}
         style={{ overflow: "hidden" }}
       >
         <Box pos="relative">
@@ -80,7 +80,6 @@ export function PosterCard({
           </AspectRatio>
           <FilePhaseOverlay
             phase={item.file_phase}
-            topLeftInset={selectable ? SELECT_TOGGLE_RESERVE : 0}
             bottomExtra={
               ageThen != null ? (
                 <OverlayChip>
