@@ -34,6 +34,7 @@ import {
 import { clearActorPerson, scrapeActor, updateActor } from "@/client/sdk.gen";
 import type { ActorGender, ActorResponse, CacheKind } from "@/client/types.gen";
 import { SelectionBar } from "@/components/common/selection-bar";
+import { ClearPersonNotice } from "@/components/media/clear-person-notice";
 import { useIdSelection } from "@/hooks/use-id-selection";
 import { extractErrorMessage } from "@/lib/api-error";
 import { confirm } from "@/lib/confirm";
@@ -303,10 +304,15 @@ export const ActorGrid = memo(function ActorGrid({
     if (ids.length === 0) return;
     const ok = await confirm({
       title: t("actors.clearPerson"),
-      message:
-        ids.length === 1 && opts?.name
-          ? t("actors.clearPersonBody", { name: opts.name })
-          : t("actors.batchClearPersonBody", { count: ids.length }),
+      message: (
+        <ClearPersonNotice
+          first={
+            ids.length === 1 && opts?.name
+              ? t("actors.clearPersonFields", { name: opts.name })
+              : t("actors.batchClearPersonFields", { count: ids.length })
+          }
+        />
+      ),
       confirmLabel: t("actors.clearPerson"),
     });
     if (!ok) return;
