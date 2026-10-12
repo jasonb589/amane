@@ -85,18 +85,20 @@ class MGStageCrawler(Crawler):
 
         tags = extract_all_texts(html, '//th[contains(text(),"ジャンル")]/following-sibling::td/a/text()')
 
-        # 封面: 页面小图是 pf_o1_ (166x236), "画像を拡大する" 指向 pb_e_ (840x472 横版包装图),
-        # 竖版大封面是同目录的 pf_e_ (422x600), 由 pf_o1_ 改写前缀取得; 下载按顺序取第一个成功者.
+        # 封面: 页面模板有两种, 主图分别是 pf_o1_ (166x236) 或 pb_p_ (540x304 横版),
+        # "画像を拡大する" 指向 pb_e_ (840x473 横版); 三者同目录下都有竖版大封面 pf_e_ (422x600),
+        # 页面不直接引用, 因此改写前缀推导; 取不到时自动退回原图 (下载按顺序取第一个成功者).
         cover_thumb = extract_text(html, '//img[@class="enlarge_image"]/@src')
         cover_enlarge = extract_text(html, '//a[@id="EnlargeImage"]/@href')
         thumb_urls: list[str] = []
-        if cover_thumb:
-            big = re.sub(r"/pf_o1_", "/pf_e_", cover_thumb)
-            thumb_urls.append(big)
-            if big != cover_thumb:
-                thumb_urls.append(cover_thumb)
-        if cover_enlarge and cover_enlarge not in thumb_urls:
-            thumb_urls.append(cover_enlarge)
+        for src in (cover_thumb, cover_enlarge):
+            portrait = re.sub(r"/(?:pf|pb)_[a-z0-9]+_", "/pf_e_", src) if src else ""
+            if portrait and portrait != src:
+                thumb_urls.append(portrait)
+                break
+        for src in (cover_thumb, cover_enlarge):
+            if src and src not in thumb_urls:
+                thumb_urls.append(src)
 
         # 剧照: 实际结构是 dl#sample-photo > dd > ul > li > a.sample_image; 旧选择器保留作退路.
         extrafanart = extract_all_texts(

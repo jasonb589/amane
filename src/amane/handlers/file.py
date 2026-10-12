@@ -303,6 +303,7 @@ def _place_library_images(
     *,
     thumb_local: Path | None,
     poster_local: Path | None,
+    poster_wide_local: Path | None = None,
     trailer_local: Path | None,
     extrafanart: Sequence[Path],
     kinds: set[DownloadableResource],
@@ -316,9 +317,8 @@ def _place_library_images(
         shutil.copy2(thumb_local, paths.thumb)
         paths.fanart.parent.mkdir(parents=True, exist_ok=True)
         if not paths.fanart.exists():
-            # 横版候选 (目前只有素人 MGStage 会给出) 更适合当背景图; 没有则退回封面副本.
-            wide = poster_local is not None and _is_landscape(poster_local)
-            shutil.copy2(poster_local if wide and poster_local is not None else thumb_local, paths.fanart)
+            # 横版候选 (目前只有素人 MGStage 给出) 更适合当背景图; 没有则退回封面副本.
+            shutil.copy2(poster_wide_local if poster_wide_local is not None else thumb_local, paths.fanart)
 
     if DownloadableResource.poster in kinds:
         if poster_local is not None:
@@ -383,9 +383,16 @@ async def _download_images_via_store(
         thumb_local = await _acquire_first_local(thumb_urls, store, client) if thumb_urls else None
 
     poster_local = None
+    poster_wide_local = None
     if DownloadableResource.poster in kinds:
         poster_urls = metadata.poster_urls
         poster_local = await _acquire_first_local(poster_urls, store, client) if poster_urls else None
+        # 横版候选 (目前只有素人 MGStage 会给出) 供背景图使用; 逐个解析, 命中即止.
+        for url in poster_urls:
+            local = await _resolve_local(url, store, client)
+            if local is not None and _is_landscape(local):
+                poster_wide_local = local
+                break
 
     trailer_local = None
     if DownloadableResource.trailer in kinds:
@@ -403,6 +410,7 @@ async def _download_images_via_store(
         paths,
         thumb_local=thumb_local,
         poster_local=poster_local,
+        poster_wide_local=poster_wide_local,
         trailer_local=trailer_local,
         extrafanart=extrafanart,
         kinds=kinds,
