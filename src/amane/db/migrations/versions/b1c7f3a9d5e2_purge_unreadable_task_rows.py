@@ -1,7 +1,7 @@
 """purge task rows the current enums cannot read
 
 Revision ID: b1c7f3a9d5e2
-Revises: 8dbd0fa0905e
+Revises: 1f050b272f7d
 Create Date: 2026-10-12 07:20:00.000000
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b1c7f3a9d5e2"
-down_revision: str | None = "8dbd0fa0905e"
+down_revision: str | None = "1f050b272f7d"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
