@@ -135,6 +135,8 @@ interface ActorPosterWallProps {
   restoreKey: string;
   selected: Set<number>;
   onToggleSelect: (id: number) => void;
+  /** 已有任意选中时圆点常显 (隐式多选: 首次靠悬停露出, 之后全部常显). */
+  selectActive: boolean;
 }
 
 /**
@@ -143,7 +145,7 @@ interface ActorPosterWallProps {
  * `restoreStateFrom` 只在挂载时生效, 变更时会重新应用快照 —
  * 因此快照在挂载时读取一次, 身份在整个挂载期内保持稳定.
  */
-function ActorPosterWall({ items, restoreKey, selected, onToggleSelect }: ActorPosterWallProps) {
+function ActorPosterWall({ items, restoreKey, selected, onToggleSelect, selectActive }: ActorPosterWallProps) {
   const [restoreState] = useState(() => GRID_STATE_CACHE.get(restoreKey));
   const rememberState = useCallback(
     (state: GridStateSnapshot) => rememberGridState(restoreKey, state),
@@ -152,9 +154,9 @@ function ActorPosterWall({ items, restoreKey, selected, onToggleSelect }: ActorP
   // 选中态经闭包进入卡片; ActorCard 已 memo, 切换一格只重渲染该格.
   const itemContent = useCallback(
     (_index: number, item: ActorResponse) => (
-      <ActorCard item={item} selected={selected.has(item.id)} onToggleSelect={onToggleSelect} />
+      <ActorCard item={item} selected={selected.has(item.id)} selectActive={selectActive} onToggleSelect={onToggleSelect} />
     ),
-    [selected, onToggleSelect],
+    [selected, onToggleSelect, selectActive],
   );
 
   return (
@@ -479,6 +481,7 @@ export const ActorGrid = memo(function ActorGrid({
         restoreKey={restoreKey}
         selected={selected}
         onToggleSelect={toggleOne}
+        selectActive={selectionCount > 0}
       />
 
       <Modal

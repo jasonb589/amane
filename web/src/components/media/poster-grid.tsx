@@ -126,6 +126,7 @@ export function PosterGrid({
   );
   const allSelected = isAllSelected(pageIds);
   const selectionCount = selected.size;
+  const selectActive = selectionCount > 0;
 
   async function handleBatchDelete() {
     const ok = await confirm({
@@ -226,6 +227,7 @@ export function PosterGrid({
             actorBirthday={actorBirthday}
             selected={selected.has(item.id)}
             onToggleSelect={selectable ? toggleOne : undefined}
+            selectActive={selectActive}
           />
         ))}
       </SimpleGrid>

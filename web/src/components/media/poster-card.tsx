@@ -23,6 +23,8 @@ interface PosterCardProps {
   selected?: boolean;
   /** 传入时左上角出现选择圆点: 点击只切换选中, 不打开发详情. 不传即纯展示卡片. */
   onToggleSelect?: (id: number) => void;
+  /** 已有任意选中时圆点常显 (隐式多选: 首次靠悬停露出, 之后全部常显). */
+  selectActive?: boolean;
 }
 
 /** 加载失败退化为番号占位块. */
@@ -31,6 +33,7 @@ export function PosterCard({
   actorBirthday,
   selected = false,
   onToggleSelect,
+  selectActive = false,
 }: PosterCardProps) {
   const { t } = useTranslation(["metadata", "common"]);
   const [errored, setErrored] = useState(false);
@@ -94,6 +97,7 @@ export function PosterCard({
               type="button"
               className={classes.toggle}
               data-selected={selected ? "true" : undefined}
+              data-active={selectActive ? "true" : undefined}
               aria-pressed={selected}
               aria-label={t("common:batch.toggleSelect", { name: item.number })}
               onClick={(event) => {

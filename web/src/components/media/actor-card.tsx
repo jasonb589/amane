@@ -25,6 +25,8 @@ interface ActorCardProps {
   selected?: boolean;
   /** 传入时左上角出现选择圆点: 点击只切换选中, 不打开详情. 不传即纯展示卡片. */
   onToggleSelect?: (id: number) => void;
+  /** 已有任意选中时圆点常显 (隐式多选: 首次靠悬停露出, 之后全部常显). */
+  selectActive?: boolean;
 }
 
 /** 海报墙性别符号角标: 仅已知性别渲染, unknown 不显示 (避免满墙灰色符号噪音). */
@@ -45,6 +47,7 @@ export const ActorCard = memo(function ActorCard({
   item,
   selected = false,
   onToggleSelect,
+  selectActive = false,
 }: ActorCardProps) {
   const { t } = useTranslation(["metadata", "common"]);
   const [errored, setErrored] = useState(false);
@@ -103,6 +106,7 @@ export const ActorCard = memo(function ActorCard({
               type="button"
               className={classes.toggle}
               data-selected={selected ? "true" : undefined}
+              data-active={selectActive ? "true" : undefined}
               aria-pressed={selected}
               aria-label={t("common:batch.toggleSelect", { name: item.name })}
               onClick={(event) => {

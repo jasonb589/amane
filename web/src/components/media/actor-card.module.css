@@ -1,7 +1,11 @@
 /*
- * 演员海报卡 (多选).
+ * 演员海报卡 (多选, 隐式圆点).
  * 选择圆点是卡片内唯一的交互控件, 叠在 `<Link>` 上: 组件里已 preventDefault + stopPropagation,
  * 点它只切换选中, 不会跳转详情. 配色沿用卡片角标 (OVERLAY_CHIP_STYLE) 的深色半透明底.
+ *
+ * 显形策略 (隐式): 默认完全隐藏且不吃点击 → 鼠标移入该卡片时淡入 →
+ * 一旦已有任意选中 (`[data-active="true"]`) 全部常显, 方便连续多选; 清空后自动回到隐藏.
+ * 触屏没有 hover, 保持常显 (见文件末 @media (hover: none)).
  */
 .toggle {
   position: absolute;
@@ -21,10 +25,14 @@
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(6px);
+  /* 隐式圆点: 默认不显形, 也不吃点击 (否则头像左上角成了隐形陷阱). */
+  opacity: 0;
+  pointer-events: none;
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
-    transform 90ms ease-out;
+    transform 90ms ease-out,
+    opacity 120ms ease;
 }
 
 .toggle:hover {
@@ -37,8 +45,10 @@
   transform: scale(0.88);
 }
 
-/* 选中: 实心 + 勾 — 与列表视图选中行的 blue-light 同色系. */
+/* 选中: 实心 + 勾 — 与列表视图选中行的 blue-light 同色系. 已选中的圆点必须常显. */
 .toggle[data-selected="true"] {
+  opacity: 1;
+  pointer-events: auto;
   background: var(--mantine-color-blue-filled);
   border-color: var(--mantine-color-white);
 }
@@ -47,6 +57,22 @@
 .toggle:focus-visible {
   outline: 2px solid var(--mantine-color-blue-4);
   outline-offset: 2px;
+}
+
+/* 显形: 鼠标移入卡片 / 圆点获得键盘焦点 / 已进入选择 (有任意选中) 时. */
+.card:hover .toggle,
+.toggle:focus-visible,
+.toggle[data-active="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 触屏没有 hover: 圆点常显, 保留逐条选择的能力. */
+@media (hover: none) {
+  .toggle {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 /* 选中卡片: 卡片没有表格行底色可改, 用描边 + 1px 光圈表达 (蓝色填充色与列表视图一致). */
