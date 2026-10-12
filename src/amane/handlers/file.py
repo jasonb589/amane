@@ -314,11 +314,13 @@ def _place_library_images(
     # 复制封面 / 海报 / 预告片 / extrafanart 到库路径.
     if thumb_local is not None and DownloadableResource.thumb in kinds:
         paths.thumb.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(thumb_local, paths.thumb)
+        # 横版候选 (目前只有素人 MGStage 给出) 同时作为缩略图与背景图: 播放器的 thumb 与
+        # fanart 都是横版槽位, 两张图保持一致; 没有横版候选时退回封面副本.
+        thumb_source = poster_wide_local if poster_wide_local is not None else thumb_local
+        shutil.copy2(thumb_source, paths.thumb)
         paths.fanart.parent.mkdir(parents=True, exist_ok=True)
-        if not paths.fanart.exists():
-            # 横版候选 (目前只有素人 MGStage 给出) 更适合当背景图; 没有则退回封面副本.
-            shutil.copy2(poster_wide_local if poster_wide_local is not None else thumb_local, paths.fanart)
+        if poster_wide_local is not None or not paths.fanart.exists():
+            shutil.copy2(thumb_source, paths.fanart)
 
     if DownloadableResource.poster in kinds:
         if poster_local is not None:

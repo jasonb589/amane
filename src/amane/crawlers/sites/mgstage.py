@@ -45,7 +45,8 @@ class MGStageCrawler(Crawler):
         return urls[0] if urls else None
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """素人条目额外带上页面唯一的横版图 (pb_e), 落盘时被当作背景图使用.
+        """素人条目额外带上页面唯一的横版图 (pb_e): 竖版原生封面排在海报候选首位, 落盘时不再
+        拿封面裁一份海报; 横版图随后被当作缩略图 / 背景图使用.
 
         横版候选只在这里产出 (content_type = 素人); 其它来源与内容类型不带该字段, 落盘行为不变.
         """
@@ -53,10 +54,11 @@ class MGStageCrawler(Crawler):
         if meta is None or query.content_type is not ContentType.AMATEUR or meta.poster_urls:
             return meta
         cover = next((url for url in meta.thumb_urls if "/pf_" in url), "")
+        if not cover:
+            return meta
         wide = re.sub(r"/pf_[a-z0-9]+_", "/pb_e_", cover)
-        if wide and wide != cover:
-            return meta.model_copy(update={"poster_urls": [wide]})
-        return meta
+        candidates = [cover] if wide == cover else [cover, wide]
+        return meta.model_copy(update={"poster_urls": candidates})
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         text = await self.client.get_html(url, cookies=self.cookies)
