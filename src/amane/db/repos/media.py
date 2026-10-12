@@ -17,16 +17,20 @@ SQL_IN_CHUNK_SIZE = 500
 
 
 def _apply_path_phase(media: MediaFile) -> None:
-    """path 是真值, 相位列是投影; 创建与改 path 时必须回填."""
+    """path 是真值, 相位列是投影; 创建与改 path 时必须回填.
+
+    只回填 path 能推出的相位. 同目录字幕不是 path 的投影, 由调用方另经
+    ``handlers._common.refresh_external_subtitle`` 写入.
+    """
     phase = file_phase_from_path(media.path)
     media.content_type = phase["content_type"]
     media.mosaic = phase["mosaic"]
-    media.has_subtitle = phase["has_subtitle"]
+    media.has_subtitle_in_name = phase["has_subtitle"]
     media.definition = phase["definition"]
 
 
 def file_phase_of(media: MediaFile) -> FilePhase:
-    """从已落库列组装, 不再解析 path."""
+    """从已落库列组装, 不再解析 path. 中字取文件名标记与同目录字幕的并集."""
     return FilePhase(
         content_type=media.content_type,
         mosaic=media.mosaic,
@@ -81,10 +85,11 @@ class MediaRepoMixin(RepositoryMixinBase):
         """library_id 须收窄到单库, 否则扫描 A 会误删 B.
         在 Python 做集合差, 禁止 SQL NOT IN: 分批 NOT IN 会把其它批里真实存在的路径误判为失效.
         """
-        if library_id is None and not disk_paths:
+        paths = [nfc_path(p) for p in disk_paths]
+        if library_id is None and not paths:
             return []
         files = await self.list_media_files(library_id=library_id, limit=None)
-        disk = frozenset(nfc_path(p) for p in disk_paths)
+        disk = frozenset(paths)
         if not disk:
             return files
         return [f for f in files if nfc_path(f.path) not in disk]
@@ -208,6 +213,8 @@ class MediaRepoMixin(RepositoryMixinBase):
                 media.status = updates["status"]
             if "metadata_id" in updates:
                 media.metadata_id = updates["metadata_id"]
+            if "has_external_subtitle" in updates:
+                media.has_external_subtitle = updates["has_external_subtitle"]
             media.updated_at = _utcnow()
             session.add(media)
             await session.commit()

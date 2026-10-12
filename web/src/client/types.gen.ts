@@ -7,9 +7,9 @@ export type ClientOptions = {
 /**
  * ActorField
  *
- * 演员人物档案的可锁字段; 取值与 Actor 列名同形.
+ * 演员人物档案的可锁字段; 除 ``ALIASES`` 外取值与 Actor 列名同形.
  */
-export type ActorField = 'gender' | 'birthday' | 'birthplace' | 'height' | 'bust' | 'waist' | 'hip' | 'cup' | 'overview' | 'tagline' | 'image_urls';
+export type ActorField = 'gender' | 'birthday' | 'birthplace' | 'height' | 'bust' | 'waist' | 'hip' | 'cup' | 'overview' | 'tagline' | 'image_urls' | 'aliases';
 
 /**
  * ActorGender
@@ -1016,6 +1016,60 @@ export type ErrorRow = {
 };
 
 /**
+ * FacetBatchAction
+ *
+ * 分类批量动作; 两个动作都是整体赋值且幂等.
+ *
+ * 不设逐项取反 (toggle): 多选混合态下点「收藏」必须保持收藏, 取反会取消已收藏的条目. 枚举是
+ * 动作信封的扩展位, 新增动作 (如批量删除) 时 ``FacetBatchResponse`` 的字段按动作解释.
+ */
+export type FacetBatchAction = 'favorite' | 'unfavorite';
+
+/**
+ * FacetBatchRequest
+ *
+ * 对一批分类执行同一个动作; 重复 id 去重, 使结果计数以去重后的条目数为准.
+ */
+export type FacetBatchRequest = {
+    /**
+     * Facet Ids
+     *
+     * 分类 ID 列表
+     */
+    facet_ids: Array<number>;
+    /**
+     * favorite 置为已收藏, unfavorite 置为未收藏; 两者均幂等
+     */
+    action: FacetBatchAction;
+};
+
+/**
+ * FacetBatchResponse
+ *
+ * 批量动作的结果计数, 字段按 action 解释; 两个已实现动作下三者之和等于去重后的条目数.
+ */
+export type FacetBatchResponse = {
+    /**
+     * Changed
+     *
+     * 收藏位确实发生写入的分类数
+     */
+    changed: number;
+    /**
+     * Unchanged
+     *
+     * 已处于目标取值的分类数
+     */
+    unchanged: number;
+    /**
+     * Missing
+     *
+     * 不存在的分类 id 数
+     */
+    missing: number;
+};
+
+/**
  * FacetKind
  */
 export type FacetKind = 'actor' | 'director' | 'tag' | 'studio' | 'publisher' | 'series' | 'user_tag';
@@ -1078,6 +1132,10 @@ export type FacetResponse = {
      * Count
      */
     count: number;
+    /**
+     * Is Favorite
+     */
+    is_favorite: boolean;
 };
 
 /**
@@ -1811,9 +1869,9 @@ export type Language = 'zh_cn' | 'zh_tw' | 'jp' | 'en';
 /**
  * LibraryAutomation
  *
- * 媒体库自动化级别. 含更低级别的行为; SCRAPE_ORGANIZE 在刮削成功后自动整理这一部.
+ * 媒体库自动化级别 (只控制发现侧). 含更低级别的行为; 自动整理由 `Library.auto_organize` 单独控制.
  */
-export type LibraryAutomation = 'none' | 'watch' | 'scrape' | 'scrape_organize';
+export type LibraryAutomation = 'none' | 'watch' | 'scrape';
 
 /**
  * LibraryCreateRequest
@@ -1828,6 +1886,10 @@ export type LibraryCreateRequest = {
      */
     path: string;
     automation?: LibraryAutomation;
+    /**
+     * Auto Organize
+     */
+    auto_organize?: boolean;
     ingest?: LibraryIngest;
     /**
      * Cloud Path
@@ -1947,6 +2009,10 @@ export type LibraryResponse = {
      */
     path: string;
     automation: LibraryAutomation;
+    /**
+     * Auto Organize
+     */
+    auto_organize: boolean;
     ingest: LibraryIngest;
     /**
      * Cloud Path
@@ -2041,6 +2107,10 @@ export type LibraryUpdateRequest = {
      */
     path?: string | null;
     automation?: LibraryAutomation | null;
+    /**
+     * Auto Organize
+     */
+    auto_organize?: boolean | null;
     ingest?: LibraryIngest | null;
     /**
      * Cloud Path
@@ -3951,6 +4021,10 @@ export type SiteConfig = {
      * Use Proxy
      */
     use_proxy?: boolean;
+    /**
+     * Proxy
+     */
+    proxy?: string | null;
     use_browser?: BrowserMode;
     browser_backend?: BrowserBackendName | null;
     /**
@@ -3973,6 +4047,12 @@ export type SiteConfig = {
      * Rate Limit
      */
     rate_limit?: number | null;
+    /**
+     * Languages
+     *
+     * 词条语言优先级, 依序取第一个有正文的词条
+     */
+    languages?: Array<'zh' | 'ja' | 'en'>;
 };
 
 /**
@@ -6637,6 +6717,12 @@ export type ListFacetsData = {
          */
         search?: string | null;
         /**
+         * Favorite
+         *
+         * Filter by favorite marker
+         */
+        favorite?: boolean | null;
+        /**
          * Offset
          */
         offset?: number;
@@ -6731,6 +6817,33 @@ export type DeleteFacetRuleResponses = {
 };
 
 export type DeleteFacetRuleResponse = DeleteFacetRuleResponses[keyof DeleteFacetRuleResponses];
+
+export type BatchFacetsData = {
+    body: FacetBatchRequest;
+    path: {
+        kind: FacetKind;
+    };
+    query?: never;
+    url: '/api/facets/{kind}/batch';
+};
+
+export type BatchFacetsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type BatchFacetsError = BatchFacetsErrors[keyof BatchFacetsErrors];
+
+export type BatchFacetsResponses = {
+    /**
+     * Successful Response
+     */
+    200: FacetBatchResponse;
+};
+
+export type BatchFacetsResponse = BatchFacetsResponses[keyof BatchFacetsResponses];
 
 export type DeleteFacetData = {
     body?: never;

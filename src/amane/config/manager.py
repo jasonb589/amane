@@ -7,12 +7,14 @@ from copy import copy
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 import tomli_w
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
+from ..crawlers.actor.sites.wikipedia import WIKI_LANGUAGES
 from ..crawlers.site_roles import (
     ACTOR_IMAGE_SITES,
     ACTOR_PROFILE_SITES,
@@ -55,6 +57,16 @@ LANG_METADATA_FIELD_SET: frozenset[MetadataField] = frozenset(
 
 # json_schema_extra 需要 JsonValue 兼容类型, 使用 list[Any] 避免 pyright invariance 问题
 _SITES_WITH_API_TOKEN: list[Any] = [SiteName.THEPORNDB]
+# 当前只有维基消费该字段, 因此只在该站点卡片展示; 其它来源要使用时去掉此项即可.
+_SITES_WITH_LANGUAGES: list[Any] = [SiteName.WIKIPEDIA]
+
+
+def _languages_schema(schema: dict[str, Any]) -> None:
+    """items 是站点间共用的一份取值集合, 收窄到维基支持的词条语言; 展示由 x-visible-keys 逐站点控制."""
+    schema["items"] = {"type": "string", "enum": list(WIKI_LANGUAGES)}
+    schema["x-ordered"] = True
+    schema["x-visible-keys"] = _SITES_WITH_LANGUAGES
+
 
 #: 各内容类型默认有序路由 (资格真值 + 该类型默认字段优先级).
 _DEFAULT_CONTENT_ROUTES: dict[ContentType, list[SiteName]] = {
@@ -227,14 +239,38 @@ class ColdSettings(BaseSettings):
         return self.data_dir / "amane.db"
 
 
+_PROXY_SCHEMES = frozenset({"http", "https", "socks4", "socks4a", "socks5", "socks5h"})
+"""curl 接受的代理协议; 地址必须带协议, 否则无法区分 http 与 socks."""
+
+
+def _validate_proxy_url(value: str | None) -> str | None:
+    """校验站点代理地址; 空白归一为未配置."""
+    if value is None or not value.strip():
+        return None
+    parsed = urlsplit(value)
+    if parsed.scheme not in _PROXY_SCHEMES or not parsed.hostname:
+        raise ValueError(
+            f"代理地址必须带协议, 形如 socks5://127.0.0.1:1080; 支持的协议: {', '.join(sorted(_PROXY_SCHEMES))}"
+        )
+    return value
+
+
 class SiteConfig(BaseModel):
     base_url: str | None = None
     use_proxy: bool = True
+    """``False`` 表示该站点的域名直连: 站点代理与全局代理都不使用."""
+    proxy: str | None = None
+    """该站点的专用代理; 留空使用 ``network.proxy``."""
     use_browser: BrowserMode = BrowserMode.AUTO
     """``auto`` 先直连, 首次命中 Cloudflare 挑战后该来源改用浏览器; 后端由 ``network.browser.backend`` 决定."""
     browser_backend: BrowserBackendName | None = Field(default=None, json_schema_extra={"x-hidden": True})
     """覆盖 ``network.browser.backend``; 仅在改用浏览器后生效, ``off`` 表示该来源禁用浏览器."""
     cookie: dict[str, str] = {}
+
+    @field_validator("proxy")
+    @classmethod
+    def _validate_proxy(cls, v: str | None) -> str | None:
+        return _validate_proxy_url(v)
 
     @field_validator("use_browser", mode="before")
     @classmethod
@@ -259,6 +295,29 @@ class SiteConfig(BaseModel):
 
     rate_limit: float | None = Field(default=2, ge=0.1, le=100)
     """req/s. 全局 network.rate_limits 有此站点域名时全局优先."""
+
+    languages: list[str] = Field(
+        default_factory=lambda: list(WIKI_LANGUAGES),
+        json_schema_extra=_languages_schema,
+        description="词条语言优先级, 依序取第一个有正文的词条",
+    )
+    """座位对全部来源通用 (名称不绑定维基), 当前取值集合来自维基支持的词条版本.
+
+    只决定取哪一版维基词条正文, 不减少 Wikidata 的检索语言; 留空则回退默认优先级; 只有 WikipediaActorCrawler 读取.
+    """
+
+    @field_validator("languages")
+    @classmethod
+    def _supported_languages(cls, v: list[str], info: ValidationInfo) -> list[str]:
+        languages = list(dict.fromkeys(v))
+        if not languages:
+            msg = f"{info.field_name} 至少要保留一种语言"
+            raise ValueError(msg)
+        unsupported = [lang for lang in languages if lang not in WIKI_LANGUAGES]
+        if unsupported:
+            msg = f"{info.field_name} 不支持 {', '.join(unsupported)}; 可选: {', '.join(WIKI_LANGUAGES)}"
+            raise ValueError(msg)
+        return languages
 
 
 class ScrapingConfig(BaseModel):

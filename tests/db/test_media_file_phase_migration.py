@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from alembic import command
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlmodel import Session, col, select
 
 from amane.db.models import MediaFile
@@ -42,22 +42,22 @@ def test_media_file_phase_columns_backfill_from_path(tmp_path: Path) -> None:
 
     with engine.connect() as conn:
         columns = {column["name"] for column in inspect(conn).get_columns("media_files")}
-        assert {"content_type", "mosaic", "has_subtitle", "definition"} <= columns
+        assert {"content_type", "mosaic", "has_subtitle_in_name", "definition"} <= columns
         rows = {
             row.path: row
             for row in conn.execute(
-                text("SELECT path, content_type, mosaic, has_subtitle, definition FROM media_files")
+                text("SELECT path, content_type, mosaic, has_subtitle_in_name, definition FROM media_files")
             ).all()
         }
         midv = rows["/media/MIDV-123-UC-4K.mp4"]
         assert midv.content_type == "CENSORED"
         assert midv.mosaic == "CRACKED"
-        assert midv.has_subtitle in (1, True)
+        assert midv.has_subtitle_in_name in (1, True)
         assert midv.definition == "4K"
         heyzo = rows["/media/HEYZO-1234.mp4"]
         assert heyzo.content_type == "UNCENSORED"
         assert heyzo.mosaic == "UNCENSORED"
-        assert heyzo.has_subtitle in (0, False)
+        assert heyzo.has_subtitle_in_name in (0, False)
         assert heyzo.definition is None
 
     with Session(engine) as session:
@@ -110,7 +110,10 @@ def test_media_file_mosaic_reprojected_from_path(tmp_path: Path) -> None:
     command.upgrade(cfg, "head")
 
     with engine.connect() as conn:
-        rows = {row.path: row for row in conn.execute(text("SELECT path, mosaic, has_subtitle FROM media_files")).all()}
+        rows = {
+            row.path: row
+            for row in conn.execute(text("SELECT path, mosaic, has_subtitle_in_name FROM media_files")).all()
+        }
         assert rows["/media/MIDV-123-U.mp4"].mosaic == "CRACKED"
         assert rows["/media/MIDV-123-无码.mp4"].mosaic == "UNCENSORED"
         assert rows["/media/MIDV-123-無碼破解.mp4"].mosaic == "CRACKED"
@@ -161,5 +164,65 @@ def test_media_file_mosaic_filled_from_content_type(tmp_path: Path) -> None:
         assert rows["/media/HEYZO-1234-流出.mp4"].mosaic == "LEAKED"
         assert rows["/media/MIDV-123.mp4"].mosaic == "CENSORED"
         assert rows["/media/MD0165-1.mp4"].mosaic is None
+
+    engine.dispose()
+
+
+def _type_and_mosaic(engine: Engine) -> dict[str, tuple[str, str | None]]:
+    with engine.connect() as conn:
+        return {
+            row.path: (row.content_type, row.mosaic)
+            for row in conn.execute(text("SELECT path, content_type, mosaic FROM media_files")).all()
+        }
+
+
+def test_kin8_media_file_reprojected_from_path(tmp_path: Path) -> None:
+    """kin8 行按当前规则重算类型与马赛克标记; 其它来源的行保持原值, 重跑结果相同."""
+    db_path = tmp_path / "migrate.db"
+    cfg = alembic_config(db_path)
+
+    command.upgrade(cfg, "4f36abe6b903")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO libraries "
+                "(name, path, automation, recursive, patterns, move_mode, link_mode, video_template, "
+                "write_nfo, copy_resources, trailer_pattern, blacklist_patterns, subtitle_extensions, "
+                "min_file_size) "
+                "VALUES ('t', '/m', 'SCRAPE', 1, '[]', 'MOVE', 'STRM', '{number}.{ext}', 1, "
+                "'[]', '', '[]', '[]', 0)"
+            )
+        )
+        lib_id = conn.execute(text("SELECT id FROM libraries")).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO media_files "
+                "(path, status, library_id, created_at, updated_at, content_type, mosaic) VALUES "
+                "('/media/KIN8-0236.mp4', 'PENDING', :lib, '2026-01-01 00:00:00', '2026-01-01 00:00:00', "
+                "'UNCENSORED', 'UNCENSORED'), "
+                "('/media/KIN8TENGOKU-4121-U.mp4', 'PENDING', :lib, '2026-01-01 00:00:00', "
+                "'2026-01-01 00:00:00', 'UNCENSORED', 'LEAKED'), "
+                "('/media/MIDV-123.mp4', 'PENDING', :lib, '2026-01-01 00:00:00', '2026-01-01 00:00:00', "
+                "'UNCENSORED', 'CRACKED')"
+            ),
+            {"lib": lib_id},
+        )
+
+    command.upgrade(cfg, "head")
+
+    # 该来源没有自动标记无码的规则, 马赛克标记按路径词表重算; 非 kin8 行不重算
+    expected = {
+        "/media/KIN8-0236.mp4": ("WESTERN", None),
+        "/media/KIN8TENGOKU-4121-U.mp4": ("WESTERN", "CRACKED"),
+        "/media/MIDV-123.mp4": ("UNCENSORED", "CRACKED"),
+    }
+    assert _type_and_mosaic(engine) == expected
+
+    # downgrade 留空 (数据迁移不可逆), 再次升级不改变已写入的值
+    command.downgrade(cfg, "4f36abe6b903")
+    command.upgrade(cfg, "head")
+    assert _type_and_mosaic(engine) == expected
 
     engine.dispose()

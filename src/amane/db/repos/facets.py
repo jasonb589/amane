@@ -40,6 +40,7 @@ from ..repo_types import (
     ActorBrowseParams,
     ActorPersonFields,
     CommentUpdates,
+    FacetBatchResult,
     FacetItem,
     UserTagLinkAction,
     UserTagLinkResult,
@@ -67,6 +68,7 @@ from .facet_helpers import (
     rename_link_facet,
     rename_scalar_facet,
     replace_actor_aliases,
+    set_facets_favorite,
 )
 
 
@@ -155,6 +157,7 @@ class FacetsRepoMixin(RepositoryMixinBase):
         self,
         kind: FacetKind,
         search: str | None = None,
+        favorite: bool | None = None,
         offset: int = 0,
         limit: int = 50,
         sort_by: FacetSortField = FacetSortField.NAME,
@@ -162,8 +165,22 @@ class FacetsRepoMixin(RepositoryMixinBase):
     ) -> tuple[list[FacetItem], int]:
         async with self._session() as session:
             return await list_facets(
-                session, kind, search=search, offset=offset, limit=limit, sort_by=sort_by, order=order
+                session,
+                kind,
+                search=search,
+                favorite=favorite,
+                offset=offset,
+                limit=limit,
+                sort_by=sort_by,
+                order=order,
             )
+
+    async def set_facets_favorite(
+        self, kind: FacetKind, facet_ids: Sequence[int], is_favorite: bool
+    ) -> FacetBatchResult:
+        """整体赋值一批分类的收藏位, 单个事务; 分类不支持收藏抛 ``ValueError``."""
+        async with self._session() as session:
+            return await set_facets_favorite(session, kind, facet_ids, is_favorite)
 
     async def get_facet(self, kind: FacetKind, facet_id: int) -> FacetItem | None:
         async with self._session() as session:
@@ -226,7 +243,7 @@ class FacetsRepoMixin(RepositoryMixinBase):
             return await browse_actors(session, params, id_subquery_sql=id_subquery_sql)
 
     async def save_actor(self, actor: Actor, *, aliases: Sequence[str] | None = None) -> Actor | None:
-        """不存在返回 None. ``aliases`` 提供时整表替换别名行; 省略则不动别名.
+        """不存在返回 None. ``aliases`` 提供时整表替换别名行; 省略或别名已锁则不动别名.
 
         AUTO 写入 (演员刮削), 锁定字段保留库内值与来源; 手动字段写入经 ``update_actor``.
         """
@@ -243,7 +260,7 @@ class FacetsRepoMixin(RepositoryMixinBase):
             apply_aggregated_to_actor(db, data)
             db.updated_at = _utcnow()
             session.add(db)
-            if aliases is not None:
+            if aliases is not None and ActorField.ALIASES not in locked:
                 await replace_actor_aliases(session, db, aliases)
             await session.commit()
             await session.refresh(db)
@@ -360,9 +377,9 @@ class FacetsRepoMixin(RepositoryMixinBase):
             return actor
 
     async def clear_actor_person(self, actor_id: int) -> Actor | None:
-        """清空人物档案并解除全部锁 (保留 ``name`` / ``gender`` / ``raw``). 不存在返回 None.
+        """清空人物档案并解除全部锁 (保留 ``name`` / ``gender``). 不存在返回 None.
 
-        ``field_sources`` 一并清空: 残留来源指向空值, 且会让重刮后来源错位.
+        ``field_sources`` 与 ``raw`` 一并清空: 残留来源指向空值, 而旧快照会在下次刮削被原样写回.
         """
         async with self._session() as session:
             actor = await session.get(Actor, actor_id)
@@ -382,6 +399,7 @@ class FacetsRepoMixin(RepositoryMixinBase):
             actor.provider_ids = {}
             actor.source_urls = {}
             actor.field_sources = {}
+            actor.raw = {}
             actor.locked_fields = []
             actor.updated_at = _utcnow()
             session.add(actor)

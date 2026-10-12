@@ -102,7 +102,7 @@ export const DOWNLOADABLE_RESOURCES = exhaustiveTuple<DownloadableResource>()(
   "trailer",
 );
 
-export const LIBRARY_AUTOMATIONS = exhaustiveTuple<LibraryAutomation>()("none", "watch", "scrape", "scrape_organize");
+export const LIBRARY_AUTOMATIONS = exhaustiveTuple<LibraryAutomation>()("none", "watch", "scrape");
 
 export const LIBRARY_INGESTS = exhaustiveTuple<LibraryIngest>()("native", "clouddrive");
 
@@ -153,6 +153,15 @@ export const CATALOG_FACET_KINDS = exhaustiveTuple<Exclude<FacetKind, "actor">>(
   "publisher",
   "series",
   "user_tag",
+);
+
+/** 支持收藏的分类; 与后端 `FAVORITE_FACET_KINDS` 对应, 缺成员在此编译失败. */
+export const FAVORITE_FACET_KINDS = exhaustiveTuple<Exclude<FacetKind, "actor" | "user_tag">>()(
+  "director",
+  "tag",
+  "studio",
+  "publisher",
+  "series",
 );
 
 export const ACTOR_SORT_FIELDS = exhaustiveTuple<ActorSortField>()(

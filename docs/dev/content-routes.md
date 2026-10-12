@@ -1,6 +1,6 @@
 # 类型路由与站点特性
 
-> 默认 `content_routes` 的取舍、各源覆盖与站点特例. 资格真值 / `field_priority` / `field_blacklist` 编译见 [config.md](config.md), 建图见 [task-system.md](task-system.md). 成员与顺序以 `config/manager.py` 的默认表为准, 本文不列出默认表.
+> 默认 `content_routes` 的取舍、各源覆盖与站点特例. 资格真值 / `field_priority` / `field_blacklist` 编译见 [config.md](config.md), 建图见 [task-system.md](task-system.md). 成员与顺序以 `config/manager.py` 的默认表为准, 本文不列出.
 
 站点可被搜索命中, 不构成纳入默认路由的条件.
 
@@ -13,10 +13,12 @@
 
 ## 类型取舍
 
+类型表示路由归属, 無修正由马赛克标记判定.
+
 | 类型 | 意图 | 不纳入默认表 |
 |------|------|----------|
 | censored | 中文索引 → FANZA 权威图文 → 稳定镜像 → 可空返回的官网 / r18 | 单厂牌 API (Prestige 等对每个候选 SKU 都请求); iqqtv (每部有碼片都会请求中文站; 需要时加入本路由再把 `field_priority.title` 提前) |
-| uncensored | 有独立无碼区的索引 + 无碼专站 | kin8 (从任意番号抽数字拼详情, 会误匹配) |
+| uncensored | 有独立无碼区的索引 + 无碼专站 | — |
 | fc2 | javdb 分类 + 专用索引 + 官方电子市场 + BT 排在链尾 | fc2club (跳转镜像不稳定) |
 | chinese | 有國產区的中文站第一, 综合 / BT 兜底 | javdb 当第一源 |
 | amateur | MGS 第一; FANZA 有素人频道; javbus 首页能见到 `300MIUM-*` | MGS 不纳入有碼默认, 否则 MIDV 会请求 MGS |
@@ -25,19 +27,19 @@
 
 ## 综合索引
 
-**javdb.com** — 导航分有碼 / 無碼 / 歐美 / FC2 / 動漫, **没有国产分区** (个别国产厂当日本片商收录, 热搜有「麻豆」, 不是独立目录). 搜索带 `locale=zh`; 几乎所有类型的默认成员; 默认 `use_proxy=True`, 部分网络会命中版权地域拦截页. 它是独立层而非 FANZA 的镜像: 中文 `current-title`, 隐藏 `origin-title` 来自零售目录 (爬虫不取); 社区评分非 FANZA 店评; 封面在 `jdbstatic.com` (通常重编码); 片商名跟官网英文商标. **不解析 plot.** 欧美条目的年份有 2 位与 4 位两套写法并存, 同一个检索词只命中其中一套.
+**javdb.com** — 导航分有碼 / 無碼 / 歐美 / FC2 / 動漫, **没有国产分区** (个别国产厂当日本片商收录, 热搜有「麻豆」, 不是独立目录). 搜索带 `locale=zh`; 几乎所有类型的默认成员; 默认 `use_proxy=True`, 部分网络会命中版权地域拦截页. 它是独立层而非 FANZA 的镜像: 中文 `current-title`, 隐藏 `origin-title` 来自零售目录 (爬虫不取); 社区评分非 FANZA 店评; 封面在 `jdbstatic.com` (通常重编码); 片商名跟官网英文商标. **不解析 plot.** 欧美条目年份有 2 位与 4 位两套写法, 同一检索词只命中其中一套.
 
-**javbus.com** — 有碼首页、無碼 `/uncensored` (日期番号风格); 有碼首页会混素人号. 搜索回退带 `parent=ce`, 无碼主要靠 `/{number}` 直达. 有碼详情 `extrafanart` 热链 `pics.dmm.co.jp`, 发行日与 DMM 配信日相同, 片商用 DMM 日文名. 图片 (`/pics/`) 校验同源 Referer (见 [crawlers.md](crawlers.md)). **不解析 plot**; 无碼是另一套目录. 欧美入口指向 `javbus.org`, 该域正文可以是字面 `404`, 关公告后没有影片网格, `javbus.hair` 证书无效 — **欧美目录不可用**, 不允许放入欧美默认路由.
+**javbus.com** — 有碼首页、無碼 `/uncensored` (日期番号风格); 有碼首页会混素人号. 搜索回退带 `parent=ce`, 无碼主要靠 `/{number}` 直达. 有碼详情 `extrafanart` 热链 `pics.dmm.co.jp`, 发行日与 DMM 配信日相同, 片商用 DMM 日文名. 图片 (`/pics/`) 校验同源 Referer (见 [crawlers.md](crawlers.md)). **不解析 plot**; 无碼是另一套目录. 欧美入口指向 `javbus.org`: 正文可以是字面 `404`, 关公告后没有影片网格, `javbus.hair` 证书无效 — **欧美目录不可用**, 不允许放入欧美默认路由.
 
 **freejavbt.com** — 显式分有碼 / 無碼 / 歐美 / FC2, 首页还有「國產」「成人動畫」. 覆盖最宽的 BT 向索引, 元数据质量一般, 适合排在链尾.
 
-**avsox.click** — 日本无码情报站. 同源 AVMOO = 有碼, AVHEAT = 欧美 (`avheat.shop`), 项目只接入 AVSOX. 搜索对有无短横线都能命中, `_` 与 `-` 是两部; 对不上不取第一条.
+**avsox.click** — 日本无码情报站. 同源 AVMOO = 有碼, AVHEAT = 欧美 (`avheat.shop`), 项目只接入 AVSOX. 搜索对有无短横线都能命中, `_` 与 `-` 是两部; 对不上不取首条.
 
-**jav321.com** — DMM 目录镜像; 有碼与素人排在链尾, 无无碼 / FC2 / 欧美入口.
+**jav321.com** — DMM 目录镜像; 有碼与素人排链尾, 无无碼 / FC2 / 欧美入口.
 
 **javlibrary.com** — 常命中 Cloudflare 等待页, 不纳入默认表.
 
-**avbase.net** — 名单来自用户投稿而非官方; 受 Cloudflare managed challenge 保护, 客户端指纹不过关即拦截. 不纳入默认表: 进入 `censored` 会让每次刮削多一次可能退化为浏览器 / solver 的请求.
+**avbase.net** — 名单来自用户投稿而非官方; 受 Cloudflare managed challenge 保护, 指纹不过关即拦截. 不纳入默认表: 进入 `censored` 会让每次刮削多一次可能退化为浏览器 / solver 的请求.
 
 **airav.io** — 中文标题补强, 不是国产分区; 国产路由里置于 iqqtv 之后.
 
@@ -51,21 +53,21 @@
 
 **adult.contents.fc2.com** — 官方 FC2 电子市场, 商品 ID 纯数字; 元数据偏卖家自填, 但属第一方, 置于 javdb / fc2ppvdb 之后.
 
-**fc2ppvdb.com** — FC2 专用索引, 可能被 Cloudflare Access denied; 拦截后回退到后续源.
+**fc2ppvdb.com** — FC2 专用索引, 可能被 Cloudflare Access denied; 拦截后回退后续源.
 
 **fc2club.top** — 打开后跳转镜像, 不稳定, 不纳入默认表.
 
 **getchu.com** — 美少女游戏 / 同人 / 动画周边, 商品是数字 id; 里番靠路径关键词分类, 所以是里番第一源.
 
-**kin8tengoku.com** — 从任意番号抽数字拼详情页, 会误匹配其它番号, 不纳入默认表.
+**kin8tengoku.com** — 单厂牌, 不纳入默认表. 番号 `KIN8-####` 的类型归欧美链 (第一源 theporndb, 按 4 位 `movie_id` 对齐), `release` 恒为空; 番号须带 `kin8` / `kin8tengoku` 前缀, 数字段 1–9999 补零为 4 位拼详情页, 越界或无前缀不发 HTTP. 页是 Next.js 应用, 可解析的只剩 `og:` 元标签与 CSS-module 类名.
 
-**theporndb.net** — 未登录跳转 `/login`; GraphQL 无 token 时影片 / 演员爬虫都直接 `None`. 欧美路由第一, 与影片共用 `site_config.api_token`. 欧美条目 `code` 是 `studio:title-slug`, 与文件名番号不同构, 日期号 (`Studio.YY.MM.DD`) 按片商 + 发布日期确认.
+**theporndb.net** — 未登录跳转 `/login`; 无 token 时影片 / 演员爬虫都直接 `None`. 欧美路由第一, 与影片共用 `site_config.api_token`. 欧美条目 `code` 是 `studio:title-slug`, 与文件名番号不同构, 日期号 (`Studio.YY.MM.DD`) 按片商 + 发布日期确认.
 
 **official** — Will / Outvision 官网集群; 前缀对不上不发 HTTP.
 
 **r18dev** — 未配 PG 直接 skip; dump 图片补全后是 DMM CDN, 见 [crawlers.md](crawlers.md).
 
-**prestige / faleno / dahlia / giga** — 单厂牌, 对每个候选 SKU 都发 API 请求, 不纳入默认表; faleno / dahlia 同属一个 WordPress `works` 主题 (共用 `sites/wp_works.py`), faleno.jp 兼发 maryGOLD 与 JimmyScandal, 发行商按番号前缀判定. **xcity.jp** 与 DMM 重叠且年龄墙严格, 同样不纳入.
+**prestige / faleno / dahlia / giga** — 单厂牌, 对每个候选 SKU 都发 API 请求, 不纳入默认表; faleno / dahlia 同属一个 WordPress `works` 主题 (共用 `sites/wp_works.py`), faleno.jp 兼发 maryGOLD 与 JimmyScandal, 发行商按番号前缀判定. **giga** 的检索与商品页要求年龄确认会话 (经 `/cookie_set.php` 领取) 与站内 Referer, 缺任一项都只回年龄确认页. **xcity.jp** 与 DMM 重叠且年龄墙严格, 同样不纳入.
 
 ## 官网与 FANZA
 
@@ -82,4 +84,4 @@
 
 ## 覆盖缺口
 
-**javdb 国产**: 国产路由以 iqqtv 为第一源, javdb 只当搜得到就用的兜底. **javdb 欧美**: 欧美不是主库存, 编号形态与 JAV 番号不同, 地域拦截时无法核列表; 欧美默认第一源为 theporndb, 未接入的 AVHEAT 优先级仍低于它.
+**javdb 国产**: 国产路由以 iqqtv 为第一源, javdb 只当搜得到就用的兜底. **javdb 欧美**: 欧美不是主库存, 编号形态与 JAV 番号不同, 地域拦截时无法核列表; 欧美默认第一源为 theporndb, 未接入的 AVHEAT 优先级仍低于它. **giga**: 商品页没有 genre 链接, 该来源的 `tags` 恒为空.

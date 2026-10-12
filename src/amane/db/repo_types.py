@@ -23,6 +23,7 @@ from .models import (
     SortOrder,
     Task,
     TaskSortField,
+    has_subtitle_predicate,
 )
 
 if TYPE_CHECKING:
@@ -64,7 +65,8 @@ _TASK_SORT_COLUMNS: dict[TaskSortField, Mapped[Any]] = {
 
 
 def _order_clause[T](column: Mapped[T], order: SortOrder) -> UnaryExpression[T]:
-    return asc(column) if order == SortOrder.ASC else desc(column)
+    # 用列上的方法而非独立函数: 后者返回 OrderByList | UnaryExpression, 收窄不掉.
+    return column.asc() if order == SortOrder.ASC else column.desc()
 
 
 def _metadata_file_count_expr() -> ColumnElement[int]:
@@ -105,7 +107,8 @@ def _apply_media_phase_filters(
 ) -> SelectOfScalar[MediaFile]:
     """None 表示该相位不过滤."""
     if has_subtitle is not None:
-        stmt = stmt.where(col(MediaFile.has_subtitle) == has_subtitle)
+        flag = has_subtitle_predicate()
+        stmt = stmt.where(flag if has_subtitle else ~flag)
     if mosaic is not None:
         stmt = stmt.where(col(MediaFile.mosaic) == mosaic)
     if uncensored is not None:
@@ -131,6 +134,8 @@ class FacetItem(BaseModel):
     id: int
     name: str
     count: int
+    #: 不支持收藏的分类恒为假.
+    is_favorite: bool = False
 
 
 class ActorBrowseItem(BaseModel):
@@ -271,12 +276,14 @@ class MediaFileUpdates(TypedDict, total=False):
     codec: str | None
     status: MediaFileStatus
     metadata_id: int | None
+    has_external_subtitle: bool
 
 
 class LibraryUpdates(TypedDict, total=False):
     name: str
     path: str
     automation: LibraryAutomation
+    auto_organize: bool
     ingest: LibraryIngest
     cloud_path: str | None
     recursive: bool
@@ -385,6 +392,18 @@ class UserTagLinkResult(NamedTuple):
     """用户标签挂载/卸载的结果计数, 三个字段均以条目 id 为单位.
 
     ``changed`` 为至少一处挂载关系发生变更的条目数, ``unchanged`` 为已处于目标态的条目数,
+    ``missing`` 为不存在的条目 id 数; 三者之和等于去重后的条目数.
+    """
+
+    changed: int
+    unchanged: int
+    missing: int
+
+
+class FacetBatchResult(NamedTuple):
+    """分类批量动作的结果计数, 三个字段均以条目 id 为单位.
+
+    ``changed`` 为收藏位确实发生写入的条目数, ``unchanged`` 为已处于目标取值的条目数,
     ``missing`` 为不存在的条目 id 数; 三者之和等于去重后的条目数.
     """
 

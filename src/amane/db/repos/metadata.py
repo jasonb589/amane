@@ -21,6 +21,7 @@ from ..models import (
     Series,
     SortOrder,
     Studio,
+    has_subtitle_predicate,
 )
 from ..repo_types import (
     MetadataFields,
@@ -50,7 +51,7 @@ def _normalize_text_fields(fields: MetadataFields) -> MetadataFields:
     plot = fields.get("plot")
     if not isinstance(plot, str):
         return fields
-    return cast("MetadataFields", {**fields, "plot": normalize_long_text(plot)})
+    return {**fields, "plot": normalize_long_text(plot)}
 
 
 # 锁字段 (MetadataField) ↔ Metadata 列名; 仅 extrafanart / score 两名不同.
@@ -187,9 +188,9 @@ class MetadataRepoMixin(RepositoryMixinBase):
             if has_files is not None:
                 base = base.where(_metadata_has_files_clause(has_files=has_files))
             if has_subtitle is True:
-                base = base.where(_metadata_linked_file_exists(col(MediaFile.has_subtitle).is_(True)))
+                base = base.where(_metadata_linked_file_exists(has_subtitle_predicate()))
             elif has_subtitle is False:
-                base = base.where(~_metadata_linked_file_exists(col(MediaFile.has_subtitle).is_(True)))
+                base = base.where(~_metadata_linked_file_exists(has_subtitle_predicate()))
             if mosaic is not None:
                 base = base.where(_metadata_linked_file_exists(col(MediaFile.mosaic) == mosaic))
             if uncensored is True:

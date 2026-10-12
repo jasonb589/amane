@@ -17,7 +17,7 @@
 
 `CLEANUP` / `UPSCALE` 扫描 DB / Resource; `ACTOR_SCRAPE` 刮人物; `R18_IMPORT` 导入 dump. 上述类型均不执行影片落盘.
 
-不允许 ScrapeHandler 或 Watcher 提交 ORGANIZE / DELETE — Watcher 只注册文件并入队 SCRAPE; 完整的扫描、刮削与落盘须提交 REFRESH, 再提交 ORGANIZE. ORGANIZE 可用 `priority=-1` 跟在刮削之后, 但该优先级不使 ORGANIZE 等待刮削完成: 当时尚未刮削完成的文件会被跳过, 须再次运行 ORGANIZE.
+ORGANIZE 的入队来源只有三处: API / Agent 提交, retry 重跑, 库开启自动整理后的链式后继; DELETE 同样只经 API / Agent 提交. Handler 内不许直接 `create_task`, 后继一律经 `TaskResult.followups` 进入完成事务. Watcher 只注册文件并按 `automation` 入队 SCRAPE, 完整的扫描与落盘仍须提交 REFRESH. 手动把 `priority=-1` 用在整理上**不**使它等待刮削完成: 当时尚未刮削完成的文件会被跳过, 须再次运行 ORGANIZE.
 
 ORGANIZE 只读取范围内的 `MediaFile` 行: 缺省为该库全部索引, 显式 `path` 按前缀过滤, `media_file_ids` 为勾选快照 (含其它库的 id 则 422); 后两者同时给出则 422. 库根必须是已存在的目录, 否则失败; `media_file_ids` 未给出且 path 为子目录时该子目录也必须存在 — 避免网络盘掉线时把选中行当失效索引删掉. 无 Metadata 的行与命中文件黑名单 / 最小视频大小 / 预告片规则的行跳过落盘; 路径落在 `.amane_trash` 内的行删除索引. SCAN_INVALID 的 `path` 同样可限定子目录. 整理默认与预告片跳过正则见 [data-model.md](data-model.md).
 
@@ -128,7 +128,7 @@ handler 之间复用的阶段逻辑, 不是一条可跳步的总管线:
 
 ## 图像超分
 
-超分只在两处发生, serve 永不触发: scrape 期急切 (`sr.enabled` 时对低质本地副本) 与 UPSCALE 任务 (扫描 Resource, 补 `'sr' not in meta` 的低质图). **就地覆盖**: 不产生新 URL, 直接覆盖磁盘文件并在 `meta` 打 `'sr'`, 前端零感知; 预设只暴露两个, 屏蔽工具 / 模型 / 倍率; 二进制按需下到 `{data_dir}/tools/`.
+超分只在两处发生, serve 永不触发: scrape 期急切 (`sr.enabled` 时对低质本地副本) 与 UPSCALE 任务 (扫描 Resource, 补低质图); 跳过要求 `meta` 的 `'sr'` 标记存在且盘上字节未变, 变了则重跑并重记. **就地覆盖**: 不产生新 URL, 直接覆盖磁盘文件并在 `meta` 打 `'sr'`, 前端零感知; 预设只暴露两个, 屏蔽工具 / 模型 / 倍率; 二进制按需下到 `{data_dir}/tools/{tool}/{平台}-{架构}/`, 无可选包的目标在下载前即报错.
 
 ## Worker 并发
 
@@ -170,7 +170,7 @@ handler 之间复用的阶段逻辑, 不是一条可跳步的总管线:
 
 ## ACTOR_SCRAPE
 
-`ActorScrapeHandler` 按 `HotSettings.actor_scraping` 的资料来源 / 头像来源顺序获取 (见 [config.md](config.md)), **先按 `Actor.gender` 与各站 `profile().genders` 过滤** (`unknown` 只请求同时覆盖两性的站; 被裁站不发 HTTP、不消费其 raw 缓存). 站点内按查找名首命中; 聚合是标量填空 (含 `gender`, `unknown` 当空) + 头像优先, 无影片字段 DAG. `use_cache` 与影片同型: 含 `metadata` 时按**已允许**站复用 `Actor.raw` 跳过爬虫 (非法快照降级为重爬). 写回时再与库内已有人物字段填空合并, 避免冲掉已填值.
+`ActorScrapeHandler` 按 `HotSettings.actor_scraping` 的资料来源 / 头像来源顺序获取 (见 [config.md](config.md)), **先按 `Actor.gender` 与各站 `profile().genders` 过滤** (`unknown` 只请求同时覆盖两性的站; 被裁站不发 HTTP、不消费其 raw 缓存). 站点内按查找名首命中; 聚合是标量填空 (含 `gender`, `unknown` 当空) + 头像优先, 无影片字段 DAG. `use_cache` 与影片同型: 含 `metadata` 时按**已允许**站复用 `Actor.raw` 跳过爬虫 (非法快照降级为重爬), 且只决定是否重新爬取, 不改变写回规则. 写回以本次聚合结果为准, 空位取库内值, 锁定字段保留库内值; 参与且有结果的站点整段覆盖 `Actor.raw`, 未参与站点的快照保留; 别名并入别名行.
 
 **链式自动触发**: `actor_scraping.auto_scrape` 开启 (默认) 时, 影片 SCRAPE 成功后在 `ScrapeHandler` 末尾按清洗解析后的 `meta.actors` 查询 Actor 实体, **`Actor.raw` 非空 (已刮过) 则跳过**, 其余以 **`priority=-1`** 入队 (不抢占影片任务优先级); 同 `actor_id` 已有 queued / running 时复用入队互斥. 链式块内异常只记录 warning, 不阻断刮削主流程.
 
@@ -186,8 +186,17 @@ Metadata 是一等公民, CLEANUP **从不**因「无关联 MediaFile」删除 M
 
 三者分属独立循环 (秒级反应、分钟级 routine、每源间隔的远程拉取), 合并会互相拖高 latency.
 
-**UPSCALE 例行任务**: 扫描全部 `Resource`, 对低质且未超分的就地超分, `limit` 限单次批量.
+**UPSCALE 例行任务**: 扫描全部 `Resource`, 就地超分低质图, `limit` 限单次批量.
 
 **RESCRAPE (滚动补刮)**: 与 `RefreshHandler` 同构的 fan-out — 批量任务只选目标并下发既有刮削. `targets` (`metadata` / `actor`) 每个已选项各自取一批旧条目, 以 `priority=-1` 入队非 force 任务 (见 `handlers/rescrape.py`). 复用 per-site raw 快照仅补缺失站点, 聚合阶段重放当前配置, 因此同时承担「配置变更后再次运行生效」; 它与 SCRAPE 成功后的链式 ACTOR_SCRAPE 正交 (链式跳过 `Actor.raw` 已非空的演员).
 
-Watcher 的 `automation` 三档都不自动 ORGANIZE / DELETE, 归属随事件携带, 见 [watcher.md](watcher.md) / [data-model.md](data-model.md).
+Watcher 仍不自动 ORGANIZE / DELETE: 三档 `automation` 都不提交整理, 整理只来自刮削链或用户提交. 事件归属随事件携带, 见 [watcher.md](watcher.md) / [data-model.md](data-model.md).
+
+## 自动整理
+
+`Library.auto_organize` 与 `automation` 正交 (none / watch 下手动刮削同样触发), 默认关闭, 只影响新后继.
+
+- **触发**: SCRAPE 成功路径按 `payload.media_file_id` 追加一条 ORGANIZE 后继, 范围是这一个文件 (单元素 `media_file_ids`), `priority=-1` 仅表示不抢占交互提交的任务.
+- **次序**: 后继在父的完成事务里创建, 父此刻已是 DONE, 因此整理必然发生在该文件刮削完成之后 — 不需要批次屏障, 也不依赖优先级. 按番号刮削没有 `MediaFile` (库因而未知), 不整理.
+- **失败**: 刮削业务失败 / 崩溃 / 取消都不产生整理 (重试成功后仍会链出). 完成事务失败与后继构建失败这两条路径下文件同样停在「已刮削未落盘」, 开关开着也不会自愈, 需手动整理或重新刮削.
+- **读取**: 整理结果只在任务列表与任务结果里读. 整理是对文件集合的操作, 不是库的属性, 多次整理之间不构成先后关系, 因此库响应不设整理摘要.

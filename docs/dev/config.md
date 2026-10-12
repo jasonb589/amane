@@ -43,7 +43,7 @@ Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 work
 
 **r18 只读引擎**: 只在 `hot.r18` 实际变化时重建. 旧引擎由 `R18Handle` 标记所有权, 等使用它的退役 worker 排空且无其它 worker 引用后由后台关闭; `AppRuntime.stop_workers()` 在关闭时负责当前句柄. 契约见 [task-system.md](task-system.md).
 
-**浏览器池**: 只在 `network.browser` / `proxy` 变化时重建 (见 `src/amane/app/runtime.py::AppRuntime._rebuild`), 其余热重载复用同一实例以保留已解决的挑战会话; 被替换的旧池由 `_release_browser()` 在引用它的退役 worker 排空后关闭.
+**浏览器池**: 只在 `network.browser` / `network.proxy` 变化时重建 (见 `src/amane/app/runtime.py::AppRuntime._rebuild`), 其余热重载复用同一实例以保留已解决的挑战会话; 被替换的旧池由 `_release_browser()` 在引用它的退役 worker 排空后关闭.
 
 ## TOML 持久化
 
@@ -55,7 +55,7 @@ Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 work
 
 字段加在 `src/amane/config/manager.py` 对应 section model (全部配置 model 集中在该文件), 然后:
 
-1. 需要 UI 展示时添加 `json_schema_extra` 的 `x-*` 扩展 (`x-*` 清单见 `web/src/components/schema-form/schema/types.ts`). 站点列表字段必须用 `site_roles` 的 schema 收窄 `items.enum`, 不允许直接暴露完整 `SiteName`.
+1. 需要 UI 展示时添加 `json_schema_extra` 的 `x-*` 扩展 (`x-*` 清单见 `web/src/components/schema-form/schema/types.ts`). 站点列表字段必须用 `site_roles` 的 schema 收窄 `items.enum`, 不允许直接暴露完整 `SiteName`; 站点级字段的 `x-visible-keys` 只列消费该字段的站点.
 2. 若新字段影响限速 / HTTP / 爬虫 / LLM / handler 行为, 确认 `_rebuild()` 链能传播变更; 若影响 WatcherService 构造参数, 须标明「重启生效」.
 3. `just generate` 同步前端 schema, 并补 `web/src/i18n/` 翻译, 否则构建失败.
 

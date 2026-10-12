@@ -80,11 +80,14 @@
   "invalidId": "Invalid library ID",
   "automation": {
     "label": "Automation",
-    "hint": "Watching, auto-scrape and auto-organize",
+    "hint": "Watching and auto-scrape",
     "none": "Off",
     "watch": "Watch only",
-    "scrape": "Watch and scrape",
-    "scrape_organize": "Watch, scrape and organize"
+    "scrape": "Watch and scrape"
+  },
+  "autoOrganize": {
+    "label": "Auto organize",
+    "hint": "Organize the file automatically once it is scraped"
   },
   "ingest": {
     "label": "File discovery",

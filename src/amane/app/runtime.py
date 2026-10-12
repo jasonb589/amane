@@ -35,7 +35,7 @@ from ..library import InventoryStore
 from ..llm import TranslationCache, build_translator
 from ..media.watermarks import user_watermark_dir
 from ..net.browser import BrowserPool
-from ..net.http import RateLimiters, WebClient
+from ..net.http import RateLimiters, WebClient, site_proxy_overrides
 from ..parsing.file_info import set_escape_strings
 from ..playback import PlaybackFactory, PlaybackState
 from ..plugins.manager import PluginManager
@@ -123,6 +123,7 @@ def build_network_stack(
     )
     web_client = WebClient(
         proxy=hot.network.proxy,
+        proxy_overrides=site_proxy_overrides(hot.scraping.site_config, site_urls),
         timeout=hot.network.timeout,
         max_retries=hot.network.max_retries,
         max_clients=hot.network.max_clients,

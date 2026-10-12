@@ -299,6 +299,10 @@
             "label": "使用代理",
             "description": "通过配置的代理发送请求"
           },
+          "proxy": {
+            "label": "站点代理",
+            "description": "该站点专用的代理地址, 留空使用全局代理; 关闭「使用代理」时该站点直连"
+          },
           "use_browser": {
             "label": "浏览器策略",
             "options": {
@@ -365,6 +369,17 @@
           "rate_limit": {
             "label": "速率限制",
             "description": "该站点每秒请求上限"
+          },
+          "languages": {
+            "label": "语言优先级",
+            "description": "按顺序取第一个有正文的词条",
+            "$": {
+              "options": {
+                "zh": "中文",
+                "ja": "日文",
+                "en": "英文"
+              }
+            }
           }
         }
       },

@@ -88,12 +88,11 @@ class LinkMode(StrEnum):
 
 
 class LibraryAutomation(StrEnum):
-    """媒体库自动化级别. 含更低级别的行为; SCRAPE_ORGANIZE 在刮削成功后自动整理这一部."""
+    """媒体库自动化级别 (只控制发现侧). 含更低级别的行为; 自动整理由 `Library.auto_organize` 单独控制."""
 
     NONE = "none"
     WATCH = "watch"
     SCRAPE = "scrape"
-    SCRAPE_ORGANIZE = "scrape_organize"
 
 
 class LibraryIngest(StrEnum):
@@ -134,7 +133,7 @@ class MetadataField(StrEnum):
 
 
 class ActorField(StrEnum):
-    """演员人物档案的可锁字段; 取值与 Actor 列名同形."""
+    """演员人物档案的可锁字段; 除 ``ALIASES`` 外取值与 Actor 列名同形."""
 
     GENDER = "gender"
     BIRTHDAY = "birthday"
@@ -147,6 +146,8 @@ class ActorField(StrEnum):
     OVERVIEW = "overview"
     TAGLINE = "tagline"
     IMAGE_URLS = "image_urls"
+    ALIASES = "aliases"
+    """别名真值在 ``actor_aliases`` 行, 无对应 Actor 列."""
 
 
 class WatermarkKind(StrEnum):

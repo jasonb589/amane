@@ -36,7 +36,7 @@ from ..parsing import FileInfo, parse_file_info
 from ..utils.path import existing_disk_path as existing_disk_path_sync
 from ..utils.path import is_descendant, nfc_path, path_is_under
 from ..utils.threads import existing_disk_path, in_thread, path_is_dir
-from ._common import LibraryTaskLocks
+from ._common import LibraryTaskLocks, refresh_external_subtitle
 from .models import (
     ORGANIZE_CONFLICT_LIMIT,
     CleanupPayload,
@@ -254,6 +254,7 @@ async def commit_organized_media_file(
     """
     if media.id is None:
         return
+    library = await repo.get_library(media.library_id)
     if not is_descendant(placed, library_root):
         if await existing_disk_path(Path(media.path), follow_symlinks=False) is None:
             await repo.delete_media_file(media.id)
@@ -261,7 +262,9 @@ async def commit_organized_media_file(
 
     occupant = await repo.get_media_file_by_path(str(placed))
     if occupant is None or occupant.id == media.id:
-        await repo.update_media_file(media.id, path=str(placed))
+        updated = await repo.update_media_file(media.id, path=str(placed))
+        if updated is not None and library is not None:
+            await refresh_external_subtitle(repo, updated, library)
         return
     if occupant.id is None:
         return
@@ -276,6 +279,8 @@ async def commit_organized_media_file(
     if occupant_updates:
         await repo.update_media_file(occupant.id, **occupant_updates)
     await repo.delete_media_file(media.id)
+    if library is not None:
+        await refresh_external_subtitle(repo, occupant, library)
 
 
 async def _resolve_local(url: str, store: ResourceStore, client: WebClient) -> Path | None:
@@ -486,6 +491,11 @@ class OrganizeHandler(TaskHandler[OrganizePayload, OrganizeResult]):
 
     async def _handle_unlocked(self, payload: OrganizePayload, library: Library) -> TaskResult[OrganizeResult]:
         indexed = await self._load_scope(payload, library)
+        skipped = 0
+        if payload.media_file_ids and not indexed:
+            # 勾选快照里的行在本次运行前已消失 (自动整理的单文件范围是主要来源): 不是「空跑」, 记一次跳过.
+            logger.warning("organize scope missing", library_id=library.id, media_file_ids=payload.media_file_ids)
+            skipped += 1
         library_root = Path(library.path)
         media_extensions = frozenset(self._config.watcher.media_extensions) or MEDIA_EXTENSIONS
         scan = LibraryScan(
@@ -495,11 +505,6 @@ class OrganizeHandler(TaskHandler[OrganizePayload, OrganizeResult]):
             media_extensions=media_extensions,
         )
         live: list[MediaFile] = []
-        skipped = 0
-        if payload.media_file_ids and not indexed:
-            # 勾选快照里的行在本次运行前已消失 (自动整理的单文件范围是主要来源): 不是「空跑」, 记一次跳过.
-            logger.warning("organize scope missing", library_id=library.id, media_file_ids=payload.media_file_ids)
-            skipped += 1
         prune_total = len(indexed)
         if prune_total:
             await self.report_progress(0, prune_total, "prune")
