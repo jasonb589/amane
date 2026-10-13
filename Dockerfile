@@ -18,6 +18,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+
+# 海报人脸识别 (可选): opencv-headless 有 cp37-abi3 预编译 wheel, Python 3.14 / amd64 / arm64 都无需编译.
+# 模型只用于人脸识别裁剪; 取不到时会退回 OpenCV 自带的 Haar 级联, 再不行则退回右侧裁剪.
+RUN uv pip install --python /app/.venv/bin/python "opencv-python-headless>=5.0"
+RUN mkdir -p /app/models && /app/.venv/bin/python -c "import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx', '/app/models/face_detection_yunet.onnx')" || echo "face model download skipped (will fall back to Haar cascade)"
 RUN uv sync --no-dev --frozen --no-editable
 
 # --- 最终镜像 ---

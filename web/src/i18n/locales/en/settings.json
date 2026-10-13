@@ -56,6 +56,27 @@
         "label": "Poster crop skip threshold",
         "description": "Skip cropping when the existing poster's height exceeds this fraction of the cover height"
       },
+      "poster_crop_mode": {
+        "label": "Poster Crop Mode",
+        "description": "Per content type; takes effect only when Crop Poster is on",
+        "options": {
+          "censored": "Censored",
+          "uncensored": "Uncensored",
+          "chinese": "Chinese",
+          "western": "Western",
+          "fc2": "FC2",
+          "amateur": "Amateur",
+          "hentai": "Hentai"
+        },
+        "$": {
+          "options": {
+            "right": "Crop right side",
+            "center": "Crop center",
+            "none": "No crop",
+            "face": "Face detection"
+          }
+        }
+      },
       "poster_ratio": {
         "label": "Poster Crop Ratio",
         "description": "Width-to-height ratio for cropping the poster from the cover"

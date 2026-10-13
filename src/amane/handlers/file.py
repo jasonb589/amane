@@ -12,7 +12,7 @@ from ..db.repo_types import MediaFileUpdates
 from ..enums import ActorGender, DownloadableResource, LinkMode
 from ..library import MEDIA_EXTENSIONS, LibraryFileKind, LibraryScan, ancestor_dirs, prune_empty_dirs
 from ..library.rules import is_in_trash
-from ..media import ResourceStore, apply_cover_watermarks_from_info, crop_poster, probe_size
+from ..media import ResourceStore, apply_cover_watermarks_from_info, crop_poster, probe_size, resolve_crop_mode
 from ..media import write_nfo as write_nfo_file
 from ..media.resource_store import internal_url_hash
 from ..net.http import WebClient
@@ -332,13 +332,23 @@ def _place_library_images(
             paths.poster.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(poster_local, paths.poster)
         elif thumb_local is not None and config is not None and config.scraping.crop_poster:
-            paths.poster.parent.mkdir(parents=True, exist_ok=True)
-            crop_poster(
-                paths.thumb,
-                paths.poster,
-                poster_ratio=config.scraping.poster_ratio,
-                jpeg_quality=config.scraping.jpeg_quality,
+            mode = resolve_crop_mode(
+                config.scraping.poster_crop_mode,
+                file_info.content_type if file_info is not None else None,
             )
+            paths.poster.parent.mkdir(parents=True, exist_ok=True)
+            if mode == "none":
+                # 不裁剪: 直接用已有的封面副本作为海报 (此处库内只有这张可用).
+                if paths.thumb.exists():
+                    shutil.copy2(paths.thumb, paths.poster)
+            else:
+                crop_poster(
+                    paths.thumb,
+                    paths.poster,
+                    mode=mode,
+                    poster_ratio=config.scraping.poster_ratio,
+                    jpeg_quality=config.scraping.jpeg_quality,
+                )
 
     if trailer_local is not None and DownloadableResource.trailer in kinds:
         paths.trailer.parent.mkdir(parents=True, exist_ok=True)

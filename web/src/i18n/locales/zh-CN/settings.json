@@ -56,6 +56,27 @@
         "label": "海报裁切跳过阈值比例",
         "description": "已有海报与封面高度之比超过此值则不裁切"
       },
+      "poster_crop_mode": {
+        "label": "海报裁剪方式",
+        "description": "按内容类型分别选择海报裁剪方式, 仅「裁切海报」打开时生效",
+        "options": {
+          "censored": "有码",
+          "uncensored": "无码",
+          "chinese": "国产",
+          "western": "欧美",
+          "fc2": "FC2",
+          "amateur": "素人",
+          "hentai": "动漫"
+        },
+        "$": {
+          "options": {
+            "right": "右侧裁剪",
+            "center": "居中裁剪",
+            "none": "不裁剪",
+            "face": "人脸识别"
+          }
+        }
+      },
       "poster_ratio": {
         "label": "海报裁切比例",
         "description": "从封面裁切海报的宽高比"

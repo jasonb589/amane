@@ -320,6 +320,22 @@ class SiteConfig(BaseModel):
         return languages
 
 
+class PosterCropMode(StrEnum):
+    """海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``)."""
+
+    RIGHT = "right"
+    """取封面右侧: 光碟封面里海报在右侧, 宽度 = 高 × ``poster_ratio`` (默认)."""
+
+    CENTER = "center"
+    """居中裁剪: 左右各切一半."""
+
+    NONE = "none"
+    """不裁剪: 直接保留刮到的原图作为海报."""
+
+    FACE = "face"
+    """人脸识别: 以最大人脸为中心裁成竖版; 找不到人脸或缺少检测器时回退 ``right``."""
+
+
 class ScrapingConfig(BaseModel):
     download_resources: list[DownloadableResource] = Field(
         default_factory=lambda: [r for r in DownloadableResource if r != DownloadableResource.trailer],
@@ -333,6 +349,15 @@ class ScrapingConfig(BaseModel):
     poster_crop_skip_ratio: float = Field(default=0.9, ge=0.5, le=1.0)
     """海报裁剪跳过阈值. 当 poster 候选高度已达 thumb 高度的此比例以上时, 视为候选够用, 不再从 thumb 裁剪
     (裁剪有错位风险, 非必要不做). 默认 0.9."""
+    poster_crop_mode: dict[ContentType, PosterCropMode] = Field(
+        default_factory=lambda: {ct: PosterCropMode.RIGHT for ct in ContentType},
+        json_schema_extra={"x-frozen-keys": True},
+        description=(
+            "按内容类型选择海报裁剪方式: right 取封面右侧 (默认); center 居中裁剪; none 不裁剪 (保留原图); "
+            "face 人脸识别裁剪 (找不到人脸时回退 right). 仅「裁切海报」打开时生效."
+        ),
+    )
+
 
     jpeg_quality: int = Field(default=95, ge=50, le=100, json_schema_extra={"x-hidden": True})
 

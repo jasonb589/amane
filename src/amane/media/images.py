@@ -1,5 +1,6 @@
 """海报裁剪与封面角标. 判定函数只依赖尺寸与阈值, 无 I/O."""
 
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -75,30 +76,146 @@ def needs_upscale(
     return max(size) < max_dim_threshold
 
 
+def resolve_crop_mode(modes: Mapping[object, object] | None, content_type: object | None) -> str:
+    """从 ``scraping.poster_crop_mode`` 取该内容类型的裁剪方式; 缺省 ``right`` (与旧行为一致)."""
+    if modes and content_type is not None:
+        value = modes.get(content_type)
+        if value is None:
+            value = modes.get(str(content_type))
+        if value is not None:
+            return str(value)
+    return "right"
+
+
+# 人脸检测模型: 构建镜像时下载到 /app/models; 也可用 AMANE_FACE_MODEL 指向别处.
+# 取不到模型时退回 OpenCV 自带的 Haar 级联 (不需要模型文件); 连 opencv 都没有则返回 None,
+# 由调用方回退到右侧裁剪 —— 任何环节缺失都不影响其它裁剪方式.
+_FACE_MODEL_ENV = "AMANE_FACE_MODEL"
+_DEFAULT_FACE_MODEL = Path("/app/models/face_detection_yunet.onnx")
+
+
+def _face_model_path() -> Path | None:
+    override = os.environ.get(_FACE_MODEL_ENV)
+    if override:
+        candidate = Path(override)
+        return candidate if candidate.is_file() else None
+    return _DEFAULT_FACE_MODEL if _DEFAULT_FACE_MODEL.is_file() else None
+
+
+def detect_face_box(image_path: Path) -> tuple[int, int, int, int] | None:
+    """最大人脸的 (left, top, right, bottom); 缺 opencv / 没检出 / 出错一律 None."""
+    try:
+        import cv2
+        import numpy as np
+    except Exception:  # 镜像未装 opencv: 该功能自动退化
+        return None
+    try:
+        with Image.open(image_path) as img:
+            arr = np.asarray(img.convert("RGB"))[:, :, ::-1]  # PIL RGB -> OpenCV BGR
+        height, width = int(arr.shape[0]), int(arr.shape[1])
+        if width <= 0 or height <= 0:
+            return None
+
+        boxes: list[tuple[int, int, int, int]] = []
+
+        model = _face_model_path()
+        factory = getattr(cv2, "FaceDetectorYN_create", None) or getattr(
+            getattr(cv2, "FaceDetectorYN", None), "create", None
+        )
+        if model is not None and factory is not None:
+            try:
+                detector = factory(str(model), "", (width, height), 0.6, 0.3, 5000)
+                detector.setInputSize((width, height))
+                _, faces = detector.detect(arr)
+                for face in faces if faces is not None else []:
+                    x, y, face_w, face_h = (int(v) for v in face[:4])
+                    boxes.append((x, y, x + face_w, y + face_h))
+            except Exception as e:
+                logger.debug("yunet detect failed", path=str(image_path), error=str(e))
+
+        if not boxes:
+            cascade_dir = getattr(getattr(cv2, "data", None), "haarcascades", "") or ""
+            cascade = cv2.CascadeClassifier(str(cascade_dir) + "haarcascade_frontalface_default.xml")
+            if not cascade.empty():
+                gray = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
+                min_side = max(24, min(width, height) // 10)
+                for x, y, face_w, face_h in cascade.detectMultiScale(gray, 1.1, 6, minSize=(min_side, min_side)):
+                    boxes.append((int(x), int(y), int(x + face_w), int(y + face_h)))
+
+        if not boxes:
+            return None
+        return max(boxes, key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+    except Exception as e:
+        logger.debug("face detect failed", path=str(image_path), error=str(e))
+        return None
+
+
+def _face_centered_box(
+    face: tuple[int, int, int, int], size: tuple[int, int], *, poster_ratio: float
+) -> tuple[int, int, int, int]:
+    """以人脸为中心、按 ``poster_ratio`` 给出尽量大的裁剪框, 且不越界."""
+    width, height = size
+    left, top, right, bottom = face
+    face_w = max(1, right - left)
+    face_h = max(1, bottom - top)
+    center_x = (left + right) // 2
+    center_y = (top + bottom) // 2
+
+    target_h = min(height, max(int(face_h * 3.4), int(height * 0.5)))
+    target_w = int(target_h * poster_ratio)
+    if target_w > width:
+        target_w = width
+        target_h = min(height, int(target_w / poster_ratio))
+    if target_w <= 0 or target_h <= 0:
+        return (0, 0, width, height)
+
+    crop_left = max(0, min(center_x - target_w // 2, width - target_w))
+    # 人脸略高于画面中线: 人像构图头顶留白少, 下方留肩
+    crop_top = max(0, min(center_y - int(target_h * 0.42), height - target_h))
+    return (crop_left, crop_top, crop_left + target_w, crop_top + target_h)
+
+
 def crop_poster(
     thumb_path: Path,
     poster_path: Path,
     *,
+    mode: str = "right",
     poster_ratio: float = _DEFAULT_POSTER_RATIO,
-    jpeg_quality: int = _DEFAULT_JPEG_QUALITY,
+    jpeg_quality: float = _DEFAULT_JPEG_QUALITY,
 ) -> bool:
-    """海报取封面右侧, 宽度 = height × poster_ratio."""
+    """按 ``mode`` 从封面生成海报.
+
+    right 取封面右侧 (默认, 光碟封面海报在右); center 居中裁剪; face 人脸识别裁剪
+    (检不到人脸时回退 right); none 不裁剪, 整图作为海报. 裁剪宽度 = height × ``poster_ratio``.
+    """
     try:
-        img = Image.open(thumb_path)
-        w, h = img.size
+        with Image.open(thumb_path) as img:
+            width, height = img.size
+            target_w = int(height * poster_ratio)
 
-        target_w = int(h * poster_ratio)
-        if target_w >= w:
-            # 已足够窄, 整图作为海报.
-            img.save(poster_path, quality=jpeg_quality)
+            box: tuple[int, int, int, int] | None = None
+            if mode == "none":
+                box = None
+            elif mode == "center":
+                if target_w < width:
+                    left = (width - target_w) // 2
+                    box = (left, 0, left + target_w, height)
+            elif mode == "face":
+                face = detect_face_box(thumb_path)
+                if face is not None:
+                    box = _face_centered_box(face, (width, height), poster_ratio=poster_ratio)
+                elif target_w < width:
+                    box = (width - target_w, 0, width, height)
+            elif target_w < width:
+                box = (width - target_w, 0, width, height)
+
+            poster_path.parent.mkdir(parents=True, exist_ok=True)
+            if box is None:
+                # 不裁剪 / 已足够窄: 整图作为海报.
+                img.save(poster_path, quality=jpeg_quality)
+                return True
+            img.crop(box).save(poster_path, quality=jpeg_quality)
             return True
-
-        # 从右侧裁剪.
-        left = w - target_w
-        cropped = img.crop((left, 0, w, h))
-        poster_path.parent.mkdir(parents=True, exist_ok=True)
-        cropped.save(poster_path, quality=jpeg_quality)
-        return True
     except Exception as e:
         logger.warning("poster crop failed", path=str(thumb_path), error=str(e))
         return False

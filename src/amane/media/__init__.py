@@ -6,6 +6,7 @@ from .images import (
     format_crop_box_args,
     needs_upscale,
     probe_size,
+    resolve_crop_mode,
     should_crop_poster,
     validate_crop_box,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "materialize_images",
     "needs_upscale",
     "probe_size",
+    "resolve_crop_mode",
     "should_crop_poster",
     "validate_crop_box",
     "write_nfo",

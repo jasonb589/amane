@@ -11,12 +11,14 @@ import structlog
 
 from ..config import DownloadableResource
 from ..sr import get_preset_meta, run_SR
+from ..parsing import ContentType
 from .images import (
     crop_box,
     crop_poster,
     format_crop_box_args,
     needs_upscale,
     probe_size,
+    resolve_crop_mode,
     should_crop_poster,
     validate_crop_box,
 )
@@ -88,6 +90,7 @@ async def materialize_images(
     client: WebClient,
     config: HotSettings,
     data_dir: Path,
+    content_type: ContentType | None = None,
     *,
     extrafanart_urls: dict[str, list[str]] | None = None,
 ) -> MaterializedImages:
@@ -126,7 +129,8 @@ async def materialize_images(
                     poster_candidate_local = local
 
         # 裁剪需要 thumb 本地文件; 若未选 thumb 下载, 为裁剪临时 acquire 首个 thumb.
-        if thumb_local is None and thumb_urls and config.scraping.crop_poster:
+        mode = resolve_crop_mode(config.scraping.poster_crop_mode, content_type)
+        if thumb_local is None and thumb_urls and config.scraping.crop_poster and mode != "none":
             for url in thumb_urls:
                 local = await store.acquire(url, client)
                 if local:
@@ -138,15 +142,22 @@ async def materialize_images(
 
         if (
             config.scraping.crop_poster
+            and mode != "none"
             and should_crop_poster(thumb_size, cand_size, skip_ratio=config.scraping.poster_crop_skip_ratio)
             and thumb_local
         ):
             ratio = config.scraping.poster_ratio
-            args = f"{ratio:.4f}"
+            args = f"{mode}:{ratio:.4f}"
             local_thumb = thumb_local
 
             async def crop_producer(dest: Path) -> bool:
-                return crop_poster(local_thumb, dest, poster_ratio=ratio, jpeg_quality=config.scraping.jpeg_quality)
+                return crop_poster(
+                    local_thumb,
+                    dest,
+                    mode=mode,
+                    poster_ratio=ratio,
+                    jpeg_quality=config.scraping.jpeg_quality,
+                )
 
             crop_res = await store.acquire_derived(thumb_src or "", "crop", args, crop_producer)
             if crop_res:
