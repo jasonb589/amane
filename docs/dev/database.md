@@ -19,6 +19,17 @@ r18 库由项目导入 / 管理但 schema 不受我们控制, **不能纳入 Ale
 
 个人媒体库单机部署: 无需多进程并发写入, 零运维 (Docker 用户不必额外起数据库容器), 文件级备份方便. 已知约束是不支持部分 ALTER TABLE、写入排他锁、JSON 字段无法高效查询 — 个人规模可接受, 超过百万行需评估迁移到 PostgreSQL. 手工备份必须用 online backup, WAL 模式下不能只 `cp amane.db`.
 
+## 写入事务边界
+
+pysqlite 只在 DML 之前发出 `BEGIN`, 纯 SELECT 落在事务之外 (SQLAlchemy 的 autobegin 只是记账, 不发出语句). 因此「先查询判定, 再按判定写入」默认不构成一个事务: 并发调用双方都读到写入前的状态, 后写入者随后违反唯一约束. 这类写入必须自行取得写锁, 现用于 `src/amane/db/repos/metadata.py::MetadataRepoMixin.upsert_metadata` 的首句 `BEGIN IMMEDIATE`.
+
+- 写锁是库级的, 从取得写锁到提交之间其它写入被阻塞. 临界区内不允许出现联网或磁盘等待, 否则全库写入一并被拖住.
+- 会话在进入该调用之前不得已有未结束的数据库事务, 否则 `BEGIN IMMEDIATE` 失败.
+- 该写法依赖驱动不自行发出 `BEGIN`; 驱动或方言改为显式发出时失效.
+- 番号比较一律经 `src/amane/db/models.py::metadata_number_predicate`, 才能命中 `ix_metadata_number`.
+
+入队互斥用 Repository 上的进程内锁串行化, 见 [task-system.md](task-system.md).
+
 ## 启动期自动迁移与安全网
 
 `create_async_engine_from_path` (`db/engine.py`) 在创建业务引擎**之前**调用 `upgrade_sqlite_database` (`db/sqlite_migrate.py`):
@@ -26,6 +37,8 @@ r18 库由项目导入 / 管理但 schema 不受我们控制, **不能纳入 Ale
 1. **当前 revision 已是 head**: 什么都不做 (不备份、不升级).
 2. **落后 head**: 先用 sqlite3 **online backup API** 写 `{db}.pre-migrate-{oldrev}-{utc}.bak` (含 WAL 一致快照; 同目录保留最近 5 份), 再升级.
 3. **迁移连接**单独 `autocommit=False` + Alembic `transactional_ddl=True`: 单次 revision 内 DDL 与 `alembic_version` 同事务, 失败则回滚, 避免「表已创建但版本未升」的半成品. 业务连接不修改事务模式, 仍只开 WAL + FK.
+
+迁移内不允许文件系统 I/O 与其它无界等待: 整条链共用一个事务, 中止即整体回滚、重试仍从零开始, 而网盘挂载点上逐目录列举会把启动阻塞数分钟以上且没有可见进度. 需要遍历磁盘的回填由运行期承担 (如 `REFRESH` 库扫描).
 
 CLI (`uv run alembic …`) 使用同一套 `env.py` 事务性 DDL, 但**不会**自动备份 — 依赖启动路径或手工 backup. `env.py` 自行创建的引擎在 upgrade 结束后必须 `dispose()`, 否则同一进程内多次升级 (测试) 会留下未关闭的连接.
 
