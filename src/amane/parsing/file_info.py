@@ -46,9 +46,15 @@ class FileInfo:
     content_type: ContentType
     prefix: str
     cd: int | None = None
-    has_subtitle: bool = False
+    has_subtitle_in_name: bool = False
+    has_external_subtitle: bool = False
     mosaic: Mosaic | None = None
     definition: str | None = None
+
+    @property
+    def has_subtitle(self) -> bool:
+        """文件名标记与同目录外挂字幕命中任一即真; 后者由调用方经 ``parse_file_info`` 传入."""
+        return self.has_subtitle_in_name or self.has_external_subtitle
 
 
 class FilePhase(TypedDict):
@@ -84,7 +90,9 @@ _UNCENSORED_PREFIXES = (
     "DSAM-",
     "DRC-",
     "DRG-",
+    "DRGBD-",
     "GACHI-",
+    "GACHIG-",
     "HEYDOUGA",
     "JAV-",
     "LAF-",
@@ -108,6 +116,8 @@ _UNCENSORED_PREFIXES = (
     "SKY-",
     "SKYHD-",
     "SMD-",
+    "SMBD-",
+    "SMDV-",
     "SSDV-",
     "SSKP-",
     "TRG-",
@@ -123,12 +133,14 @@ _UNCENSORED_PREFIXES = (
     "MCB3D",
 )
 
-_SUREN_PREFIXES: dict[str, str] = {
-    "LUXU-": "259LUXU-",
-    "ARA-": "200GANA-",
-    "MIUM-": "300MIUM-",
-    "NTK-": "300NTK-",
-    "MAAN-": "300MAAN-",
+#: 素人系标签 → 站内番号开头的数字段. 文件名常省略数字段 (ARA-423), 站内两种写法并存
+#: (261ARA-423 与 MAAN-968); 数字段只用于补齐, 不参与相等判定.
+SUREN_LABELS: dict[str, str] = {
+    "LUXU-": "259",
+    "ARA-": "261",
+    "MIUM-": "300",
+    "NTK-": "300",
+    "MAAN-": "300",
 }
 
 _WESTERN_NAMES: dict[str, str] = {
@@ -235,7 +247,11 @@ def set_escape_strings(patterns: list[str] | None) -> None:
 
 
 def parse_file_info(
-    path: str | Path | None = None, *, text: str | None = None, escape_strings: list[str] | None = None
+    path: str | Path | None = None,
+    *,
+    text: str | None = None,
+    has_external_subtitle: bool = False,
+    escape_strings: list[str] | None = None,
 ) -> FileInfo:
     """有路径则解析路径, 否则解析 ``text``. 两者至少要有一个.
 
@@ -243,6 +259,9 @@ def parse_file_info(
     目录关键词 (欧美 / 里番 / getchu) 可覆盖类型. 分集还可认直接父目录 CD/PART.
     文本: 只执行番号规则, 未命中 ``number is None`` (不能把原文当番号). 文件相位只依据该字符串
     (``Path(text).stem``, 与中字分集检测一致), 不依据目录.
+
+    ``has_external_subtitle`` 是路径之外的输入 (库里记录的同目录字幕命中), 只并进 ``has_subtitle``,
+    不参与其它相位.
     """
     if path is None and text is None:
         raise ValueError("path or text required")
@@ -272,7 +291,8 @@ def parse_file_info(
         content_type=content_type,
         prefix=_prefix(number) if number else "",
         cd=cd,
-        has_subtitle=_detect_subtitle(basename),
+        has_subtitle_in_name=_detect_subtitle(basename),
+        has_external_subtitle=has_external_subtitle,
         mosaic=_fill_mosaic(mosaic, content_type),
         definition=_detect_definition(basename),
     )
@@ -315,11 +335,12 @@ def is_amateur(number: str) -> bool:
 
 
 def file_phase_from_path(path: str | Path) -> FilePhase:
+    """入库相位只取路径能给出的部分: 外挂字幕命中不在路径里, 由 MediaFile 各自的列承载."""
     info = parse_file_info(path)
     return FilePhase(
         content_type=info.content_type,
         mosaic=info.mosaic,
-        has_subtitle=info.has_subtitle,
+        has_subtitle=info.has_subtitle_in_name,
         definition=info.definition,
     )
 
@@ -493,9 +514,9 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
         return m.group(), ContentType.AMATEUR
     if m := _CATALOG_NUMBER.search(c):
         file_number = m.group()
-        for key, value in _SUREN_PREFIXES.items():
-            if key in file_number:
-                file_number = value.replace(key, "") + file_number
+        for label, digits in SUREN_LABELS.items():
+            if file_number.startswith(label):
+                file_number = f"{digits}{file_number}"
                 break
         return file_number, _type_of_catalog_id(file_number)
     if m := _SIX_DIGIT_CATALOG.search(c):
@@ -508,7 +529,8 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
         or (m := re.search(r"\d{3,}-[A-Z]{3,}", c))
     ):
         return m.group(), _type_of_catalog_id(m.group())
-    if m := re.search(r"([^A-Z]|^)(N\d{4})(\D|$)", c):
+    # 東京熱番号分 n / k 两系 (K1363), 两系都是无码.
+    if m := re.search(r"([^A-Z]|^)([NK]\d{4})(\D|$)", c):
         return m.group(2).lower(), ContentType.UNCENSORED
     if m := re.search(r"H_\d{3,}([A-Z]{2,})(\d{2,})", c):
         number = f"{m[1]}-{m[2]}"
@@ -549,7 +571,7 @@ def _type_of_catalog_id(number: str) -> ContentType:
         return ContentType.UNCENSORED
     if "SIRO" in upper or re.search(r"\d{3,}[A-Z]+-\d{2}", upper):
         return ContentType.AMATEUR
-    if any(upper.startswith(key.upper()) for key in _SUREN_PREFIXES):
+    if any(upper.startswith(label.upper()) for label in SUREN_LABELS):
         return ContentType.AMATEUR
     if re.search(r"([^A-Z]|^)MD[A-Z-]*\d{4,}", upper) and "MDVR" not in upper:
         return ContentType.CHINESE

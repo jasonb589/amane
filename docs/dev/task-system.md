@@ -54,8 +54,8 @@ SCRAPE **没有**「缓存命中即整体跳过爬取」的快速返回 — 完�
 `aggregate` (`src/amane/aggregate/`) 先把优先级配置编译成**获取图** (`build_graph`), 再分两段执行 (`execute_graph`):
 
 - **建图**: handler 先把 `content_routes[type]`、稀疏 `field_priority` 与稀疏 `field_blacklist` 编成每字段站点链 (见 [config.md](config.md)); `content_routes` 是该类型资格真值, 被全部字段黑名单的站不产生节点. 站点 + 语言唯一确定一个 `FetchNode` (`cache_key`); 站点在任一字段上需要语言时统一用带语言节点.
-- **执行**: 未声明依赖的节点并发请求; 声明 `SourceTrait.NEEDS_PARTIAL` 的来源 (按来源目录的 `traits` 判定) 在第二段并发, 段间注入只读的标量聚合 (`partial_result`, 深拷贝). 节点不因标量已满足而跳过. `crawlers` 映射是可用集合: 禁用插件 / 未安装第三方 / 构造失败都不在其中, 图节点直接跳过并沿链继续, 不调用 `invoke_source` (因此不会记成 unexpected).
-- **取值**: 标量沿链取第一个非空值 (判定为真值, `0` / 空串 / 空列表都算空), 空值继续回退, 链上仍有未执行节点时中断该字段; 只有非空值写入 `field_sources`. 聚合类字段 (URL / score / extrafanart) 在全部请求结束后按该字段 `field_chains` 拼接, 不按返回先后排列; 某站未返回或该字段为空则跳过. 标量可以全空: 只要有来源返回结果, 任务仍成功. 落库跳过锁定字段, 见 [data-model.md](data-model.md).
+- **执行**: 未声明依赖的节点并发请求; 声明 `SourceTrait.NEEDS_PARTIAL` 的来源 (按来源目录的 `traits` 判定) 在第二段并发, 段间注入只读的前序聚合 (`partial_result`, 深拷贝, 内容见 [plugins.md](plugins.md)). 节点不因标量已满足而跳过. `crawlers` 映射是可用集合: 禁用插件 / 未安装第三方 / 构造失败都不在其中, 图节点直接跳过并沿链继续, 不调用 `invoke_source` (因此不会记成 unexpected).
+- **取值**: 标量沿链取第一个非空值 (判定为真值, `0` / 空串 / 空列表都算空), 空值继续回退, 链上仍有未执行节点时中断该字段; 只有非空值写入 `field_sources`. 聚合类字段 (URL / score / extrafanart) 在全部请求结束后按该字段 `field_chains` 拼接, 不按返回先后排列; 某站未返回或该字段为空则跳过. 段间另按同一顺序为 `partial_result` 装配一次图片地址, 只取第一段节点. 标量可以全空: 只要有来源返回结果, 任务仍成功. 落库跳过锁定字段, 见 [data-model.md](data-model.md).
 
 ## TaskHandler 契约
 
@@ -93,10 +93,10 @@ handler 之间复用的阶段逻辑, 不是一条可跳步的总管线:
 
 `execute_file_operations` 是落盘执行单元, 仅 ORGANIZE 经 `apply_file_operations` 调用. 不变量:
 
-- **整理 = 复制到库路径**: 优先用 Resource 已有文件, 缺失才现场 `acquire`; 复制哪些类型由 `Library.copy_resources` (或 payload 覆盖) 决定 (见 [data-model.md](data-model.md)).
+- **整理 = 复制到库路径**: 优先用 Resource 已有文件, 缺失才现场 `acquire`; 复制哪些类型由 `Library.copy_resources` (或 payload 覆盖) 决定 (见 [data-model.md](data-model.md)). 目标路径上已有的产物一律按本次内容覆盖, NFO 同理, 不判断是否已存在; fanart 没有刮削来源, 内容取 thumb, 因此随 thumb 一同重写, 该路径上的自备背景图会被覆盖, 也没有单独的关闭途径.
 - **封面角标**: `watermark.enabled` 时 poster / thumb 副本按源文件 FileInfo 叠 PNG; Resource 原图与 fanart 不修改.
 - **海报缺失**: 按 `scraping.crop_poster` 从已落盘 thumb 裁剪兜底.
-- **目标占用**: 判定分为四态: 空闲 / 已就位 / 被占用 / 无法判定. 源与目标已是同一文件 (含硬链同一 inode) 时视为就位, 不做任何改动; 被占用时跳过该文件, 不改名、不覆盖、不移动, 视频与字幕一视同仁, 由调用方按冲突记账, 冲突条目 (源路径 + 被占用的目标路径; 字幕冲突的 `path` 记字幕源路径, 不记视频源路径) 写进任务结果供界面显示, 且 `conflicts` 恒为 `conflicted` 条数的前缀 (差额只留在任务日志里), 冲突不自动解决, 未落盘的行留在源路径, 由用户自行处理. 无法判定 (stat 失败, 或两者在两次读取之间被替换) 按失败记账并带上 stat 的错误说明, 不得计入冲突或放宽为空闲. 存在性与占用判定都经 `existing_disk_path` (跟随符号链接; 读不出状态时按不存在处理, 不抛异常): 目标位置是断链符号链接时按空闲处理, MOVE 会替换它, SYMLINK 因 EEXIST 记失败. 判定与落盘之间还有窗口, MOVE / COPY 期间目标被外部写入仍会覆盖, 这条保证是尽力而为.
+- **目标占用**: 判定分为四态: 空闲 / 已就位 / 被占用 / 无法判定. 源与目标已是同一文件 (含硬链同一 inode) 时视为就位, 只跳过视频落盘, 附属文件照常重写; 被占用时跳过该文件, 不改名、不覆盖、不移动, 视频与字幕一视同仁, 由调用方按冲突记账, 冲突条目 (源路径 + 被占用的目标路径; 字幕冲突的 `path` 记字幕源路径, 不记视频源路径) 写进任务结果供界面显示, 且 `conflicts` 恒为 `conflicted` 条数的前缀 (差额只留在任务日志里), 冲突不自动解决, 未落盘的行留在源路径, 由用户自行处理. 无法判定 (stat 失败, 或两者在两次读取之间被替换) 按失败记账并带上 stat 的错误说明, 不得计入冲突或放宽为空闲. 存在性与占用判定都经 `existing_disk_path` (跟随符号链接; 读不出状态时按不存在处理, 不抛异常): 目标位置是断链符号链接时按空闲处理, MOVE 会替换它, SYMLINK 因 EEXIST 记失败. 判定与落盘之间还有窗口, MOVE / COPY 期间目标被外部写入仍会覆盖, 这条保证是尽力而为.
 - **链接**: `link_template` 非空时视频就位后在库外写 STRM 或符号链接, 指向这次整理后的路径; `MediaFile.path` 仍是真实视频. 链接写入失败时, 目标路径仍在本库内则回写 path, 任务记失败以便重试补链接.
 - **索引写回**: 整理后路径仍在本库内则更新 `MediaFile.path`; 已不在本库内且源路径不在磁盘上则删除该行. 不改 `library_id`, 不写其它库的行. 目标路径已被本库另一行占用时删除本行, 占用行缺少刮削字段则补上.
 - **失效索引**: 落盘前只对本次读到的行探活 (path 不存在或不在本库内则删除), 范围外的行不读取、不探活. 占用判定只看磁盘, 索引里有另一行指向同一路径不构成冲突.

@@ -55,6 +55,7 @@ CrawlerFactory (缓存实例)
 站点检索是模糊匹配, 与「哪条结果算命中」有关的比对都由爬虫自行处理:
 
 - 番号: 站内 ID 带 `-` 时, 入参 `HEYZO-3607` 与 `HEYZO3607` 都应能对上 (大小写, 短横线与空格不参与比对). 不允许把 `_` 改写为 `-`, 除非该站把两种当成同一部. 欧美日期号 (`Studio.YY.MM.DD`) 的年份 2 位与 4 位写法视为同一番号. 比对与归一用 `crawlers/parsing.py` 的 `fold_number` / `is_same_number` / `leading_token`.
+- 检索形态: 站内写法省略番号开头的数字段时比对放宽到「仅差数字段」, 由 `select_number_index` 取条目 (精确优先, 仅差数字段者唯一时才取). 检索词与 URL 随形态而变的来源按 `crawlers/parsing.py::number_variants` 逐个形态尝试, 命中即止; 候选只由站点省略的数字段与素人系标签 (`parsing/file_info.py::SUREN_LABELS`) 两处产生.
 - 演员: 检索行或实体的名字 (含别名) 与查找名相等才算命中, 用 `normalize_name` / `fold_name` / `is_same_name`; 站内的注记括号, 拆名规则由各站自行剥离.
 - 确认不了的结果视为该来源无此番号 / 无此演员, 不允许回退首条. 站点特例见 [content-routes.md](content-routes.md).
 
@@ -117,4 +118,10 @@ Cloudflare managed challenge 只能执行 JS 越过, 因此受保护的来源经
 
 **番号 → content_id 匹配**: r18 主键是 DMM `content_id` (`midv00123`), 输入是标准番号 (`MIDV-123`), 当前为基础实现 (dvd_id 精确 + content_id 三种零填充变体). 检索类查询的扩展点在 `R18Repository`, 不影响爬虫接口.
 
-**图片 URL 补全** (`mapper.py`): dump 中所有图片 URL 均为无域名、无扩展名的相对路径, 映射层负责补全并生成剧照全量列表; 单图标记与 CDN 选择见该文件.
+**图片 URL 补全** (`mapper.py`): dump 中所有图片 URL 均为无域名、无扩展名的相对路径, 映射层负责补全并生成剧照全量列表; 单图标记见该文件, 域名与路径改写见下节.
+
+## DMM 图片 CDN
+
+`pics` (标准) 与 `aws` (高清) 存同一份文件的两套路径: `mono/movie/` 下 pics 多一层被 CDN 忽略的分类目录 (`adult` / `japanese`), aws 只接受省去该层的路径, 其余分类 (e-book 等) 没有 aws 副本. 地址上的缩放查询串会让 aws 返回缩略图, 一律去掉; 规则在 `sites/dmm_cdn.py`, 由 DMM 详情页与 r18 dump 共用, 候选按高清在前、标准兜底排列.
+
+**aws 地址多数柜台本来就给**: digital / FANZA TV 的接口直接返回, 月額 (見放題) 页面在样品图块里引用封面与剧照, 两者原样使用, 不再追加推导的地址. 只有通販 (mono) 与レンタル页面从不引用 aws, 高清地址在那里只能由 pics 地址推导; 检索优先选配信条目, 落到推导这一支的是没有配信条目的纯 DVD 片.

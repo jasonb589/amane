@@ -8,10 +8,11 @@ from PIL import Image
 
 from amane.config import HotSettings, WatermarkConfig
 from amane.db.models import MediaFile, Metadata
+from amane.enums import DownloadableResource
 from amane.handlers.file import execute_file_operations
 from amane.media import ResourceStore
 from amane.organize import MoveMode, PlaceOutcome, ResolvedPaths
-from amane.parsing import ContentType, FileInfo
+from amane.parsing import parse_file_info
 
 if TYPE_CHECKING:
     from amane.net.http import WebClient
@@ -33,6 +34,11 @@ class FakeClient:
 
     async def resolve_final_url(self, url: str, **kwargs) -> str:
         return url
+
+
+def _pixel(path: Path) -> tuple[int, int, int]:
+    with Image.open(path) as img:
+        return cast("tuple[int, int, int]", img.convert("RGB").getpixel((0, 0)))
 
 
 def _paths(base: Path) -> ResolvedPaths:
@@ -81,6 +87,7 @@ async def test_internal_poster_and_trailer(resource_store: ResourceStore, tmp_pa
         paths=paths,
         move_mode=MoveMode.COPY,
         resource_store=resource_store,
+        file_info=parse_file_info(src),
         web_client=client,
         config=HotSettings(),
     )
@@ -113,6 +120,7 @@ async def test_target_occupied_returns_before_side_effects(resource_store: Resou
         paths=paths,
         move_mode=MoveMode.MOVE,
         resource_store=resource_store,
+        file_info=parse_file_info(src),
         web_client=client,
         config=HotSettings(),
     )
@@ -154,6 +162,7 @@ async def test_unknown_target_state_returns_before_side_effects(
         paths=paths,
         move_mode=MoveMode.MOVE,
         resource_store=resource_store,
+        file_info=parse_file_info(src),
         web_client=client,
         config=HotSettings(),
     )
@@ -171,8 +180,6 @@ async def test_unknown_target_state_returns_before_side_effects(
 @pytest.mark.asyncio
 async def test_copy_resources_skips_trailer(resource_store: ResourceStore, tmp_path: Path):
     """copy_resources 不含 trailer 时不落盘预告片, 仍复制封面."""
-    from amane.enums import DownloadableResource
-
     client = cast("WebClient", FakeClient())
     src = tmp_path / "src" / "MIDV-123.mp4"
     src.parent.mkdir(parents=True)
@@ -187,6 +194,7 @@ async def test_copy_resources_skips_trailer(resource_store: ResourceStore, tmp_p
         paths=paths,
         move_mode=MoveMode.COPY,
         resource_store=resource_store,
+        file_info=parse_file_info(src),
         web_client=client,
         config=HotSettings(),
         copy_resources=[DownloadableResource.thumb, DownloadableResource.poster],
@@ -212,6 +220,7 @@ async def test_write_nfo_false_skips_nfo(resource_store: ResourceStore, tmp_path
         paths=paths,
         move_mode=MoveMode.COPY,
         resource_store=resource_store,
+        file_info=parse_file_info(src),
         web_client=client,
         config=HotSettings(),
         write_nfo=False,
@@ -241,6 +250,7 @@ async def test_missing_internal_resource_falls_back_to_crop(resource_store: Reso
         paths=paths,
         move_mode=MoveMode.COPY,
         resource_store=resource_store,
+        file_info=parse_file_info(src),
         web_client=client,
         config=HotSettings(),
     )
@@ -269,9 +279,9 @@ async def test_watermark_respects_enabled(resource_store: ResourceStore, tmp_pat
         paths=paths,
         move_mode=MoveMode.COPY,
         resource_store=resource_store,
+        file_info=parse_file_info(src, has_external_subtitle=mf.has_external_subtitle),
         web_client=client,
         config=HotSettings(watermark=WatermarkConfig(enabled=enabled, scale=0.2)),
-        file_info=FileInfo(number="MIDV-123", content_type=ContentType.CENSORED, prefix="MIDV", has_subtitle=True),
         watermark_dir=user_dir,
     )
     assert result.outcome is PlaceOutcome.PLACED
@@ -282,3 +292,121 @@ async def test_watermark_respects_enabled(resource_store: ResourceStore, tmp_pat
         assert pixel[0] > 180 and pixel[2] < 80
     else:
         assert pixel[2] > 180 and pixel[0] < 80
+
+
+@pytest.mark.asyncio
+async def test_watermark_from_external_subtitle(resource_store: ResourceStore, tmp_path: Path):
+    """文件名没有 -C 时, 库里的同目录字幕命中同样打出封面中字角标."""
+    client = cast("WebClient", FakeClient())
+    src = tmp_path / "src" / "MIDV-123.mp4"
+    src.parent.mkdir(parents=True)
+    src.write_bytes(b"movie")
+
+    user_dir = tmp_path / "watermarks"
+    user_dir.mkdir()
+    Image.new("RGBA", (40, 20), (255, 0, 0, 255)).save(user_dir / "subtitle.png")
+
+    mf = MediaFile(path=str(src), library_id=1, has_external_subtitle=True)
+    meta = Metadata(number="MIDV-123", thumb_urls=["https://s/t.jpg"])
+    paths = _paths(tmp_path / "out")
+    result = await execute_file_operations(
+        media_file=mf,
+        metadata=meta,
+        paths=paths,
+        move_mode=MoveMode.COPY,
+        resource_store=resource_store,
+        file_info=parse_file_info(src, has_external_subtitle=mf.has_external_subtitle),
+        web_client=client,
+        config=HotSettings(watermark=WatermarkConfig(enabled=True, scale=0.2)),
+        watermark_dir=user_dir,
+    )
+    assert result.outcome is PlaceOutcome.PLACED
+    with Image.open(paths.thumb) as img:
+        pixel = img.convert("RGB").getpixel((20, 20))
+    assert isinstance(pixel, tuple)
+    assert pixel[0] > 180 and pixel[2] < 80
+
+
+@pytest.mark.asyncio
+async def test_in_place_rewrites_existing_artifacts(resource_store: ResourceStore, tmp_path: Path) -> None:
+    """源已在目标路径上时仍重写库路径上的旧产物: NFO 按本次元数据, 图片与预告片按本次资源.
+
+    fanart 与 thumb 同源, 因此与 thumb 一同重写.
+    """
+    client = cast("WebClient", FakeClient())
+
+    paths = _paths(tmp_path / "out")
+    paths.video.parent.mkdir(parents=True)
+    paths.video.write_bytes(b"movie")
+    paths.nfo.write_text("旧 NFO", encoding="utf-8")
+    stale = (paths.thumb, paths.poster, paths.fanart)
+    before = {}
+    for image in stale:
+        Image.new("RGB", (800, 538), "red").save(image)
+        before[image] = _pixel(image)
+    paths.trailer.write_bytes(b"old trailer")
+
+    mf = MediaFile(path=str(paths.video), library_id=1)
+    meta = Metadata(
+        number="MIDV-123",
+        title="新标题",
+        thumb_urls=["https://s/t.jpg"],
+        poster_urls=["https://s/p.jpg"],
+        trailer_urls=["https://s/trailer.mp4"],
+    )
+
+    result = await execute_file_operations(
+        media_file=mf,
+        metadata=meta,
+        paths=paths,
+        move_mode=MoveMode.MOVE,
+        resource_store=resource_store,
+        file_info=parse_file_info(paths.video),
+        web_client=client,
+        config=HotSettings(),
+    )
+
+    assert result.outcome is PlaceOutcome.PLACED
+    assert result.dest == paths.video
+    assert "新标题" in paths.nfo.read_text(encoding="utf-8")
+    for image in stale:
+        assert _pixel(image) != before[image]
+    assert paths.trailer.read_bytes() == b"video"
+
+
+@pytest.mark.parametrize("pre_existing", [True, False])
+@pytest.mark.asyncio
+async def test_fanart_follows_thumb_selection(
+    resource_store: ResourceStore, tmp_path: Path, pre_existing: bool
+) -> None:
+    """thumb 不在 copy_resources 时 fanart 既不重写也不补建."""
+    client = cast("WebClient", FakeClient())
+
+    paths = _paths(tmp_path / "out")
+    paths.video.parent.mkdir(parents=True)
+    paths.video.write_bytes(b"movie")
+    if pre_existing:
+        Image.new("RGB", (800, 538), "red").save(paths.fanart)
+    before = _pixel(paths.fanart) if pre_existing else None
+
+    mf = MediaFile(path=str(paths.video), library_id=1)
+    meta = Metadata(number="MIDV-123", thumb_urls=["https://s/t.jpg"], poster_urls=["https://s/p.jpg"])
+
+    result = await execute_file_operations(
+        media_file=mf,
+        metadata=meta,
+        paths=paths,
+        move_mode=MoveMode.MOVE,
+        resource_store=resource_store,
+        file_info=parse_file_info(paths.video),
+        web_client=client,
+        config=HotSettings(),
+        copy_resources=[DownloadableResource.poster],
+    )
+
+    assert result.outcome is PlaceOutcome.PLACED
+    assert not paths.thumb.exists()
+    assert paths.poster.exists()
+    assert paths.fanart.exists() is pre_existing
+    if before is not None:
+        assert _pixel(paths.fanart) == before

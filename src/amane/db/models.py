@@ -86,6 +86,7 @@ class MetadataSortField(StrEnum):
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
     FILE_COUNT = "file_count"
+    SCORE = "score"
 
 
 class MediaSortField(StrEnum):
@@ -192,7 +193,8 @@ class MediaFile(SQLModel, table=True):
     mosaic: Mosaic | None = Field(default=None, index=True)
     #: 文件名带中字标记, 只由 path 派生.
     has_subtitle_in_name: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, index=True))
-    #: 同目录存在库 `subtitle_extensions` 命中的字幕; 只有登记与修改 path 时会重新检查.
+    #: 同目录存在库 `subtitle_extensions` 命中的字幕; 登记 / 换 path / 库扫描时重新检查. 整理落盘时
+    #: 作为 `parse_file_info` 的 `has_external_subtitle` 入参并入文件相位.
     has_external_subtitle: bool = Field(default=False, index=True)
     definition: str | None = Field(default=None, index=True)
     metadata_id: int | None = Field(default=None, foreign_key="metadata.id", index=True)
@@ -300,7 +302,6 @@ class Task(SQLModel, table=True):
     payload: dict = Field(default_factory=dict, sa_column=Column(JSON))
     result: dict | None = Field(default=None, sa_column=Column(JSON))
     error: str | None = None
-    log_file: str | None = None
     retries: int = Field(default=0)
     priority: int = Field(default=0)
     # 链根 id: 根任务指向自己, 裸任务为 None. 按此列一次取出整链.
