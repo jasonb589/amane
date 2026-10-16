@@ -227,7 +227,15 @@ class NotificationService:
             self._dispatch(index, channel, failed, variables)
 
     def _matches(self, channel: NotifyChannelConfig, event: Event, variables: dict[str, Any]) -> bool:
-        if not channel.enabled or not channel.url:
+        if not channel.enabled:
+            return False
+        if channel.provider is NotifyProvider.CUSTOM:
+            if not channel.url:
+                return False
+        elif not channel.token.strip():
+            # 预设渠道的地址由程序拼, 缺的是 token; 这里记一条, 免得又变成"静默不匹配".
+            logger.warning("notify channel skipped: token missing", channel=channel.name or str(channel.provider))
+            return False
             return False
         if channel.events and _EVENT_KEYS.get(event.type, "") not in {str(item) for item in channel.events}:
             return False

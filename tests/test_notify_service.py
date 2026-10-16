@@ -287,3 +287,19 @@ def test_send_test_reports_result() -> None:
         assert "Token" in message2
 
     asyncio.run(run())
+
+
+def test_matches_accepts_preset_channel_without_url() -> None:
+    """回归: 预设渠道 (provider != custom) 即使不填 url 也必须能匹配事件.
+
+    以前的 _matches 要求 url 非空, 于是预设渠道把所有真实事件都静默丢掉了
+    (界面上的"测试发送"不走这里, 所以当时测起来是好的).
+    """
+    service = NotificationService()
+    event = Event(type=EventType.TASK_COMPLETED, data={"task_id": 1})
+    ok = NotifyChannelConfig(provider="telegram", token="t", chat_id="c")
+    assert service._matches(ok, event, {"type": "scrape", "category": "censored"}) is True
+    # 预设渠道缺 token: 根本发不出去, 不该匹配
+    assert service._matches(NotifyChannelConfig(provider="telegram"), event, {"type": "scrape"}) is False
+    # 自定义 HTTP 仍然要求 url
+    assert service._matches(NotifyChannelConfig(), event, {"type": "scrape"}) is False
