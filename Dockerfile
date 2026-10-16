@@ -27,18 +27,13 @@ RUN uv pip install --python /app/.venv/bin/python "opencv-python-headless>=5.0" 
     && /app/.venv/bin/python -c "import cv2; print('opencv ok:', cv2.__version__)"
 # 轻量人脸模型 (YuNet): 下载失败就退回 OpenCV 自带的 Haar 级联, 不影响构建.
 RUN mkdir -p /app/models && /app/.venv/bin/python -c "import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx', '/app/models/face_detection_yunet.onnx')" || echo "face model download skipped (will fall back to Haar cascade)"
-# tzdata (Python 侧): 系统时区库由基础镜像 python:*-slim 自带 (compose 的 TZ 靠它生效);
-# 这里装 PyPI 版只作为 zoneinfo 的兜底数据源 (例如将来换到不带 tzdata 的基础镜像).
-RUN uv pip install --python /app/.venv/bin/python "tzdata" \
-    && /app/.venv/bin/python -c "from zoneinfo import ZoneInfo; print('tz ok:', ZoneInfo('Asia/Shanghai'))"
 
 # --- 最终镜像 ---
 FROM base
 # libgomp1: 超分二进制的运行时依赖, Real-ESRGAN 与 waifu2x 都动态链接 libgomp.
 # postgresql-client: r18.dev dump 导入走 psql -f 子进程 (见 docs/dev/crawlers.md). 不配 r18 时无害.
-# tzdata: 基础镜像 python:*-slim 已自带; 这里显式列出, 以免将来换基础镜像后 compose 的 TZ 悄悄失效.
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        libgomp1 postgresql-client tzdata \
+# 时区: 基础镜像 python:*-slim 自带系统 tzdata, compose 的 TZ 直接生效, 无需额外安装.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 COPY alembic.ini ./
 COPY --from=web-builder /app/web/dist ./web/dist
