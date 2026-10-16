@@ -22,7 +22,10 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
-_PLACEHOLDER = re.compile(r"\{\{?([A-Za-z_][A-Za-z0-9_]*)\}\}?")
+_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+#: ``{{var}}`` 写法单独一条: 与 ``{var}`` 分两趟替换, 否则 ``{"ok":{success}}`` 结尾的字面 ``}``
+#: 会被当成双花括号的一部分吃掉.
+_BRACED_PLACEHOLDER = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 _MODE_SUFFIXES: dict[str, str] = {"_j": "json", "_u": "url", "_r": "raw"}
 
 
@@ -58,4 +61,4 @@ def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = Fal
             return quote(text, safe="")
         return text
 
-    return _PLACEHOLDER.sub(replace, template)
+    return _PLACEHOLDER.sub(replace, _BRACED_PLACEHOLDER.sub(replace, template))
