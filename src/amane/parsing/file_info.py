@@ -271,15 +271,18 @@ def parse_file_info(
         p = Path(path)
         stem = p.stem
         dirs = _dir_names(p)
-        number, content_type = _identify(stem.strip(), dirs, escape, fallback=True)
-        content_type = _classify_from_path(stem, dirs) or content_type
-        # 先去掉配置里的垃圾串, 再判画质 / 分集 / 中字: 否则 "4k688.com@477GRMO-365" 里的 4k688
-        # 会被画质规则当成 4K, 整理后的文件名就莫名多出 -4K.
-        basename = _strip_junk(stem, escape).upper()
+        # 垃圾串 (如 "4k688.com@") 在判番号 / 画质 / 分集 / 中字 / 马赛克之前就去掉: 只过滤番号那一侧
+        # 的话, "4k688" 会被画质规则 \b4K\d*\b 当成 4K, 整理后的文件名就多出 -4K. 目录名同样过一遍,
+        # 免得垃圾串落在文件夹名里, 影响按目录判类型 / 分集 / 马赛克.
+        stem_clean = _strip_junk(stem, escape)
+        dirs_clean = tuple(_strip_junk(name, escape) for name in dirs)
+        number, content_type = _identify(stem_clean.strip(), dirs_clean, escape, fallback=True)
+        content_type = _classify_from_path(stem_clean, dirs_clean) or content_type
+        basename = stem_clean.upper()
         cd = _detect_cd(basename)
-        if cd is None and dirs:
-            cd = _detect_cd_from_parent(dirs[-1])
-        mosaic = _detect_mosaic(basename) or _detect_mosaic_from_dirs(dirs)
+        if cd is None and dirs_clean:
+            cd = _detect_cd_from_parent(dirs_clean[-1])
+        mosaic = _detect_mosaic(basename) or _detect_mosaic_from_dirs(dirs_clean)
     else:
         # 文本: 只执行番号规则; 未命中则 number 为 None, 相位只依据该字符串.
         assert text is not None
