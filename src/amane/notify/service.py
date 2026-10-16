@@ -31,6 +31,14 @@ logger = structlog.get_logger()
 
 _TERMINAL = frozenset({EventType.TASK_COMPLETED, EventType.TASK_FAILED})
 
+#: ``EventType`` → 配置里的短取值 (``NotifyEvent``, 不带点以便 i18n 选项能查到翻译).
+_EVENT_KEYS: dict[EventType, str] = {
+    EventType.TASK_COMPLETED: "completed",
+    EventType.TASK_FAILED: "failed",
+    EventType.FILE_DISCOVERED: "file_discovered",
+    EventType.FILE_REMOVED: "file_removed",
+}
+
 #: 任务类型 → 通知里的标签 (与面板用词一致).
 _TYPE_LABELS: dict[str, str] = {
     "scrape": "刮削",
@@ -133,9 +141,10 @@ class NotificationService:
     def _matches(self, channel: NotifyChannelConfig, event: Event, variables: dict[str, Any]) -> bool:
         if not channel.enabled or not channel.url:
             return False
-        if channel.events and str(event.type) not in channel.events:
+        if channel.events and _EVENT_KEYS.get(event.type, "") not in {str(item) for item in channel.events}:
             return False
-        return not (channel.task_types and str(variables.get("type", "")) not in channel.task_types)
+        selected = {str(item) for item in channel.task_types}
+        return not (selected and str(variables.get("type", "")) not in selected)
 
     def _dispatch(self, index: int, channel: NotifyChannelConfig, failed: bool, variables: dict[str, Any]) -> None:
         """throttle=0 直接发; 否则攒进窗口, 窗口结束发一条汇总."""

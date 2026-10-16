@@ -598,8 +598,32 @@
           },
           "headers": { "label": "Headers", "description": "Key/value pairs, e.g. Authorization: Bearer xxx" },
           "body": { "label": "Body template", "description": "When it starts with a brace, strings are JSON-escaped, so {\"text\":\"{number} {title}\"} works as-is" },
-          "events": { "label": "Events", "description": "task.completed / task.failed / file.discovered / file.removed; empty = all" },
-          "task_types": { "label": "Task types", "description": "Only notify these types: scrape / organize / cleanup / upscale / rescrape and so on; empty = all" },
+          "events": {
+            "label": "Events",
+            "description": "Tick the events to push; empty = all",
+            "options": {
+              "completed": "Task completed",
+              "failed": "Task failed",
+              "file_discovered": "File discovered",
+              "file_removed": "File removed"
+            }
+          },
+          "task_types": {
+            "label": "Task types",
+            "description": "Only notify the ticked task types; empty = all",
+            "options": {
+              "scrape": "Scrape",
+              "organize": "Organize",
+              "refresh": "Refresh",
+              "cleanup": "Cleanup",
+              "upscale": "Upscale",
+              "r18_import": "R18 import",
+              "actor_scrape": "Actor scrape",
+              "rescrape": "Re-scrape",
+              "scan_invalid": "Scan invalid",
+              "delete": "Delete"
+            }
+          },
           "throttle_seconds": { "label": "Merge window", "description": "Merge events of the same kind within this many seconds into one summary; 0 = send every event" },
           "timeout": { "label": "Timeout", "description": "Per-request timeout (seconds)" }
         }

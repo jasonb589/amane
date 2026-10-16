@@ -60,7 +60,7 @@ def test_notify_channel_validation() -> None:
     )
     channel = config.channels[0]
     assert channel.method is NotifyMethod.POST
-    assert channel.events == ["task.completed", "task.failed"]
+    assert [str(item) for item in channel.events] == ["completed", "failed"]
     assert channel.task_types == []
     assert channel.throttle_seconds == 0
 

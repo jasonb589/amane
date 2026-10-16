@@ -622,6 +622,35 @@ class NotifyMethod(StrEnum):
     GET = "get"
 
 
+class NotifyEvent(StrEnum):
+    """可订阅的事件.
+
+    取值故意不带点: 前端枚举选项的 i18n key 是 ``options.<取值>``, i18next 把点当层级分隔符,
+    ``task.completed`` 这样的取值查不到翻译, 于是退回显示原始值. 与 ``EventType`` 的映射在
+    ``notify/service.py`` 的 ``_EVENT_KEYS`` 里.
+    """
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    FILE_DISCOVERED = "file_discovered"
+    FILE_REMOVED = "file_removed"
+
+
+class NotifyTaskType(StrEnum):
+    """可通知的任务类型 (取值与 ``db.models.TaskType`` 一致, 由测试守住不漂移)."""
+
+    SCRAPE = "scrape"
+    ORGANIZE = "organize"
+    REFRESH = "refresh"
+    CLEANUP = "cleanup"
+    UPSCALE = "upscale"
+    R18_IMPORT = "r18_import"
+    ACTOR_SCRAPE = "actor_scrape"
+    RESCRAPE = "rescrape"
+    SCAN_INVALID = "scan_invalid"
+    DELETE = "delete"
+
+
 class NotifyChannelConfig(BaseModel):
     """一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位."""
 
@@ -631,11 +660,11 @@ class NotifyChannelConfig(BaseModel):
     method: NotifyMethod = NotifyMethod.POST
     headers: dict[str, str] = Field(default_factory=dict, description="附加请求头 (如 Authorization)")
     body: str = Field(default="", description="请求体模板; 以花括号开头时字符串按 JSON 转义")
-    events: list[str] = Field(
-        default_factory=lambda: ["task.completed", "task.failed"],
-        description="订阅的事件; 空 = 全部 (task.completed / task.failed / file.discovered / file.removed)",
+    events: list[NotifyEvent] = Field(
+        default_factory=lambda: [NotifyEvent.COMPLETED, NotifyEvent.FAILED],
+        description="订阅的事件; 空 = 全部",
     )
-    task_types: list[str] = Field(default_factory=list, description="只通知这些任务类型; 空 = 全部")
+    task_types: list[NotifyTaskType] = Field(default_factory=list, description="只通知这些任务类型; 空 = 全部")
     throttle_seconds: int = Field(default=0, ge=0, le=3600, description="同类事件在该窗口内合并成一条; 0 = 不合并")
     timeout: float = Field(default=10.0, ge=1.0, le=120.0, description="单次请求超时 (秒)")
 

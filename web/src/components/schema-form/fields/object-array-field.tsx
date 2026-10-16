@@ -95,6 +95,7 @@ export function ObjectArrayField({
                         name={`${name}[${index}].${fieldName}`}
                         schema={fieldSchema}
                         form={form}
+                        i18nPath={`${i18nPath}.${fieldName}`}
                         i18nPrefix={i18nPrefix}
                       />
                     ))}
