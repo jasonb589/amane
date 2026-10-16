@@ -12,6 +12,7 @@ export function ObjectArrayField({
   itemSchema,
   schema,
   form,
+  i18nPath,
   i18nPrefix,
 }: ArrayFieldProps<ObjectJSONSchema>) {
   const { t } = useTranslation("common");
