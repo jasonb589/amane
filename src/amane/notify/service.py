@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -283,7 +283,7 @@ class NotificationService:
         # 通知里显示本地时间更直观 (按容器 TZ); 库里存的是 UTC naive.
         finished_local = ""
         if task is not None and task.finished_at is not None:
-            finished_local = task.finished_at.replace(tzinfo=datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            finished_local = task.finished_at.replace(tzinfo=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
         return {
             "task_id": raw_id if isinstance(raw_id, int) else "",
             "type": task_type,
