@@ -33,7 +33,17 @@ class _StubRepo:
 
     async def get_metadata_by_number(self, number: str) -> Any:
         del number
-        return type("Meta", (), {"title": self._title})()
+        return type(
+            "Meta",
+            (),
+            {
+                "title": self._title,
+                "poster_url": "https://img.test/poster.jpg",
+                "poster_urls": ["https://img.test/poster.jpg"],
+                "thumb_url": "",
+                "thumb_urls": [],
+            },
+        )()
 
     async def get_library(self, library_id: int) -> Any:
         del library_id
@@ -81,7 +91,7 @@ def test_service_renders_and_sends(tmp_path: Path) -> None:
         {
             "name": "stub",
             "url": "https://example.test/{number}",
-            "body": '{"text":"{type_label} {status} {number} {title} {library} {duration} {count} {link} tail={log_tail}"}',
+            "body": '{"text":"{type_label} {status} {number} {title} {library} {duration} {count} {link} poster={poster_url} tail={log_tail}"}',
         }
     )
     config = NotifyConfig(enabled=True, panel_url="https://amane.test/", log_tail_lines=2, channels=[channel])
@@ -103,7 +113,10 @@ def test_service_renders_and_sends(tmp_path: Path) -> None:
     body = call["data"]
     # JSON 模式: 日志尾部的换行被转义成 \n, 面板链接来自 panel_url.
     tail = json.dumps("line2\nline3", ensure_ascii=False)[1:-1]
-    assert f'"刮削 成功 ABC-001 标题 A 正常 1m23s 1 https://amane.test/tasks tail={tail}"' in body
+    assert (
+        f'"刮削 成功 ABC-001 标题 A 正常 1m23s 1 https://amane.test/tasks poster=https://img.test/poster.jpg tail={tail}"'
+        in body
+    )
 
 
 def test_service_skips_when_disabled() -> None:

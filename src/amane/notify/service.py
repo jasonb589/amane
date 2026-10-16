@@ -206,9 +206,15 @@ class NotificationService:
         task_type = str(task.type) if task is not None else str(event.data.get("type") or "")
         number = await self._number(repo, payload)
         title = ""
+        poster = ""
+        thumb = ""
         if number and repo is not None:
             metadata = await repo.get_metadata_by_number(number)
-            title = (metadata.title or "") if metadata is not None else ""
+            if metadata is not None:
+                title = metadata.title or ""
+                # 通知里带图: 单个字段优先, 没有就取候选列表第一项 (DMM 高清 CDN 这类地址可直接交给 Telegram 抓取).
+                poster = metadata.poster_url or (metadata.poster_urls[0] if metadata.poster_urls else "")
+                thumb = metadata.thumb_url or (metadata.thumb_urls[0] if metadata.thumb_urls else "")
         library = ""
         library_id = payload.get("library_id")
         if repo is not None and isinstance(library_id, int):
@@ -230,6 +236,8 @@ class NotificationService:
             "number": number,
             "title": title,
             "library": library,
+            "poster_url": poster,
+            "thumb_url": thumb,
             "finished_at": finished,
             "link": f"{config.panel_url.rstrip('/')}/tasks" if config.panel_url else "",
             "log_tail": await self._log_tail(raw_id, config.log_tail_lines) if config.log_tail_lines > 0 else "",
