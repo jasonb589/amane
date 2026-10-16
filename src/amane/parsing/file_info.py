@@ -273,7 +273,9 @@ def parse_file_info(
         dirs = _dir_names(p)
         number, content_type = _identify(stem.strip(), dirs, escape, fallback=True)
         content_type = _classify_from_path(stem, dirs) or content_type
-        basename = stem.upper()
+        # 先去掉配置里的垃圾串, 再判画质 / 分集 / 中字: 否则 "4k688.com@477GRMO-365" 里的 4k688
+        # 会被画质规则当成 4K, 整理后的文件名就莫名多出 -4K.
+        basename = _strip_junk(stem, escape).upper()
         cd = _detect_cd(basename)
         if cd is None and dirs:
             cd = _detect_cd_from_parent(dirs[-1])
@@ -283,7 +285,7 @@ def parse_file_info(
         assert text is not None
         dirs = ()
         number, content_type = _identify(text, dirs, escape, fallback=False)
-        basename = Path(text).stem.upper()
+        basename = _strip_junk(Path(text).stem, escape).upper()
         cd = _detect_cd(basename)
         mosaic = _detect_mosaic(basename)
     return FileInfo(
@@ -419,17 +421,26 @@ def _prepare(basename: str, escape_strings: list[str]) -> _Prepared:
     return _Prepared(escaped=escaped, dated=dated, catalog=catalog)
 
 
-def _remove_escape_strings(filename: str, escape_strings: list[str]) -> str:
-    text = filename
+def _strip_junk(text: str, escape_strings: list[str]) -> str:
+    """按配置去掉垃圾串 (``r:`` 前缀按正则, 忽略大小写), 其它归一化留给调用方.
+
+    番号识别与画质 / 分集 / 中字标记识别共用这一步: 垃圾串里常含 "4k" 这类词
+    (如 ``4k688.com@``), 只把番号那一侧过滤掉会让画质误判.
+    """
     for string in escape_strings:
+        if not string:
+            continue
         if string.startswith("r:"):
             # r: 前缀 = 正则 (忽略大小写); 写错的正则忽略, 不影响解析.
             with contextlib.suppress(re.error):
                 text = re.sub(string[2:], "", text, flags=re.IGNORECASE)
-    upper = text.upper()
-    for string in escape_strings:
-        if string and not string.startswith("r:"):
-            upper = upper.replace(string.upper(), "")
+        else:
+            text = re.sub(re.escape(string), "", text, flags=re.IGNORECASE)
+    return text
+
+
+def _remove_escape_strings(filename: str, escape_strings: list[str]) -> str:
+    upper = _strip_junk(filename, escape_strings).upper()
     for marker in _ESCAPE_MARKERS:
         upper = re.sub(rf"[-_ .\[]{marker}[-_ .\]]", "-", upper)
     return upper.replace("--", "-").strip("-_ .")
