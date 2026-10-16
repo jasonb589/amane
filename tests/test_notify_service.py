@@ -165,9 +165,9 @@ class _RecordingWeb:
 def test_batch_line_summarises_numbers() -> None:
     """只有一项时不显示摘要行; 多项时列出番号, 超过上限折成" 等 N 个"."""
     assert _batch_line(1, ["ABC-1"]) == ""
-    assert _batch_line(3, ["ABC-1", "ABC-2", "ABC-3"]) == "共 3 项：ABC-1、ABC-2、ABC-3"
-    assert _batch_line(2, []) == "共 2 项"
-    assert _batch_line(12, [f"A-{i}" for i in range(12)], limit=3) == "共 12 项：A-0、A-1、A-2 等 12 个"
+    assert _batch_line(3, ["ABC-1", "ABC-2", "ABC-3"]) == "\n共 3 项：ABC-1、ABC-2、ABC-3"
+    assert _batch_line(2, []) == "\n共 2 项"
+    assert _batch_line(12, [f"A-{i}" for i in range(12)], limit=3) == "\n共 12 项：A-0、A-1、A-2 等 12 个"
 
 
 def test_quiet_window_merges_events_into_one_summary() -> None:
@@ -181,7 +181,7 @@ def test_quiet_window_merges_events_into_one_summary() -> None:
         throttle_seconds=1,
         max_wait_seconds=30,
     )
-    service.configure(NotifyConfig(enabled=True, channels=[channel]), web, None, None)  # type: ignore[arg-type]
+    service.configure(NotifyConfig(enabled=True, channels=[channel]), web_client=web, repo=None, log_dir=None)
 
     async def run() -> None:
         for number in ("ABC-1", "ABC-2", "ABC-3"):
@@ -209,7 +209,7 @@ def test_max_wait_flushes_while_events_keep_arriving() -> None:
         throttle_seconds=2,
         max_wait_seconds=1,
     )
-    service.configure(NotifyConfig(enabled=True, channels=[channel]), web, None, None)  # type: ignore[arg-type]
+    service.configure(NotifyConfig(enabled=True, channels=[channel]), web_client=web, repo=None, log_dir=None)
 
     async def run() -> None:
         for _ in range(5):

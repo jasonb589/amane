@@ -94,8 +94,7 @@ def _local_time(value: datetime) -> str:
     return value.replace(tzinfo=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _batch_line(count: int, numbers: list[str], *, limit: int = 10) -> str:
-    """合并成多条时的摘要行; 只有一项时返回空串 (模板里那一行自然消失)."""
+    """合并成多条时的摘要行: 以换行开头, 只有一项时返回空串 (模板里那一段自然消失)."""
     if count <= 1:
         return ""
     text = f"共 {count} 项"
@@ -104,7 +103,7 @@ def _batch_line(count: int, numbers: list[str], *, limit: int = 10) -> str:
         if len(numbers) > limit:
             shown = f"{shown} 等 {len(numbers)} 个"
         text = f"{text}：{shown}"
-    return text
+    return "\n" + text
 
 
 @dataclass
