@@ -601,27 +601,31 @@
           "events": {
             "label": "Events",
             "description": "Tick the events to push; empty = all",
-            "options": {
-              "completed": "Task completed",
-              "failed": "Task failed",
-              "file_discovered": "File discovered",
-              "file_removed": "File removed"
+            "$": {
+              "options": {
+                "completed": "Task completed",
+                "failed": "Task failed",
+                "file_discovered": "File discovered",
+                "file_removed": "File removed"
+              }
             }
           },
           "task_types": {
             "label": "Task types",
             "description": "Only notify the ticked task types; empty = all",
-            "options": {
-              "scrape": "Scrape",
-              "organize": "Organize",
-              "refresh": "Refresh",
-              "cleanup": "Cleanup",
-              "upscale": "Upscale",
-              "r18_import": "R18 import",
-              "actor_scrape": "Actor scrape",
-              "rescrape": "Re-scrape",
-              "scan_invalid": "Scan invalid",
-              "delete": "Delete"
+            "$": {
+              "options": {
+                "scrape": "Scrape",
+                "organize": "Organize",
+                "refresh": "Refresh",
+                "cleanup": "Cleanup",
+                "upscale": "Upscale",
+                "r18_import": "R18 import",
+                "actor_scrape": "Actor scrape",
+                "rescrape": "Re-scrape",
+                "scan_invalid": "Scan invalid",
+                "delete": "Delete"
+              }
             }
           },
           "throttle_seconds": { "label": "Merge window", "description": "Merge events of the same kind within this many seconds into one summary; 0 = send every event" },

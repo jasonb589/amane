@@ -601,27 +601,31 @@
           "events": {
             "label": "订阅事件",
             "description": "勾选要推送的事件; 留空 = 全部",
-            "options": {
-              "completed": "任务完成",
-              "failed": "任务失败",
-              "file_discovered": "发现新文件",
-              "file_removed": "文件移除"
+            "$": {
+              "options": {
+                "completed": "任务完成",
+                "failed": "任务失败",
+                "file_discovered": "发现新文件",
+                "file_removed": "文件移除"
+              }
             }
           },
           "task_types": {
             "label": "任务类型",
             "description": "只通知勾选的任务类型; 留空 = 全部",
-            "options": {
-              "scrape": "刮削",
-              "organize": "整理",
-              "refresh": "刷新",
-              "cleanup": "清理",
-              "upscale": "超分",
-              "r18_import": "R18 导入",
-              "actor_scrape": "演员刮削",
-              "rescrape": "重新刮削",
-              "scan_invalid": "扫描无效文件",
-              "delete": "删除"
+            "$": {
+              "options": {
+                "scrape": "刮削",
+                "organize": "整理",
+                "refresh": "刷新",
+                "cleanup": "清理",
+                "upscale": "超分",
+                "r18_import": "R18 导入",
+                "actor_scrape": "演员刮削",
+                "rescrape": "重新刮削",
+                "scan_invalid": "扫描无效文件",
+                "delete": "删除"
+              }
             }
           },
           "throttle_seconds": { "label": "合并窗口", "description": "同类事件在该秒数内合并成一条汇总 (适合批量刮削); 0 = 每条都发" },
