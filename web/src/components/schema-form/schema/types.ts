@@ -12,6 +12,7 @@ export interface AmaneBaseExtensions {
   "x-widget"?: AmaneWidget;
   "x-hidden"?: boolean;
   "x-readonly"?: boolean;
+  "x-collapsible"?: boolean;
   /**
    * 在 dict 上下文中, 仅当 key 匹配时显示此子字段
    * @example "x-visible-keys": ["title", "plot"] → 仅在这些 key 下渲染

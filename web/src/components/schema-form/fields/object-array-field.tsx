@@ -1,6 +1,6 @@
 import { ActionIcon, Button, Divider, Group, Paper, Stack, Text } from "@mantine/core";
 import { useState } from "react";
-import { IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { useTranslation } from "react-i18next";
 import type { ArrayFieldProps, ObjectJSONSchema } from "../schema";
