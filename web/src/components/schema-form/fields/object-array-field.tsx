@@ -1,4 +1,5 @@
 import { ActionIcon, Button, Divider, Group, Paper, Stack, Text } from "@mantine/core";
+import { useState } from "react";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { useTranslation } from "react-i18next";
@@ -17,6 +18,9 @@ export function ObjectArrayField({
 }: ArrayFieldProps<ObjectJSONSchema>) {
   const { t } = useTranslation("common");
   const readonly = schema["x-readonly"] ?? false;
+  // 折叠模式 (x-collapsible): 一次只展开一个卡片, 免得一屏铺满十几行 (通知渠道用).
+  const collapsible = schema["x-collapsible"] === true || name === "notify.channels";
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   const properties = itemSchema.properties ?? {};
 
@@ -52,7 +56,10 @@ export function ObjectArrayField({
                   size="xs"
                   variant="outline"
                   leftSection={<IconPlus size={14} />}
-                  onClick={() => field.handleChange([...items, createDefaultItem()])}
+                  onClick={() => {
+                    field.handleChange([...items, createDefaultItem()]);
+                    setOpenIndex(items.length);
+                  }}
                 >
                   {t("actions.add")}
                 </Button>
@@ -66,43 +73,69 @@ export function ObjectArrayField({
                 </Text>
               )}
 
-              {items.map((_, index) => (
-                <Paper key={index} withBorder radius="md" p="sm">
-                  <Group justify="space-between" mb="xs">
-                    <Text size="sm" fw={500}>
-                      Item {index + 1}
-                    </Text>
-                    {!readonly && (
-                      <ActionIcon
-                        variant="subtle"
-                        color="gray"
-                        size="sm"
-                        aria-label={`Remove item ${index + 1}`}
-                        onClick={() => {
-                          const next = [...items];
-                          next.splice(index, 1);
-                          field.handleChange(next);
-                        }}
+              {items.map((item, index) => {
+                const record = (item ?? {}) as Record<string, unknown>;
+                const expanded = !collapsible || openIndex === index;
+                const title = collapsible ? String(record.name ?? "") : "";
+                return (
+                  <Paper key={index} withBorder radius="md" p="sm">
+                    <Group justify="space-between" mb={expanded ? "xs" : 0} wrap="nowrap">
+                      <Group
+                        gap="xs"
+                        wrap="nowrap"
+                        style={{ flex: 1, cursor: collapsible ? "pointer" : undefined }}
+                        onClick={
+                          collapsible
+                            ? () => setOpenIndex((current) => (current === index ? null : index))
+                            : undefined
+                        }
                       >
-                        <IconTrash size={14} />
-                      </ActionIcon>
+                        {collapsible && (
+                          <IconChevronRight
+                            size={14}
+                            style={{ transform: expanded ? "rotate(90deg)" : undefined, flexShrink: 0 }}
+                          />
+                        )}
+                        <Text size="sm" fw={500}>
+                          {collapsible && title ? title : `Item ${index + 1}`}
+                        </Text>
+                      </Group>
+                      {!readonly && (
+                        <ActionIcon
+                          variant="subtle"
+                          color="gray"
+                          size="sm"
+                          aria-label={`Remove item ${index + 1}`}
+                          onClick={() => {
+                            const next = [...items];
+                            next.splice(index, 1);
+                            field.handleChange(next);
+                          }}
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      )}
+                    </Group>
+                    {expanded && (
+                      <>
+                        <Divider mb="xs" />
+                        <Stack gap={0} pl="xs">
+                          {Object.entries(properties).map(([fieldName, fieldSchema]) => (
+                            <FieldRouter
+                              key={fieldName}
+                              name={`${name}[${index}].${fieldName}`}
+                              schema={fieldSchema}
+                              form={form}
+                              i18nPath={`${i18nPath}.${fieldName}`}
+                              i18nPrefix={i18nPrefix}
+                            />
+                          ))}
+                        </Stack>
+                      </>
                     )}
-                  </Group>
-                  <Divider mb="xs" />
-                  <Stack gap={0} pl="xs">
-                    {Object.entries(properties).map(([fieldName, fieldSchema]) => (
-                      <FieldRouter
-                        key={fieldName}
-                        name={`${name}[${index}].${fieldName}`}
-                        schema={fieldSchema}
-                        form={form}
-                        i18nPath={`${i18nPath}.${fieldName}`}
-                        i18nPrefix={i18nPrefix}
-                      />
-                    ))}
-                  </Stack>
-                </Paper>
-              ))}
+                  </Paper>
+                );
+              })}
             </Stack>
           </Stack>
         );

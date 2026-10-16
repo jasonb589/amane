@@ -716,7 +716,11 @@ class NotifyConfig(BaseModel):
     enabled: bool = False
     panel_url: str = Field(default="", description="面板地址, 用于 link 变量; 如 https://amane.example.com")
     log_tail_lines: int = Field(default=0, ge=0, le=200, description="大于 0 时把任务日志最后 N 行放进 log_tail")
-    channels: list[NotifyChannelConfig] = Field(default_factory=list, description="渠道列表, 每个渠道一段模板")
+    channels: list[NotifyChannelConfig] = Field(
+        default_factory=list,
+        description="渠道列表, 每个渠道一条通知 (界面里折叠显示, 一次展开一个)",
+        json_schema_extra={"x-collapsible": True},
+    )
 
 
 class LoggingConfig(BaseModel):
