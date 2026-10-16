@@ -88,6 +88,11 @@ def _format_duration(started: datetime | None, finished: datetime | None) -> str
     return f"{hours}h{minutes:02d}m"
 
 
+def _local_time(value: datetime) -> str:
+    """库里存的是 UTC naive 时间, 通知里按容器时区显示 (compose 的 TZ 决定)."""
+    return value.replace(tzinfo=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
 @dataclass
 class _Pending:
     """合并窗口内累积的同渠道同类事件."""
@@ -283,7 +288,7 @@ class NotificationService:
         # 通知里显示本地时间更直观 (按容器 TZ); 库里存的是 UTC naive.
         finished_local = ""
         if task is not None and task.finished_at is not None:
-            finished_local = task.finished_at.replace(tzinfo=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            finished_local = _local_time(task.finished_at)
         return {
             "task_id": raw_id if isinstance(raw_id, int) else "",
             "type": task_type,

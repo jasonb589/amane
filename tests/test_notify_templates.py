@@ -76,16 +76,18 @@ def test_notify_events_accept_legacy_dotted_values() -> None:
     assert [str(item) for item in config.channels[0].events] == ["completed"]
 
 
-def test_render_jinja_mode() -> None:
-    """模板出现 ``{{`` / ``{%`` 时走 Jinja2: 支持条件、default 过滤器与切片."""
-    pytest.importorskip("jinja2")  # jinja2 是间接依赖: 镜像里单独装 (见 Dockerfile), 测试环境可能没有
-    variables = {"number": "ABC-001", "plot": "一二三四五六七八九十", "empty": ""}
-    assert render("{{ number }}", variables) == "ABC-001"
-    assert render("{% if number %}有{% else %}无{% endif %}", variables) == "有"
-    assert render("{{ nothing | default('N/A') }}", variables) == "N/A"
+def test_render_truncation() -> None:
+    """截断: {plot:3} / {plot[:3]} / 老写法 {{ plot[:3] | j }} 都只取前 N 个字符."""
+    variables = {"plot": "一二三四五六七八九十"}
+    assert render("{plot:3}", variables) == "一二三"
     assert render("{{ plot[:3] }}", variables) == "一二三"
-    # JSON 模板里字符串值要自己加 |j 过滤器 (Jinja 模式不自动转义)
-    assert render('{"t":"{{ number | j }}"}', variables, json_mode=True) == '{"t":"ABC-001"}'
-    assert render('{"t":"{{ nothing | j }}"}', variables, json_mode=True) == '{"t":""}'
-    # 语法写错时退回简写引擎, 不抛异常
-    assert render("{% if number %}", variables) == "{% if number %}"
+    assert render('{"plot":"{{ plot[:4] | j }}"}', variables, json_mode=True) == '{"plot":"一二三四"}'
+    assert render("{plot:99}", variables) == "一二三四五六七八九十"
+
+
+def test_render_legacy_filter_syntax() -> None:
+    """过滤器写法与 _j 后缀等价 (老模板 {{ x | j }} 仍可用); 认不出的占位原样保留."""
+    variables = {"title": "无码"}
+    assert render('{"t":"{{ title | j }}"}', variables, json_mode=True) == '{"t":"无码"}'
+    assert render("{{ nothing }}", variables) == "{{ nothing }}"
+    assert render("{% if title %}", variables) == "{% if title %}"

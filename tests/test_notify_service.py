@@ -15,7 +15,7 @@ from typing import Any
 from amane.config.manager import NotifyChannelConfig, NotifyConfig
 from amane.db.models import Task, TaskType
 from amane.events import Event, EventType
-from amane.notify.service import NotificationService
+from amane.notify.service import NotificationService, _local_time
 
 _STARTED = datetime(2026, 10, 16, 9, 0, 0, tzinfo=UTC)
 
@@ -137,3 +137,10 @@ def test_service_skips_when_disabled() -> None:
 
     asyncio.run(run())
     assert web.calls == []
+
+
+def test_local_time_formats_container_timezone() -> None:
+    """通知里的本地时间: 库里是 UTC naive, 显示时按容器时区 (compose 的 TZ) 转一次."""
+    text = _local_time(datetime(2026, 10, 16, 12, 44, 36))
+    assert len(text) == 19 and text[4] == "-" and text[13] == ":"
+    assert text.startswith("2026-10-16 ")

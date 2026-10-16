@@ -1,15 +1,14 @@
-"""通知模板渲染: 支持 ``{变量}`` 简写, 也支持 Jinja2 (``{{ 变量 }}`` / ``{% if %}``).
+"""通知模板渲染: 内置 ``{变量}`` 简写引擎 (不引入 Jinja2, 一种语法到底).
 
-两种写法自动切换: 模板里出现 ``{{`` 或 ``{%`` 就交给 Jinja2, 否则用内置的简写替换.
-简写形式下 ``{name}`` / ``{{name}}`` 都认, 认不出的占位原样保留 (模板写错时能一眼看见,
-JSON 结构也不会被吃掉).
+写法 (大括号一层两层都认, 空格随意):
 
-简写形式的取值后缀: ``{title_j}`` JSON 转义 · ``{title_u}`` URL 编码 · ``{title_r}`` 强制原样;
-``render(..., json_mode=True)`` 时字符串默认按 JSON 转义, 数字与布尔不加引号.
+* 取值: ``{number}`` / ``{{number}}`` / ``{{ number }}``
+* 截断: ``{plot:300}`` 或 ``{plot[:300]}`` —— 只取前 N 个字符, 例如 Telegram 标题 1024 字上限
+* 取值方式: ``{title_j}`` JSON 转义 · ``{title_u}`` URL 编码 · ``{title_r}`` 强制原样
+* 过滤器写法 (与后缀等价, 兼容老模板): ``{{ title | j }}``
 
-**Jinja2 形式不做自动转义**: 拼 JSON 时字符串值要自己加 ``|j`` 过滤器, 例如
-``{"text":"{{ title | j }}"}}``; 纯文本模板直接 ``{{ title }}`` 即可. 常用过滤器还有
-``| default('N/A')`` 与切片 ``{{ plot[:200] }}``.
+``render(..., json_mode=True)`` 时字符串默认按 JSON 转义, 数字与布尔不加引号 (拼 JSON body 用).
+认不出的占位**原样保留**: 模板写错时正文里能看见, JSON 结构也不会被吃掉.
 """
 
 from __future__ import annotations
@@ -20,17 +19,20 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
-try:  # Jinja2 由上游依赖间接提供; 缺失时只禁用 ``{{ }}`` 写法, 不影响简写形式.
-    from jinja2 import Environment, Undefined
-except ImportError:  # pragma: no cover - 依赖存在时为 False
-    Environment = None  # type: ignore[assignment]
-    Undefined = None  # type: ignore[assignment]
+#: 双花括号与单花括号分两趟替换: 否则 ``{"ok":{success}}`` 结尾那半个 ``}`` 会被双花括号规则吃掉.
+_DOUBLE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}\}")
+_SINGLE = re.compile(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}")
 
-_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-#: ``{{var}}`` 写法单独一条: 与 ``{var}`` 分两趟替换, 否则 ``{"ok":{success}}`` 结尾的字面 ``}``
-#: 会被当成双花括号的一部分吃掉.
-_BRACED_PLACEHOLDER = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
+#: ``_j`` / ``_u`` / ``_r`` 后缀 与 ``| j`` / ``| u`` / ``| r`` 过滤器等价.
 _MODE_SUFFIXES: dict[str, str] = {"_j": "json", "_u": "url", "_r": "raw"}
+_FILTERS: dict[str, str] = {
+    "j": "json",
+    "json": "json",
+    "u": "url",
+    "url": "url",
+    "r": "raw",
+    "raw": "raw",
+}
 
 
 def json_escape(value: str) -> str:
@@ -38,47 +40,39 @@ def json_escape(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)[1:-1]
 
 
-def _jinja_env() -> Any:
-    """懒建 Jinja 环境: 不自动转义 (输出是 JSON / 纯文本, 不是 HTML), 变量缺失渲染成空串."""
-    assert Environment is not None
-    env = Environment(autoescape=False, undefined=Undefined, keep_trailing_newline=True)
-    env.filters["j"] = json_escape
-    env.filters["json"] = json_escape
-    return env
-
-
-_JINJA_ENV: Any = None
-
-
-def _render_jinja(template: str, variables: Mapping[str, Any]) -> str | None:
-    global _JINJA_ENV
-    if Environment is None:
-        return None
-    if _JINJA_ENV is None:
-        _JINJA_ENV = _jinja_env()
-    try:
-        return _JINJA_ENV.from_string(template).render(**variables)
-    except Exception:  # Jinja 语法错误: 退回简写替换, 让占位原样留在正文里
-        return None
+def _parse_tail(tail: str) -> tuple[str | None, int | None]:
+    """解析占位符尾部: ``| j`` 过滤器 与 ``:N`` / ``[:N]`` 截断 (两者顺序随意)."""
+    mode: str | None = None
+    limit: int | None = None
+    for chunk in tail.split("|"):
+        piece = chunk.strip()
+        if not piece:
+            continue
+        if piece.startswith("[:") and piece.endswith("]"):
+            piece = piece[1:]
+        if piece.startswith(":"):
+            digits = piece[1:].strip()
+            if digits.isdigit():
+                limit = int(digits)
+            continue
+        mode = _FILTERS.get(piece.lower(), mode)
+    return mode, limit
 
 
 def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = False) -> str:
-    """渲染模板: 含 ``{{`` / ``{%`` 走 Jinja2, 否则按 ``{变量}`` 简写替换."""
-    if "{{" in template or "{%" in template:
-        rendered = _render_jinja(template, variables)
-        if rendered is not None:
-            return rendered
-
+    """把模板里的占位符换成变量值; 认不出的占位原样保留."""
     default_mode = "json" if json_mode else ""
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
-        mode = default_mode
-        for suffix, kind in _MODE_SUFFIXES.items():
-            stripped = name[: -len(suffix)]
-            if name.endswith(suffix) and stripped in variables:
-                name, mode = stripped, kind
-                break
+        mode, limit = _parse_tail(match.group(2))
+        if mode is None:
+            mode = default_mode
+            for suffix, kind in _MODE_SUFFIXES.items():
+                stripped = name[: -len(suffix)]
+                if name.endswith(suffix) and stripped in variables:
+                    name, mode = stripped, kind
+                    break
         if name not in variables:
             return match.group(0)
         value = variables[name]
@@ -88,10 +82,12 @@ def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = Fal
         if isinstance(value, int | float):
             return str(value)
         text = "" if value is None else str(value)
+        if limit is not None:
+            text = text[:limit]
         if mode == "json":
             return json_escape(text)
         if mode == "url":
             return quote(text, safe="")
         return text
 
-    return _PLACEHOLDER.sub(replace, _BRACED_PLACEHOLDER.sub(replace, template))
+    return _SINGLE.sub(replace, _DOUBLE.sub(replace, template))

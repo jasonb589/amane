@@ -27,16 +27,17 @@ RUN uv pip install --python /app/.venv/bin/python "opencv-python-headless>=5.0" 
     && /app/.venv/bin/python -c "import cv2; print('opencv ok:', cv2.__version__)"
 # 轻量人脸模型 (YuNet): 下载失败就退回 OpenCV 自带的 Haar 级联, 不影响构建.
 RUN mkdir -p /app/models && /app/.venv/bin/python -c "import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx', '/app/models/face_detection_yunet.onnx')" || echo "face model download skipped (will fall back to Haar cascade)"
-# 通知模板的 Jinja2 写法 ({{ 变量 }} / {% if %}): 它只在依赖树里间接出现, 不在 lock 的直接依赖里,
-# 因此像 opencv 一样单独装上; 缺失时通知模板只支持内置的 {变量} 简写, 不影响其它功能.
-RUN uv pip install --python /app/.venv/bin/python "jinja2>=3.1" \
-    && /app/.venv/bin/python -c "import jinja2; print('jinja2 ok:', jinja2.__version__)"
+# 时区数据: python:slim 不带 tzdata, compose 里的 TZ 会失效, 这里补上 (通知里的本地时间、日志时间戳).
+RUN uv pip install --python /app/.venv/bin/python "tzdata" \
+    && /app/.venv/bin/python -c "from zoneinfo import ZoneInfo; print('tz ok:', ZoneInfo('Asia/Shanghai'))"
 
 # --- 最终镜像 ---
 FROM base
 # libgomp1: 超分二进制的运行时依赖, Real-ESRGAN 与 waifu2x 都动态链接 libgomp.
 # postgresql-client: r18.dev dump 导入走 psql -f 子进程 (见 docs/dev/crawlers.md). 不配 r18 时无害.
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 postgresql-client \
+# tzdata: 让 compose 的 TZ 生效 (通知里的本地时间、日志时间戳); slim 镜像默认不带时区库.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libgomp1 postgresql-client tzdata \
     && rm -rf /var/lib/apt/lists/*
 COPY alembic.ini ./
 COPY --from=web-builder /app/web/dist ./web/dist
