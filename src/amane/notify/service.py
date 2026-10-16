@@ -255,13 +255,17 @@ class NotificationService:
                 if parsed:
                     return parsed
         return ""
-__all__ = ["NotificationService"]
+def _read_tail(path: Path, lines: int) -> str:
+    """读取文件末尾 N 行; 读不到返回空串."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
     tail = text.splitlines()[-lines:]
     return "\n".join(tail)
+
+
+__all__ = ["NotificationService"]
 
 
 __all__ = ["NotificationService"]
