@@ -48,8 +48,9 @@ def _parse_tail(tail: str) -> tuple[str | None, int | None]:
         piece = chunk.strip()
         if not piece:
             continue
-        if piece.startswith("[:") and piece.endswith("]"):
-            piece = piece[1:]
+        if piece.startswith("[") and piece.endswith("]"):
+            # 兼容 Python 切片写法 ``[:300]``
+            piece = piece[1:-1].strip()
         if piece.startswith(":"):
             digits = piece[1:].strip()
             if digits.isdigit():
