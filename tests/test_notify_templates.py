@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from amane.config.manager import HotSettings, NotifyConfig, NotifyMethod
@@ -18,9 +20,8 @@ def test_render_plain() -> None:
 
 def test_render_json_mode_escapes_strings_only() -> None:
     # JSON 模式: 字符串转义引号与换行, 数字与布尔保持字面量 (不加引号).
-    assert render('{"text":"{number} {title}"}', _VARIABLES, json_mode=True) == (
-        '{"text":"JUR-517 a \\"b\\"\\nc"}'
-    )
+    inner = json.dumps('JUR-517 a "b"\nc', ensure_ascii=False)
+    assert render('{"text":"{number} {title}"}', _VARIABLES, json_mode=True) == '{"text":' + inner + "}"
     assert render('{"count":{count},"ok":{success}}', _VARIABLES, json_mode=True) == '{"count":3,"ok":true}'
 
 
