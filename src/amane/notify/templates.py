@@ -33,7 +33,7 @@ def json_escape(value: str) -> str:
 
 def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = False) -> str:
     """把 ``{变量}`` 替换成对应的值; 未定义的占位保持原样."""
-    default_mode = "raw" if json_mode else ""
+    default_mode = "json" if json_mode else ""
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
