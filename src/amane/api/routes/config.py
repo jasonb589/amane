@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 
 from ...config import HotSettings
+from ...config.manager import NotifyChannelConfig
 from ...events import Event, EventType
 from ..deps import ConfigDep, PluginManagerDep, RuntimeDep
 
@@ -44,3 +45,16 @@ async def update_config(req: dict[str, Any], config: ConfigDep, runtime: Runtime
 @router.get("/schema")
 async def get_config_schema(plugin_manager: PluginManagerDep) -> dict:
     return plugin_manager.augment_config_schema(HotSettings.model_json_schema())
+
+
+@router.post("/notify/test")
+async def test_notify(req: dict[str, Any], runtime: RuntimeDep) -> dict[str, Any]:
+    """用界面里正在编辑的渠道配置发一条测试通知 (不必先保存)."""
+    try:
+        channel = NotifyChannelConfig.model_validate(req)
+    except (KeyError, ValidationError, ValueError) as e:
+        logger.warning("notify test rejected", error=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    ok, message = await runtime.notifier.send_test(channel)
+    logger.info("notify test sent", ok=ok, message=message)
+    return {"ok": ok, "message": message}

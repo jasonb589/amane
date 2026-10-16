@@ -10,6 +10,7 @@ import {
   isEnum,
   isHidden,
   isLibrary,
+  isNotifyTest,
   isNumeric,
   isObject,
   isPath,
@@ -21,6 +22,7 @@ import { EnumArrayField } from "./enum-array-field";
 import { EnumField } from "./enum-field";
 import classes from "./field-router.module.css";
 import { LibraryField } from "./library-field";
+import { NotifyTestField } from "./notify-test-field";
 import { NumericField } from "./numeric-field";
 import { ObjectArrayField } from "./object-array-field";
 import { PathField } from "./path-field";
@@ -92,6 +94,11 @@ export function FieldRouter({
   if (isLibrary(schema)) {
     devLog.info(TAG, `→ LibraryField: ${name}`);
     return <LibraryField schema={schema} {...basic} />;
+  }
+
+  if (isNotifyTest(schema)) {
+    devLog.info(TAG, `→ NotifyTestField: ${name}`);
+    return <NotifyTestField schema={schema} {...basic} />;
   }
 
   if (isBool(schema)) {

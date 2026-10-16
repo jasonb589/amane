@@ -609,6 +609,7 @@
           "text": { "label": "Message body", "description": "Plain-text template with {variables}: {type_label} {status} {number} {title} {library} {duration} {finished_at_local} {category_label} {plot} {actors} {tags} {studio} {release} {poster_url} {link} {log_tail} {count} {numbers} {batch} {error}; empty uses the built-in default" },
           "parse_mode": { "label": "Parse mode", "description": "Telegram only: HTML or MarkdownV2; empty means plain text" },
           "send_photo": { "label": "Send as photo", "description": "Telegram only: when poster_url exists, use sendPhoto with the body as caption" },
+          "test_send": { "label": "Send test", "description": "Send one real test message using the values above - no need to save first" },
           "events": {
             "label": "Events",
             "description": "Tick the events to push; empty = all",

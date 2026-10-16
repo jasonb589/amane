@@ -174,7 +174,7 @@ class NotificationService:
         self._repo: Repository | None = None
         self._log_dir: Path | None = None
         self._pending: dict[tuple[int, bool], _Pending] = {}
-        self._sending: set[asyncio.Task[None]] = set()
+        self._sending: set[asyncio.Task[Any]] = set()
 
     def configure(
         self,
@@ -291,18 +291,18 @@ class NotificationService:
         self._sending.add(task)
         task.add_done_callback(self._sending.discard)
 
-    async def _send(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> None:
+    async def _send(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[bool, str]:
         web = self._web
         if web is None:  # pragma: no cover - enabled 已保证非空
-            return
+            return False, "网络客户端未就绪"
         label = channel.name or channel.url or str(channel.provider)
         if channel.provider is not NotifyProvider.CUSTOM:
             if not channel.token.strip():
                 logger.warning("notify channel skipped: token missing", channel=label)
-                return
+                return False, "缺少 Token / Key"
             if channel.provider is NotifyProvider.TELEGRAM and not channel.chat_id.strip():
                 logger.warning("notify channel skipped: chat_id missing", channel=label)
-                return
+                return False, "缺少频道 / 群 ID"
         url, headers, body = build_request(channel, variables)
         if body.lstrip().startswith("{") and not any(key.lower() == "content-type" for key in headers):
             # 不带 Content-Type 时对方会按表单解析 body, Telegram 会直接回
@@ -320,14 +320,27 @@ class NotificationService:
             )
         except RequestError as exc:
             logger.warning("notify request failed", channel=label, error=str(exc))
-            return
+            return False, f"请求失败: {exc}"
         if response.status_code >= 400:
+            detail = response.text[:200]
             logger.warning(
                 "notify rejected",
                 channel=label,
                 status=response.status_code,
-                body=response.text[:200],
+                body=detail,
             )
+            return False, f"HTTP {response.status_code}: {detail}"
+        return True, f"HTTP {response.status_code}"
+
+    async def send_test(self, channel: NotifyChannelConfig) -> tuple[bool, str]:
+        """用示例数据真实发送一次并返回结果, 供面板上的"测试"按钮调用."""
+        if self._web is None:
+            return False, "通知未启用或网络客户端未就绪"
+        variables = dict(_SAMPLE_VARIABLES)
+        config = self._config
+        if config is not None and config.panel_url:
+            variables["link"] = f"{config.panel_url.rstrip('/')}/tasks"
+        return await self._send(channel, variables)
 
     # ------------------------------------------------------------------ 变量
 
@@ -444,6 +457,37 @@ def _read_tail(path: Path, lines: int) -> str:
         return ""
     tail = text.splitlines()[-lines:]
     return "\n".join(tail)
+
+
+#: 测试发送用的示例数据: 让模板里的占位都能渲染出内容, 又不会去抓真实图片.
+_SAMPLE_VARIABLES: dict[str, Any] = {
+    "task_id": "",
+    "type": "scrape",
+    "type_label": "刮削",
+    "status": "成功",
+    "success": True,
+    "error": "",
+    "duration": "12.3s",
+    "number": "ABC-123",
+    "title": "测试标题 (来自通知测试)",
+    "plot": "这是一条测试通知: 看到它说明该渠道的配置可用.",
+    "tags": "测试",
+    "actors": "测试演员",
+    "studio": "测试片商",
+    "release": "2026-01-01",
+    "category": "censored",
+    "category_label": "有码",
+    "library": "测试库",
+    "poster_url": "",
+    "thumb_url": "",
+    "finished_at": "2026-01-01T12:00:00",
+    "finished_at_local": "2026-01-01 20:00:00",
+    "link": "",
+    "log_tail": "",
+    "count": 1,
+    "numbers": "",
+    "batch": "",
+}
 
 
 __all__ = ["NotificationService"]

@@ -267,3 +267,23 @@ def test_build_request_default_text_and_custom_passthrough() -> None:
     url, _, body = build_request(custom, {"number": "A-2"})
     assert url == "https://x/A-2"
     assert body == '{"t":"A-2"}'
+
+
+def test_send_test_reports_result() -> None:
+    """测试发送: 成功给 HTTP 码; 缺 token 时不发请求, 直接返回可读原因."""
+    web = _RecordingWeb()
+    service = NotificationService()
+    service.configure(NotifyConfig(enabled=True), web_client=web, repo=None, log_dir=None)
+    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}")
+    broken = NotifyChannelConfig(provider="telegram", chat_id="c", text="x")
+
+    async def run() -> None:
+        ok, message = await service.send_test(channel)
+        assert ok is True
+        assert "200" in message
+        assert web.calls  # 真的发了请求
+        ok2, message2 = await service.send_test(broken)
+        assert ok2 is False
+        assert "Token" in message2
+
+    asyncio.run(run())

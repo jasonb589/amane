@@ -609,6 +609,7 @@
           "text": { "label": "消息正文", "description": "纯文本模板, 支持 {变量}: {type_label} {status} {number} {title} {library} {duration} {finished_at_local} {category_label} {plot} {actors} {tags} {studio} {release} {poster_url} {link} {log_tail} {count} {numbers} {batch} {error}; 留空用内置默认正文" },
           "parse_mode": { "label": "解析模式", "description": "仅 telegram: HTML / MarkdownV2; 留空按纯文本" },
           "send_photo": { "label": "改发图片", "description": "仅 telegram: 有 poster_url 时用 sendPhoto 发图片 + 标题" },
+          "test_send": { "label": "测试发送", "description": "用示例数据真实发送一次 —— 直接按上面填的内容发, 不需要先保存" },
           "events": {
             "label": "订阅事件",
             "description": "勾选要推送的事件; 留空 = 全部",

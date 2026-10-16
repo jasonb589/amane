@@ -67,6 +67,11 @@ export function isPath(schema: JSONSchemaObject): schema is PathJSONSchema {
   return "x-widget" in schema && schema["x-widget"] === "PathPicker";
 }
 
+/** Check if schema is the notify-test button (x-widget: "NotifyTest", 本 fork 新增) */
+export function isNotifyTest(schema: JSONSchemaObject): boolean {
+  return "x-widget" in schema && schema["x-widget"] === "NotifyTest";
+}
+
 /** Check if schema represents an array type */
 export function isArray(schema: JSONSchemaObject): schema is ArrayJSONSchema {
   return schema.type === "array";

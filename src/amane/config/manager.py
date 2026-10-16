@@ -666,6 +666,11 @@ class NotifyChannelConfig(BaseModel):
     url: str = Field(default="", description="请求地址, 支持占位变量")
     method: NotifyMethod = NotifyMethod.POST
     headers: dict[str, str] = Field(default_factory=dict, description="附加请求头 (如 Authorization)")
+    test_send: bool = Field(
+        default=False,
+        json_schema_extra={"x-widget": "NotifyTest"},
+        description="面板上的测试按钮用它渲染; 值本身没有含义",
+    )
     body: str = Field(default="", description="请求体模板; 以花括号开头时字符串按 JSON 转义")
     provider: NotifyProvider = Field(
         default=NotifyProvider.CUSTOM,
