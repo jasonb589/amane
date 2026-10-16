@@ -109,6 +109,8 @@ def test_service_renders_and_sends(tmp_path: Path) -> None:
     assert len(web.calls) == 1
     call = web.calls[0]
     assert call["method"] == "POST"
+    # JSON 模板自动补 Content-Type, 否则对方按表单解析 → Telegram 会回 "message text is empty".
+    assert call["headers"]["Content-Type"] == "application/json"
     assert call["url"] == "https://example.test/ABC-001"
     body = call["data"]
     # JSON 模式: 日志尾部的换行被转义成 \n, 面板链接来自 panel_url.

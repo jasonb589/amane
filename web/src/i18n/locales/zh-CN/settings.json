@@ -628,6 +628,22 @@
               }
             }
           },
+          "content_types": {
+            "label": "触发分类",
+            "description": "只通知勾选的内容类型; 留空 = 全部",
+            "$": {
+              "options": {
+                "censored": "有码",
+                "uncensored": "无码",
+                "chinese": "国产",
+                "western": "欧美",
+                "fc2": "FC2",
+                "amateur": "素人",
+                "hentai": "动漫"
+              }
+            }
+          },
+          "require": { "label": "必须非空", "description": "列出的变量为空时跳过这个渠道 (如 photo 渠道填 poster_url)" },
           "throttle_seconds": { "label": "合并窗口", "description": "同类事件在该秒数内合并成一条汇总 (适合批量刮削); 0 = 每条都发" },
           "timeout": { "label": "超时", "description": "单次请求超时 (秒)" }
         }

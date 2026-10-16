@@ -74,3 +74,17 @@ def test_notify_events_accept_legacy_dotted_values() -> None:
     """早期写法 task.completed 归一到 completed, 老配置不会校验失败."""
     config = NotifyConfig.model_validate({"channels": [{"url": "https://x", "events": ["task.completed"]}]})
     assert [str(item) for item in config.channels[0].events] == ["completed"]
+
+
+def test_render_jinja_mode() -> None:
+    """模板出现 ``{{`` / ``{%`` 时走 Jinja2: 支持条件、default 过滤器与切片."""
+    variables = {"number": "ABC-001", "plot": "一二三四五六七八九十", "empty": ""}
+    assert render("{{ number }}", variables) == "ABC-001"
+    assert render("{% if number %}有{% else %}无{% endif %}", variables) == "有"
+    assert render("{{ nothing | default('N/A') }}", variables) == "N/A"
+    assert render("{{ plot[:3] }}", variables) == "一二三"
+    # JSON 模板里字符串值要自己加 |j 过滤器 (Jinja 模式不自动转义)
+    assert render('{"t":"{{ number | j }}"}', variables, json_mode=True) == '{"t":"ABC-001"}'
+    assert render('{"t":"{{ nothing | j }}"}', variables, json_mode=True) == '{"t":""}'
+    # 语法写错时退回简写引擎, 不抛异常
+    assert render("{% if number %}", variables) == "{% if number %}"

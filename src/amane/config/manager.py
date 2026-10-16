@@ -665,6 +665,11 @@ class NotifyChannelConfig(BaseModel):
         description="订阅的事件; 空 = 全部",
     )
     task_types: list[NotifyTaskType] = Field(default_factory=list, description="只通知这些任务类型; 空 = 全部")
+    content_types: list[ContentType] = Field(default_factory=list, description="只通知这些内容类型; 空 = 全部")
+    require: list[str] = Field(
+        default_factory=list,
+        description="这些变量为空时跳过该渠道 (如 photo 类渠道填 poster_url, 避免必然失败的请求)",
+    )
 
     @field_validator("events", mode="before")
     @classmethod

@@ -20,7 +20,7 @@ import structlog
 from ..config.manager import NotifyChannelConfig, NotifyConfig
 from ..events import Event, EventType
 from ..net.errors import RequestError
-from ..parsing import parse_file_info
+from ..parsing import infer_content_type, parse_file_info
 from .templates import render
 
 if TYPE_CHECKING:
@@ -52,6 +52,27 @@ _TYPE_LABELS: dict[str, str] = {
     "scan_invalid": "扫描无效文件",
     "delete": "删除",
 }
+
+
+#: 内容类型 → 中文标签 (与设置页「海报裁剪方式」里的叫法一致).
+_CATEGORY_LABELS: dict[str, str] = {
+    "censored": "有码",
+    "uncensored": "无码",
+    "chinese": "国产",
+    "western": "欧美",
+    "fc2": "FC2",
+    "amateur": "素人",
+    "hentai": "动漫",
+}
+
+
+def _actor_name(item: Any) -> str:
+    """出演者可能是 ``FilmActor`` / dict / 字符串 (旧数据), 统一取名字."""
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        return str(item.get("name") or "")
+    return str(getattr(item, "name", "") or "")
 
 
 def _format_duration(started: datetime | None, finished: datetime | None) -> str:
@@ -143,8 +164,13 @@ class NotificationService:
             return False
         if channel.events and _EVENT_KEYS.get(event.type, "") not in {str(item) for item in channel.events}:
             return False
-        selected = {str(item) for item in channel.task_types}
-        return not (selected and str(variables.get("type", "")) not in selected)
+        selected_types = {str(item) for item in channel.task_types}
+        if selected_types and str(variables.get("type", "")) not in selected_types:
+            return False
+        selected_categories = {str(item) for item in channel.content_types}
+        if selected_categories and str(variables.get("category", "")) not in selected_categories:
+            return False
+        return all(bool(variables.get(name)) for name in channel.require)
 
     def _dispatch(self, index: int, channel: NotifyChannelConfig, failed: bool, variables: dict[str, Any]) -> None:
         """throttle=0 直接发; 否则攒进窗口, 窗口结束发一条汇总."""
@@ -184,13 +210,20 @@ class NotificationService:
         label = channel.name or channel.url
         body = render(channel.body, variables, json_mode=channel.body.lstrip().startswith("{"))
         url = render(channel.url, variables)
+        headers = dict(channel.headers)
+        if body.lstrip().startswith("{") and not any(key.lower() == "content-type" for key in headers):
+            # 不带 Content-Type 时对方会按表单解析 body, Telegram 会直接回
+            # "Bad Request: message text is empty" (实测 400).
+            headers["Content-Type"] = "application/json"
         try:
             response = await web.request(
                 channel.method.value.upper(),
                 url,
-                headers=dict(channel.headers) or None,
+                headers=headers or None,
                 data=body or None,
                 timeout=channel.timeout,
+                # 4xx 不抛异常: 要把对方的错误正文记进日志, 否则只看到一个 "HTTP 400".
+                ok_statuses=frozenset(range(400, 500)),
             )
         except RequestError as exc:
             logger.warning("notify request failed", channel=label, error=str(exc))
@@ -217,13 +250,26 @@ class NotificationService:
         title = ""
         poster = ""
         thumb = ""
+        plot = ""
+        tags = ""
+        actors = ""
+        studio = ""
+        release = ""
+        category = str(infer_content_type(number)) if number else ""
+        category_label = _CATEGORY_LABELS.get(category, category)
         if number and repo is not None:
             metadata = await repo.get_metadata_by_number(number)
             if metadata is not None:
                 title = metadata.title or ""
-                # 通知里带图: 单个字段优先, 没有就取候选列表第一项 (DMM 高清 CDN 这类地址可直接交给 Telegram 抓取).
+                # 通知里带图 / 带详情: 单个字段优先, 没有就取候选列表第一项
+                # (DMM 高清 CDN 这类地址可直接交给 Telegram 抓取).
                 poster = metadata.poster_url or (metadata.poster_urls[0] if metadata.poster_urls else "")
                 thumb = metadata.thumb_url or (metadata.thumb_urls[0] if metadata.thumb_urls else "")
+                plot = metadata.plot or ""
+                tags = "、".join(metadata.tags or [])
+                actors = "、".join(_actor_name(item) for item in (metadata.actors or []))
+                studio = metadata.studio or ""
+                release = metadata.release or ""
         library = ""
         library_id = payload.get("library_id")
         if repo is not None and isinstance(library_id, int):
@@ -244,6 +290,13 @@ class NotificationService:
             "duration": _format_duration(task.started_at, task.finished_at) if task is not None else "",
             "number": number,
             "title": title,
+            "plot": plot,
+            "tags": tags,
+            "actors": actors,
+            "studio": studio,
+            "release": release,
+            "category": category,
+            "category_label": category_label,
             "library": library,
             "poster_url": poster,
             "thumb_url": thumb,

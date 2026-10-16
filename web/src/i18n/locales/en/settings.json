@@ -628,6 +628,22 @@
               }
             }
           },
+          "content_types": {
+            "label": "Content types",
+            "description": "Only notify the ticked content types; empty = all",
+            "$": {
+              "options": {
+                "censored": "Censored",
+                "uncensored": "Uncensored",
+                "chinese": "Chinese",
+                "western": "Western",
+                "fc2": "FC2",
+                "amateur": "Amateur",
+                "hentai": "Hentai"
+              }
+            }
+          },
+          "require": { "label": "Required variables", "description": "Skip this channel when any listed variable is empty (e.g. poster_url for photo channels)" },
           "throttle_seconds": { "label": "Merge window", "description": "Merge events of the same kind within this many seconds into one summary; 0 = send every event" },
           "timeout": { "label": "Timeout", "description": "Per-request timeout (seconds)" }
         }
