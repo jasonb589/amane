@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -93,6 +94,19 @@ def _local_time(value: datetime) -> str:
     return value.replace(tzinfo=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _batch_line(count: int, numbers: list[str], *, limit: int = 10) -> str:
+    """合并成多条时的摘要行; 只有一项时返回空串 (模板里那一行自然消失)."""
+    if count <= 1:
+        return ""
+    text = f"共 {count} 项"
+    if numbers:
+        shown = "、".join(numbers[:limit])
+        if len(numbers) > limit:
+            shown = f"{shown} 等 {len(numbers)} 个"
+        text = f"{text}：{shown}"
+    return text
+
+
 @dataclass
 class _Pending:
     """合并窗口内累积的同渠道同类事件."""
@@ -100,6 +114,7 @@ class _Pending:
     variables: dict[str, Any]
     numbers: list[str] = field(default_factory=list)
     count: int = 0
+    first_at: float = 0.0
     timer: asyncio.Task[None] | None = None
 
 
@@ -178,29 +193,50 @@ class NotificationService:
         return all(bool(variables.get(name)) for name in channel.require)
 
     def _dispatch(self, index: int, channel: NotifyChannelConfig, failed: bool, variables: dict[str, Any]) -> None:
-        """throttle=0 直接发; 否则攒进窗口, 窗口结束发一条汇总."""
+        """throttle=0 直接发; 否则把连续事件攒成一条, 静默 N 秒后发送 (最长等 max_wait_seconds)."""
         if channel.throttle_seconds <= 0:
             self._spawn(channel, variables)
             return
         key = (index, failed)
         pending = self._pending.get(key)
         if pending is None:
-            pending = _Pending(variables=variables)
+            pending = _Pending(variables=variables, first_at=time.monotonic())
             self._pending[key] = pending
-            pending.timer = asyncio.create_task(self._flush_later(index, channel, failed))
+        else:
+            # 正文跟着最新一项走 (番号/标题/海报), 但计时重新开始 → 一批任务最后合成一条.
+            pending.variables = variables
+            if pending.timer is not None:
+                pending.timer.cancel()
         pending.count += 1
         number = str(variables.get("number") or "")
         if number and number not in pending.numbers:
             pending.numbers.append(number)
+        pending.timer = asyncio.create_task(self._flush_later(index, channel, failed, pending.first_at))
 
-    async def _flush_later(self, index: int, channel: NotifyChannelConfig, failed: bool) -> None:
-        await asyncio.sleep(channel.throttle_seconds)
-        pending = self._pending.pop((index, failed), None)
-        if pending is None:
+    async def _flush_later(
+        self, index: int, channel: NotifyChannelConfig, failed: bool, first_at: float
+    ) -> None:
+        """静默窗口结束就发; 期间每来一个新事件都会被 cancel 后重新计时."""
+        key = (index, failed)
+        wait = float(channel.throttle_seconds)
+        if channel.max_wait_seconds > 0:
+            # 流水线一直不停时也要有上限, 否则永远等不到"静默".
+            wait = min(wait, max(0.0, float(channel.max_wait_seconds) - (time.monotonic() - first_at)))
+        if wait > 0:
+            try:
+                await asyncio.sleep(wait)
+            except asyncio.CancelledError:
+                return
+        pending = self._pending.get(key)
+        if pending is None or pending.timer is not asyncio.current_task():
+            # 期间又来了新事件: 交给新的计时器发送, 这里退出.
             return
+        self._pending.pop(key, None)
         variables = dict(pending.variables)
-        variables["count"] = max(pending.count, 1)
-        variables["numbers"] = ", ".join(pending.numbers)
+        count = max(pending.count, 1)
+        variables["count"] = count
+        variables["numbers"] = "、".join(pending.numbers)
+        variables["batch"] = _batch_line(count, pending.numbers)
         self._spawn(channel, variables)
 
     def _spawn(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> None:
@@ -315,6 +351,7 @@ class NotificationService:
             "log_tail": await self._log_tail(raw_id, config.log_tail_lines) if config.log_tail_lines > 0 else "",
             "count": 1,
             "numbers": number,
+            "batch": "",
         }
 
     async def _number(self, repo: Repository | None, payload: dict[str, Any]) -> str:
@@ -330,6 +367,9 @@ class NotificationService:
         ids = payload.get("media_file_ids")
         if repo is not None and isinstance(ids, list) and ids and isinstance(ids[0], int):
             media = await repo.get_media_file(ids[0])
+            if media is not None and media.number:
+                # 库里的番号字段最准: 整理时文件还叫原始名, 从路径反推会失败.
+                return media.number
             if media is not None:
                 parsed = parse_file_info(media.path).number
                 if parsed:

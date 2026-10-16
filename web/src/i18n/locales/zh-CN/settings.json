@@ -644,7 +644,8 @@
             }
           },
           "require": { "label": "必须非空", "description": "列出的变量为空时跳过这个渠道 (如 photo 渠道填 poster_url)" },
-          "throttle_seconds": { "label": "合并窗口", "description": "同类事件在该秒数内合并成一条汇总 (适合批量刮削); 0 = 每条都发" },
+          "throttle_seconds": { "label": "静默窗口(秒)", "description": "连续事件攒成一条: 每来一个新事件就重新计时, 静默这么多秒后发送; 0 = 来一条发一条" },
+          "max_wait_seconds": { "label": "合并上限(秒)", "description": "任务一直不停时的最长等待, 到点先发一条再继续攒; 0 = 不设上限. 合并多项时可用 {batch} 输出「共 N 项: 番号…」" },
           "timeout": { "label": "超时", "description": "单次请求超时 (秒)" }
         }
       }

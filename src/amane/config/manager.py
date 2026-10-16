@@ -684,7 +684,8 @@ class NotifyChannelConfig(BaseModel):
             "file.removed": "file_removed",
         }
         return [legacy.get(str(item), item) for item in value]
-    throttle_seconds: int = Field(default=0, ge=0, le=3600, description="同类事件在该窗口内合并成一条; 0 = 不合并")
+    throttle_seconds: int = Field(default=0, ge=0, le=3600, description="静默窗口: 连续事件攒成一条, 静默这么多秒后才发送; 0 = 来一条发一条")
+    max_wait_seconds: int = Field(default=1800, ge=0, le=86400, description="合并最长等待秒数, 防止流水线不停时永远不发; 0 = 不设上限")
     timeout: float = Field(default=10.0, ge=1.0, le=120.0, description="单次请求超时 (秒)")
 
 

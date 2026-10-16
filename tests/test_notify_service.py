@@ -15,7 +15,7 @@ from typing import Any
 from amane.config.manager import NotifyChannelConfig, NotifyConfig
 from amane.db.models import Task, TaskType
 from amane.events import Event, EventType
-from amane.notify.service import NotificationService, _local_time
+from amane.notify.service import NotificationService, _batch_line, _local_time
 
 _STARTED = datetime(2026, 10, 16, 9, 0, 0, tzinfo=UTC)
 
@@ -144,3 +144,79 @@ def test_local_time_formats_container_timezone() -> None:
     text = _local_time(datetime(2026, 10, 16, 12, 44, 36))
     assert len(text) == 19 and text[4] == "-" and text[13] == ":"
     assert text.startswith("2026-10-16 ")
+
+
+class _NotifyResponse:
+    status_code = 200
+    text = ""
+
+
+class _RecordingWeb:
+    """只记录请求体的 WebClient 桩 (合并逻辑单测用)."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def request(self, method: str, url: str, **kwargs: Any) -> _NotifyResponse:
+        self.calls.append(str(kwargs.get("data") or ""))
+        return _NotifyResponse()
+
+
+def test_batch_line_summarises_numbers() -> None:
+    """只有一项时不显示摘要行; 多项时列出番号, 超过上限折成" 等 N 个"."""
+    assert _batch_line(1, ["ABC-1"]) == ""
+    assert _batch_line(3, ["ABC-1", "ABC-2", "ABC-3"]) == "共 3 项：ABC-1、ABC-2、ABC-3"
+    assert _batch_line(2, []) == "共 2 项"
+    assert _batch_line(12, [f"A-{i}" for i in range(12)], limit=3) == "共 12 项：A-0、A-1、A-2 等 12 个"
+
+
+def test_quiet_window_merges_events_into_one_summary() -> None:
+    """静默窗口: 一批任务的多个终态只发一条, 正文带 {count} / {numbers} / {batch}."""
+    web = _RecordingWeb()
+    service = NotificationService()
+    channel = NotifyChannelConfig(
+        name="t",
+        url="https://example.com/hook",
+        body='{"n":{count},"numbers":"{numbers}","b":"{batch}"}',
+        throttle_seconds=1,
+        max_wait_seconds=30,
+    )
+    service.configure(NotifyConfig(enabled=True, channels=[channel]), web, None, None)  # type: ignore[arg-type]
+
+    async def run() -> None:
+        for number in ("ABC-1", "ABC-2", "ABC-3"):
+            service._dispatch(0, channel, False, {"number": number, "count": 1, "numbers": number, "batch": ""})
+            await asyncio.sleep(0.2)
+        await asyncio.sleep(1.6)
+        await asyncio.sleep(0.2)
+        assert len(web.calls) == 1
+        body = web.calls[0]
+        assert '"n":3' in body
+        assert "ABC-1、ABC-2、ABC-3" in body
+        assert "共 3 项" in body
+
+    asyncio.run(run())
+
+
+def test_max_wait_flushes_while_events_keep_arriving() -> None:
+    """上限: 事件一直不断时也要先发一条, 不能无限等静默."""
+    web = _RecordingWeb()
+    service = NotificationService()
+    channel = NotifyChannelConfig(
+        name="t",
+        url="https://example.com/hook",
+        body='{"n":{count}}',
+        throttle_seconds=2,
+        max_wait_seconds=1,
+    )
+    service.configure(NotifyConfig(enabled=True, channels=[channel]), web, None, None)  # type: ignore[arg-type]
+
+    async def run() -> None:
+        for _ in range(5):
+            service._dispatch(0, channel, False, {"count": 1, "numbers": "", "batch": ""})
+            await asyncio.sleep(0.35)
+            if web.calls:
+                break
+        assert web.calls, "到达合并上限后应当已经发送"
+
+    asyncio.run(run())

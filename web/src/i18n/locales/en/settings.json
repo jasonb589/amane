@@ -644,7 +644,8 @@
             }
           },
           "require": { "label": "Required variables", "description": "Skip this channel when any listed variable is empty (e.g. poster_url for photo channels)" },
-          "throttle_seconds": { "label": "Merge window", "description": "Merge events of the same kind within this many seconds into one summary; 0 = send every event" },
+          "throttle_seconds": { "label": "Quiet window (s)", "description": "Collect consecutive events into one: the timer restarts on every new event and the message goes out after this many quiet seconds; 0 = one message per event" },
+          "max_wait_seconds": { "label": "Max merge wait (s)", "description": "Upper bound while a pipeline keeps running; 0 = no limit. Use {batch} in the body to print a summary like 共 N 项: numbers" },
           "timeout": { "label": "Timeout", "description": "Per-request timeout (seconds)" }
         }
       }
