@@ -42,6 +42,11 @@ class _StubRepo:
                 "poster_urls": ["https://img.test/poster.jpg"],
                 "thumb_url": "",
                 "thumb_urls": [],
+                "plot": "剧情文本",
+                "tags": ["标签A", "标签B"],
+                "actors": ["演员A"],
+                "studio": "片商",
+                "release": "2026-01-01",
             },
         )()
 

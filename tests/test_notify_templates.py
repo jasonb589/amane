@@ -78,6 +78,7 @@ def test_notify_events_accept_legacy_dotted_values() -> None:
 
 def test_render_jinja_mode() -> None:
     """模板出现 ``{{`` / ``{%`` 时走 Jinja2: 支持条件、default 过滤器与切片."""
+    pytest.importorskip("jinja2")  # jinja2 是间接依赖: 镜像里单独装 (见 Dockerfile), 测试环境可能没有
     variables = {"number": "ABC-001", "plot": "一二三四五六七八九十", "empty": ""}
     assert render("{{ number }}", variables) == "ABC-001"
     assert render("{% if number %}有{% else %}无{% endif %}", variables) == "有"

@@ -27,6 +27,10 @@ RUN uv pip install --python /app/.venv/bin/python "opencv-python-headless>=5.0" 
     && /app/.venv/bin/python -c "import cv2; print('opencv ok:', cv2.__version__)"
 # 轻量人脸模型 (YuNet): 下载失败就退回 OpenCV 自带的 Haar 级联, 不影响构建.
 RUN mkdir -p /app/models && /app/.venv/bin/python -c "import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx', '/app/models/face_detection_yunet.onnx')" || echo "face model download skipped (will fall back to Haar cascade)"
+# 通知模板的 Jinja2 写法 ({{ 变量 }} / {% if %}): 它只在依赖树里间接出现, 不在 lock 的直接依赖里,
+# 因此像 opencv 一样单独装上; 缺失时通知模板只支持内置的 {变量} 简写, 不影响其它功能.
+RUN uv pip install --python /app/.venv/bin/python "jinja2>=3.1" \
+    && /app/.venv/bin/python -c "import jinja2; print('jinja2 ok:', jinja2.__version__)"
 
 # --- 最终镜像 ---
 FROM base
