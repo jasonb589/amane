@@ -651,6 +651,13 @@ class NotifyTaskType(StrEnum):
     DELETE = "delete"
 
 
+class NotifyProvider(StrEnum):
+    """内置通知服务: 选好后只填 Token / 频道 / 正文, 请求地址与 JSON 由程序生成."""
+
+    CUSTOM = "custom"
+    TELEGRAM = "telegram"
+    BARK = "bark"
+    WECOM = "wecom"
 class NotifyChannelConfig(BaseModel):
     """一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位."""
 
@@ -660,6 +667,15 @@ class NotifyChannelConfig(BaseModel):
     method: NotifyMethod = NotifyMethod.POST
     headers: dict[str, str] = Field(default_factory=dict, description="附加请求头 (如 Authorization)")
     body: str = Field(default="", description="请求体模板; 以花括号开头时字符串按 JSON 转义")
+    provider: NotifyProvider = Field(
+        default=NotifyProvider.CUSTOM,
+        description="内置服务: telegram / bark / wecom 只需填 token 与正文, 地址与 JSON 由程序生成; custom = 自己写 url/body",
+    )
+    token: str = Field(default="", description="telegram: 机器人 Token; bark: 设备 Key; wecom: 群机器人 Key")
+    chat_id: str = Field(default="", description="telegram 的频道/群 ID (如 -1001234567890); 其它服务留空")
+    text: str = Field(default="", description="消息正文模板, 支持 {变量}; 留空用内置默认正文")
+    parse_mode: str = Field(default="", description="telegram 可选: HTML 或 MarkdownV2; 留空按纯文本")
+    send_photo: bool = Field(default=False, description="telegram: 有 poster_url 时改发图片+标题 (sendPhoto)")
     events: list[NotifyEvent] = Field(
         default_factory=lambda: [NotifyEvent.COMPLETED, NotifyEvent.FAILED],
         description="订阅的事件; 空 = 全部",

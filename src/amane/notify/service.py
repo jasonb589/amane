@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -18,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from ..config.manager import NotifyChannelConfig, NotifyConfig
+from ..config.manager import NotifyChannelConfig, NotifyConfig, NotifyProvider
 from ..events import Event, EventType
 from ..net.errors import RequestError
 from ..parsing import infer_content_type, parse_file_info
@@ -106,6 +107,53 @@ def _local_time(value: datetime) -> str:
     return "\n" + text
 
 
+#: 预设服务的默认正文: text 留空时用它, 保证"选好服务就能收到东西".
+_DEFAULT_TEXT = "{type_label} {status}\n{number} {title}\n📚 {library} · 耗时 {duration}{batch}"
+
+
+def _split_title(text: str) -> tuple[str, str]:
+    """Bark 这类需要标题+正文的服务: 第一行当标题, 其余当正文."""
+    head, _, rest = text.partition("\n")
+    return head.strip() or "Amane", rest.strip()
+
+
+def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[str, dict[str, str], str]:
+    """生成请求 (url, headers, body).
+
+    ``provider = custom`` 用配置里的 url/body 原样渲染; 内置服务由程序拼 URL 与 JSON,
+    用户只需要填 token / chat_id / 正文.
+    """
+    headers = dict(channel.headers)
+    if channel.provider is not NotifyProvider.CUSTOM:
+        rendered = render(channel.text or _DEFAULT_TEXT, variables)
+        headers["Content-Type"] = "application/json"
+        if channel.provider is NotifyProvider.TELEGRAM:
+            chat_id = channel.chat_id.strip()
+            photo = str(variables.get("poster_url") or "") if channel.send_photo else ""
+            if photo:
+                method = "sendPhoto"
+                payload: dict[str, Any] = {"chat_id": chat_id, "photo": photo, "caption": rendered}
+            else:
+                method = "sendMessage"
+                payload = {"chat_id": chat_id, "text": rendered, "disable_web_page_preview": True}
+            if channel.parse_mode:
+                payload["parse_mode"] = channel.parse_mode
+            token = channel.token.strip()
+            return f"https://api.telegram.org/bot{token}/{method}", headers, json.dumps(payload, ensure_ascii=False)
+        if channel.provider is NotifyProvider.BARK:
+            title, body = _split_title(rendered)
+            payload = {"device_key": channel.token.strip(), "title": title, "body": body}
+            return "https://api.day.app/push", headers, json.dumps(payload, ensure_ascii=False)
+        if channel.provider is NotifyProvider.WECOM:
+            payload = {"msgtype": "text", "text": {"content": rendered}}
+            key = channel.token.strip()
+            return (
+                f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}",
+                headers,
+                json.dumps(payload, ensure_ascii=False),
+            )
+    body = render(channel.body, variables, json_mode=channel.body.lstrip().startswith("{"))
+    return render(channel.url, variables), headers, body
 @dataclass
 class _Pending:
     """合并窗口内累积的同渠道同类事件."""
@@ -247,10 +295,15 @@ class NotificationService:
         web = self._web
         if web is None:  # pragma: no cover - enabled 已保证非空
             return
-        label = channel.name or channel.url
-        body = render(channel.body, variables, json_mode=channel.body.lstrip().startswith("{"))
-        url = render(channel.url, variables)
-        headers = dict(channel.headers)
+        label = channel.name or channel.url or str(channel.provider)
+        if channel.provider is not NotifyProvider.CUSTOM:
+            if not channel.token.strip():
+                logger.warning("notify channel skipped: token missing", channel=label)
+                return
+            if channel.provider is NotifyProvider.TELEGRAM and not channel.chat_id.strip():
+                logger.warning("notify channel skipped: chat_id missing", channel=label)
+                return
+        url, headers, body = build_request(channel, variables)
         if body.lstrip().startswith("{") and not any(key.lower() == "content-type" for key in headers):
             # 不带 Content-Type 时对方会按表单解析 body, Telegram 会直接回
             # "Bad Request: message text is empty" (实测 400).

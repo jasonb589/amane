@@ -586,18 +586,29 @@
       },
       "channels": {
         "label": "通知渠道",
-        "description": "每个渠道一段模板; url 与 body 都支持 {变量}",
+        "description": "每个渠道一条通知; 选 Telegram / Bark / 企业微信 只需填 Token 与正文, 或选自定义 HTTP 自己写 url/body",
         "$": {
           "name": { "label": "渠道名", "description": "只用于日志与错误提示" },
           "enabled": { "label": "启用这个渠道", "description": "关掉可以临时停用它" },
-          "url": { "label": "请求地址", "description": "支持 {变量}, 例如 https://api.telegram.org/bot<TOKEN>/sendMessage" },
+          "url": { "label": "请求地址", "description": "仅自定义 HTTP: 支持 {变量}, 例如 https://api.telegram.org/bot<TOKEN>/sendMessage" },
           "method": {
             "label": "请求方法",
             "description": "POST 发送 body; GET 只请求 url",
             "options": { "post": "POST", "get": "GET" }
           },
           "headers": { "label": "请求头", "description": "键值对, 例如 Authorization: Bearer xxx" },
-          "body": { "label": "请求体模板", "description": "以花括号开头时字符串按 JSON 转义, 可直接写 {\"text\":\"{number} {title}\"}" },
+          "body": { "label": "请求体模板", "description": "仅自定义 HTTP: 以花括号开头时字符串按 JSON 转义" },
+          "provider": {
+            "label": "服务类型",
+            "description": "选内置服务后只需填 Token 与正文, 请求地址与 JSON 由程序生成; 自定义 HTTP 则自己写 url/body",
+            "options": { "custom": "自定义 HTTP", "telegram": "Telegram", "bark": "Bark", "wecom": "企业微信" },
+            "$": { "options": { "custom": "自定义 HTTP", "telegram": "Telegram", "bark": "Bark", "wecom": "企业微信" } }
+          },
+          "token": { "label": "Token / Key", "description": "telegram 机器人 Token; Bark 设备 Key; 企业微信 群机器人 Key" },
+          "chat_id": { "label": "频道 / 群 ID", "description": "仅 telegram 需要, 例如 -1001234567890" },
+          "text": { "label": "消息正文", "description": "纯文本模板, 支持 {变量}: {type_label} {status} {number} {title} {library} {duration} {finished_at_local} {category_label} {plot} {actors} {tags} {studio} {release} {poster_url} {link} {log_tail} {count} {numbers} {batch} {error}; 留空用内置默认正文" },
+          "parse_mode": { "label": "解析模式", "description": "仅 telegram: HTML / MarkdownV2; 留空按纯文本" },
+          "send_photo": { "label": "改发图片", "description": "仅 telegram: 有 poster_url 时用 sendPhoto 发图片 + 标题" },
           "events": {
             "label": "订阅事件",
             "description": "勾选要推送的事件; 留空 = 全部",

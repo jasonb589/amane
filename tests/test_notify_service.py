@@ -15,7 +15,7 @@ from typing import Any
 from amane.config.manager import NotifyChannelConfig, NotifyConfig
 from amane.db.models import Task, TaskType
 from amane.events import Event, EventType
-from amane.notify.service import NotificationService, _batch_line, _local_time
+from amane.notify.service import NotificationService, _batch_line, _local_time, build_request
 
 _STARTED = datetime(2026, 10, 16, 9, 0, 0, tzinfo=UTC)
 
@@ -220,3 +220,50 @@ def test_max_wait_flushes_while_events_keep_arriving() -> None:
         assert web.calls, "到达合并上限后应当已经发送"
 
     asyncio.run(run())
+
+
+def test_build_request_telegram_text() -> None:
+    """telegram: 只填 token/chat_id/正文, 程序拼出 sendMessage 与 JSON."""
+    channel = NotifyChannelConfig(
+        provider="telegram", token="123:abc", chat_id="-1001", text="{type_label} {status}\n{number}"
+    )
+    url, headers, body = build_request(channel, {"type_label": "刮削", "status": "成功", "number": "ABC-1"})
+    assert url == "https://api.telegram.org/bot123:abc/sendMessage"
+    assert headers["Content-Type"] == "application/json"
+    assert json.loads(body)["text"] == "刮削 成功\nABC-1"
+
+
+def test_build_request_telegram_photo() -> None:
+    """send_photo 打开且有海报时走 sendPhoto; 没有海报时退回 sendMessage (避免必然 400)."""
+    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
+    url, _, body = build_request(channel, {"number": "ABC-1", "poster_url": "https://img/x.jpg"})
+    assert url.endswith("/sendPhoto")
+    payload = json.loads(body)
+    assert payload["photo"] == "https://img/x.jpg"
+    assert payload["caption"] == "ABC-1"
+    url2, _, body2 = build_request(channel, {"number": "ABC-1", "poster_url": ""})
+    assert url2.endswith("/sendMessage")
+    assert json.loads(body2)["text"] == "ABC-1"
+
+
+def test_build_request_bark_and_wecom() -> None:
+    """Bark 用第一行当标题; 企业微信发 text 消息."""
+    bark = NotifyChannelConfig(provider="bark", token="key1", text="标题行\n正文行")
+    url, _, body = build_request(bark, {})
+    assert url == "https://api.day.app/push"
+    assert json.loads(body) == {"device_key": "key1", "title": "标题行", "body": "正文行"}
+    wecom = NotifyChannelConfig(provider="wecom", token="k2", text="{number}")
+    url, _, body = build_request(wecom, {"number": "ABC-2"})
+    assert url.endswith("webhook/send?key=k2")
+    assert json.loads(body) == {"msgtype": "text", "text": {"content": "ABC-2"}}
+
+
+def test_build_request_default_text_and_custom_passthrough() -> None:
+    """text 留空用内置默认正文; custom 渠道仍按 url/body 原样渲染 (老配置不受影响)."""
+    preset = NotifyChannelConfig(provider="telegram", token="t", chat_id="c")
+    _, _, body = build_request(preset, {"type_label": "整理", "status": "成功", "number": "A-1"})
+    assert "整理 成功" in json.loads(body)["text"]
+    custom = NotifyChannelConfig(url="https://x/{number}", body='{"t":"{number}"}')
+    url, _, body = build_request(custom, {"number": "A-2"})
+    assert url == "https://x/A-2"
+    assert body == '{"t":"A-2"}'
