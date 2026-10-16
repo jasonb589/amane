@@ -68,3 +68,9 @@ def test_notify_channel_validation() -> None:
 def test_notify_channel_rejects_unknown_keys() -> None:
     with pytest.raises(ValueError, match="method"):
         NotifyConfig.model_validate({"channels": [{"url": "https://x", "method": "put"}]})
+
+
+def test_notify_events_accept_legacy_dotted_values() -> None:
+    """早期写法 task.completed 归一到 completed, 老配置不会校验失败."""
+    config = NotifyConfig.model_validate({"channels": [{"url": "https://x", "events": ["task.completed"]}]})
+    assert [str(item) for item in config.channels[0].events] == ["completed"]

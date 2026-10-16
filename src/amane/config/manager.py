@@ -665,6 +665,20 @@ class NotifyChannelConfig(BaseModel):
         description="订阅的事件; 空 = 全部",
     )
     task_types: list[NotifyTaskType] = Field(default_factory=list, description="只通知这些任务类型; 空 = 全部")
+
+    @field_validator("events", mode="before")
+    @classmethod
+    def _accept_dotted_events(cls, value: Any) -> Any:
+        """兼容早期写法 ``task.completed``: 映射成不带点的取值, 老配置不会直接校验失败."""
+        if not isinstance(value, list):
+            return value
+        legacy = {
+            "task.completed": "completed",
+            "task.failed": "failed",
+            "file.discovered": "file_discovered",
+            "file.removed": "file_removed",
+        }
+        return [legacy.get(str(item), item) for item in value]
     throttle_seconds: int = Field(default=0, ge=0, le=3600, description="同类事件在该窗口内合并成一条; 0 = 不合并")
     timeout: float = Field(default=10.0, ge=1.0, le=120.0, description="单次请求超时 (秒)")
 
