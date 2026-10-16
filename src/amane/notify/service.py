@@ -280,6 +280,10 @@ class NotificationService:
         if not error:
             error = str(event.data.get("error") or "")
         finished = task.finished_at.isoformat() if task is not None and task.finished_at else ""
+        # 通知里显示本地时间更直观 (按容器 TZ); 库里存的是 UTC naive.
+        finished_local = ""
+        if task is not None and task.finished_at is not None:
+            finished_local = task.finished_at.replace(tzinfo=datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
         return {
             "task_id": raw_id if isinstance(raw_id, int) else "",
             "type": task_type,
@@ -301,6 +305,7 @@ class NotificationService:
             "poster_url": poster,
             "thumb_url": thumb,
             "finished_at": finished,
+            "finished_at_local": finished_local,
             "link": f"{config.panel_url.rstrip('/')}/tasks" if config.panel_url else "",
             "log_tail": await self._log_tail(raw_id, config.log_tail_lines) if config.log_tail_lines > 0 else "",
             "count": 1,
