@@ -255,6 +255,15 @@ class NotificationService:
                 if parsed:
                     return parsed
         return ""
+
+    async def _log_tail(self, task_id: Any, lines: int) -> str:
+        """任务日志最后 ``lines`` 行; 读不到返回空串."""
+        if not isinstance(task_id, int) or self._log_dir is None:
+            return ""
+        path = self._log_dir / "tasks" / f"task-{task_id}" / "task.log"
+        return await asyncio.to_thread(_read_tail, path, lines)
+
+
 def _read_tail(path: Path, lines: int) -> str:
     """读取文件末尾 N 行; 读不到返回空串."""
     try:
@@ -263,9 +272,6 @@ def _read_tail(path: Path, lines: int) -> str:
         return ""
     tail = text.splitlines()[-lines:]
     return "\n".join(tail)
-
-
-__all__ = ["NotificationService"]
 
 
 __all__ = ["NotificationService"]
