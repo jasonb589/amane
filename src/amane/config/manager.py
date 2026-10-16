@@ -615,6 +615,40 @@ class WatcherConfig(BaseModel):
     """解析番号前从文件名中移除的字符串 (文件名垃圾信息过滤); ``r:`` 开头的按正则处理, 忽略大小写."""
 
 
+class NotifyMethod(StrEnum):
+    """通知请求方法."""
+
+    POST = "post"
+    GET = "get"
+
+
+class NotifyChannelConfig(BaseModel):
+    """一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位."""
+
+    name: str = Field(default="", description="渠道名, 只用于日志与错误提示")
+    enabled: bool = True
+    url: str = Field(default="", description="请求地址, 支持占位变量")
+    method: NotifyMethod = NotifyMethod.POST
+    headers: dict[str, str] = Field(default_factory=dict, description="附加请求头 (如 Authorization)")
+    body: str = Field(default="", description="请求体模板; 以花括号开头时字符串按 JSON 转义")
+    events: list[str] = Field(
+        default_factory=lambda: ["task.completed", "task.failed"],
+        description="订阅的事件; 空 = 全部 (task.completed / task.failed / file.discovered / file.removed)",
+    )
+    task_types: list[str] = Field(default_factory=list, description="只通知这些任务类型; 空 = 全部")
+    throttle_seconds: int = Field(default=0, ge=0, le=3600, description="同类事件在该窗口内合并成一条; 0 = 不合并")
+    timeout: float = Field(default=10.0, ge=1.0, le=120.0, description="单次请求超时 (秒)")
+
+
+class NotifyConfig(BaseModel):
+    """任务完成 / 失败时的出站通知: 一份模板引擎覆盖所有渠道."""
+
+    enabled: bool = False
+    panel_url: str = Field(default="", description="面板地址, 用于 link 变量; 如 https://amane.example.com")
+    log_tail_lines: int = Field(default=0, ge=0, le=200, description="大于 0 时把任务日志最后 N 行放进 log_tail")
+    channels: list[NotifyChannelConfig] = Field(default_factory=list, description="渠道列表, 每个渠道一段模板")
+
+
 class LoggingConfig(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
     debug_capture: bool = False
@@ -820,6 +854,7 @@ class HotSettings(BaseModel):
     llm: LLMConfig = LLMConfig()
     r18: R18Config = R18Config()
     watcher: WatcherConfig = WatcherConfig()
+    notify: NotifyConfig = NotifyConfig()
     worker: WorkerConfig = WorkerConfig()
     logging: LoggingConfig = LoggingConfig()
     plugins: dict[str, PluginConfig] = Field(default_factory=dict, json_schema_extra={"x-hidden": True})

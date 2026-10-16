@@ -1,6 +1,7 @@
 """EventBus 供 scheduler 与 api 共用 (避免 api↔scheduler 环依赖)."""
 
 import json
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -37,10 +38,16 @@ class EventBus:
 
     def __init__(self) -> None:
         self._connections: list[WebSocket] = []
+        self._listeners: list[Callable[[Event], Awaitable[None]]] = []
 
     @property
     def connection_count(self) -> int:
         return len(self._connections)
+
+    def add_listener(self, listener: Callable[[Event], Awaitable[None]]) -> None:
+        """注册旁路监听器 (通知等). 监听器抛异常只记日志, 不影响任务链路."""
+        self._listeners.append(listener)
+
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -80,3 +87,9 @@ class EventBus:
     async def emit(self, event_type: EventType, data: dict | None = None) -> None:
         event = Event(type=event_type, data=data or {})
         await self.broadcast(event)
+        for listener in list(self._listeners):
+            try:
+                await listener(event)
+            except Exception:
+                # 旁路 (通知发送等) 失败绝不能冒泡回任务链路.
+                logger.exception("event listener failed", event_type=str(event.type))

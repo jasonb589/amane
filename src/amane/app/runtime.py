@@ -36,6 +36,7 @@ from ..llm import TranslationCache, build_translator
 from ..media.watermarks import user_watermark_dir
 from ..net.browser import BrowserPool
 from ..net.http import RateLimiters, WebClient, site_proxy_overrides
+from ..notify import NotificationService
 from ..parsing.file_info import set_escape_strings
 from ..playback import PlaybackFactory, PlaybackState
 from ..plugins.manager import PluginManager
@@ -222,6 +223,7 @@ class AppRuntime:
     playback_state: PlaybackState = field(default_factory=PlaybackState)
     library_locks: LibraryTaskLocks = field(default_factory=LibraryTaskLocks)
     inventory_store: InventoryStore = field(default_factory=InventoryStore)
+    notifier: NotificationService = field(default_factory=NotificationService)
     browser: BrowserPool | None = None
     r18_handle: R18Handle | None = None
 
@@ -279,6 +281,7 @@ class AppRuntime:
             browser=reused_browser,
         )
         self.web_client = stack.web_client
+        self.configure_notifier()
         self.http_client = stack.http_client
         self.factory = stack.factory
         self.browser = stack.browser
@@ -331,6 +334,16 @@ class AppRuntime:
             # 插件集合变化 (安装 / 卸载 / 重载 / 启停): 已签发的 token 与探测缓存必须失效.
             self.playback_state.reset()
         self.playback_factory = current_playback
+
+    def configure_notifier(self) -> None:
+        """通知服务的配置注入点: 启动与热重建共用 (rebuild 是同步的, 这里不能 await)."""
+        self.notifier.configure(
+            self.config.hot.notify,
+            web_client=self.web_client,
+            repo=self.repo,
+            log_dir=self.config.cold.log_dir,
+        )
+
 
     async def apply_rebuild(self) -> None:
         """串行化 rebuild 与 worker 替换; 旧资源由退役流程在 worker 排空后释放."""

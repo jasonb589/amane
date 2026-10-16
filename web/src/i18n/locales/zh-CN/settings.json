@@ -7,6 +7,7 @@
     "network": "网络",
     "worker": "任务引擎",
     "watcher": "文件监控",
+    "notify": "通知",
     "logging": "日志",
     "sr": "图像超分",
     "llm": "LLM 翻译",
@@ -568,6 +569,40 @@
       "escape_strings": {
         "label": "文件名垃圾信息过滤",
         "description": "解析番号前从文件名中移除的字符串 (垃圾信息); 以 r: 开头的按正则处理"
+      }
+    },
+    "notify": {
+      "enabled": {
+        "label": "启用通知",
+        "description": "任务完成或失败时, 按下方的渠道推送"
+      },
+      "panel_url": {
+        "label": "面板地址",
+        "description": "用于通知里的 {link} 变量, 例如 https://amane.example.com"
+      },
+      "log_tail_lines": {
+        "label": "附带日志行数",
+        "description": "大于 0 时把任务日志最后 N 行放进 {log_tail}"
+      },
+      "channels": {
+        "label": "通知渠道",
+        "description": "每个渠道一段模板; url 与 body 都支持 {变量}",
+        "$": {
+          "name": { "label": "渠道名", "description": "只用于日志与错误提示" },
+          "enabled": { "label": "启用这个渠道", "description": "关掉可以临时停用它" },
+          "url": { "label": "请求地址", "description": "支持 {变量}, 例如 https://api.telegram.org/bot<TOKEN>/sendMessage" },
+          "method": {
+            "label": "请求方法",
+            "description": "POST 发送 body; GET 只请求 url",
+            "options": { "post": "POST", "get": "GET" }
+          },
+          "headers": { "label": "请求头", "description": "键值对, 例如 Authorization: Bearer xxx" },
+          "body": { "label": "请求体模板", "description": "以花括号开头时字符串按 JSON 转义, 可直接写 {\"text\":\"{number} {title}\"}" },
+          "events": { "label": "订阅事件", "description": "task.completed / task.failed / file.discovered / file.removed; 留空 = 全部" },
+          "task_types": { "label": "任务类型", "description": "只通知这些类型: scrape / organize / cleanup / upscale / rescrape 等; 留空 = 全部" },
+          "throttle_seconds": { "label": "合并窗口", "description": "同类事件在该秒数内合并成一条汇总 (适合批量刮削); 0 = 每条都发" },
+          "timeout": { "label": "超时", "description": "单次请求超时 (秒)" }
+        }
       }
     },
     "sr": {

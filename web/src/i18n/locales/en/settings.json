@@ -7,6 +7,7 @@
     "network": "Network",
     "worker": "Task Engine",
     "watcher": "File Monitoring",
+    "notify": "Notifications",
     "logging": "Logging",
     "sr": "Super Resolution",
     "llm": "LLM Translation",
@@ -568,6 +569,40 @@
       "escape_strings": {
         "label": "Filename Junk Filters",
         "description": "Strings removed from the filename before parsing the number; entries starting with r: are treated as regexes"
+      }
+    },
+    "notify": {
+      "enabled": {
+        "label": "Enable notifications",
+        "description": "Push a message when a task completes or fails"
+      },
+      "panel_url": {
+        "label": "Panel URL",
+        "description": "Used by the {link} variable, e.g. https://amane.example.com"
+      },
+      "log_tail_lines": {
+        "label": "Log tail lines",
+        "description": "When greater than 0, the last N lines of the task log go into {log_tail}"
+      },
+      "channels": {
+        "label": "Channels",
+        "description": "One template per channel; both url and body accept {variables}",
+        "$": {
+          "name": { "label": "Channel name", "description": "Used in logs and error messages only" },
+          "enabled": { "label": "Enable this channel", "description": "Turn off to mute it temporarily" },
+          "url": { "label": "Request URL", "description": "Accepts {variables}, e.g. https://api.telegram.org/bot<TOKEN>/sendMessage" },
+          "method": {
+            "label": "Method",
+            "description": "POST sends the body; GET only requests the url",
+            "options": { "post": "POST", "get": "GET" }
+          },
+          "headers": { "label": "Headers", "description": "Key/value pairs, e.g. Authorization: Bearer xxx" },
+          "body": { "label": "Body template", "description": "When it starts with a brace, strings are JSON-escaped, so {\"text\":\"{number} {title}\"} works as-is" },
+          "events": { "label": "Events", "description": "task.completed / task.failed / file.discovered / file.removed; empty = all" },
+          "task_types": { "label": "Task types", "description": "Only notify these types: scrape / organize / cleanup / upscale / rescrape and so on; empty = all" },
+          "throttle_seconds": { "label": "Merge window", "description": "Merge events of the same kind within this many seconds into one summary; 0 = send every event" },
+          "timeout": { "label": "Timeout", "description": "Per-request timeout (seconds)" }
+        }
       }
     },
     "sr": {
