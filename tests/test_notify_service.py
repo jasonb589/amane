@@ -141,7 +141,7 @@ def test_service_skips_when_disabled() -> None:
 
 def test_local_time_formats_container_timezone() -> None:
     """通知里的本地时间: 库里是 UTC naive, 显示时按容器时区 (compose 的 TZ) 转一次."""
-    text = _local_time(datetime(2026, 10, 16, 12, 44, 36))
+    text = _local_time(datetime(2026, 10, 16, 12, 44, 36))  # noqa: DTZ001 — 库里存的是 UTC naive
     assert len(text) == 19 and text[4] == "-" and text[13] == ":"
     assert text.startswith("2026-10-16 ")
 

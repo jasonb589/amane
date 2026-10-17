@@ -351,7 +351,7 @@ class ScrapingConfig(BaseModel):
     """海报裁剪跳过阈值. 当 poster 候选高度已达 thumb 高度的此比例以上时, 视为候选够用, 不再从 thumb 裁剪
     (裁剪有错位风险, 非必要不做). 默认 0.9."""
     poster_crop_mode: dict[ContentType, PosterCropMode] = Field(
-        default_factory=lambda: {ct: PosterCropMode.RIGHT for ct in ContentType},
+        default_factory=lambda: dict.fromkeys(ContentType, PosterCropMode.RIGHT),
         json_schema_extra={"x-frozen-keys": True},
         description=(
             "按内容类型选择海报裁剪方式: right 取封面右侧 (默认); center 居中裁剪; none 不裁剪 (保留原图); "

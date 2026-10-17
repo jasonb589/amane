@@ -165,7 +165,6 @@ def _face_centered_box(
     """以人脸为中心、按 ``poster_ratio`` 给出尽量大的裁剪框, 且不越界."""
     width, height = size
     left, top, right, bottom = face
-    face_w = max(1, right - left)
     face_h = max(1, bottom - top)
     center_x = (left + right) // 2
     center_y = (top + bottom) // 2

@@ -125,7 +125,6 @@ export function PosterCard({
               )}
             </Group>
           )}
-          )}
           {releaseLabel && (
             <Box pos="absolute" bottom={6} right={6}>
               <OverlayChip>

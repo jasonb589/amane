@@ -95,6 +95,7 @@ def _local_time(value: datetime) -> str:
     return value.replace(tzinfo=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _batch_line(count: int, numbers: list[str], limit: int = 5) -> str:
     """合并成多条时的摘要行: 以换行开头, 只有一项时返回空串 (模板里那一段自然消失)."""
     if count <= 1:
         return ""
