@@ -4,7 +4,6 @@ import json
 import re
 from difflib import SequenceMatcher
 from enum import StrEnum
-from pathlib import PurePosixPath
 from urllib.parse import quote
 
 from parsel import Selector
@@ -106,7 +105,7 @@ class DmmCrawler(Crawler):
         number = query.number
         if query.content_type is ContentType.HENTAI:
             # 里番没有番号: 改为按标题关键词搜索, 并要求抓到的标题与输入足够相似.
-            return await self._search_hentai(number, query.file_path)
+            return await self._search_hentai(number)
         number_lower = number.lower()
 
         # 拆出前缀与数字.
@@ -158,37 +157,24 @@ class DmmCrawler(Crawler):
     # ---- 里番 (hentai): 无番号, 按标题关键词搜索 ----
     _HENTAI_SEARCH_URL = "https://www.dmm.co.jp/search/=/searchstr={}/"
     _HENTAI_MAX_TRIES = 3
-    _HENTAI_MAX_KEYWORDS = 6
-    _HENTAI_MIN_RATIO = 0.5
+    _HENTAI_MIN_RATIO = 0.55
     _TITLE_NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
     _KEYWORD_NOISE_RE = re.compile(r"[〜～~☆★・･\-–—_/|｜:：,，.。!?！？()\[\]【】「」『』\"'’]+")
 
     @classmethod
-    def _hentai_keywords(cls, raw: str, file_path: str | None = None) -> list[str]:
-        """里番没有番号: 关键词取原始文件名与标题, 再按「去装饰 / 取主标题 / 截断」派生候选.
-
-        解析出的番号字段会剥掉括号补充说明 (「妹（彼女）3」→「妹3」), 而站点标题是完整写法,
-        所以优先用文件名原文; 主标题取第一个空格之前的部分 (副标题常搜不到).
-        """
-        seeds: list[str] = []
-        if file_path:
-            stem = PurePosixPath(file_path.replace("\\", "/")).stem.strip()
-            if stem:
-                seeds.append(stem)
+    def _hentai_keywords(cls, raw: str) -> list[str]:
+        """原文与去掉装饰符号后的关键词各算一个候选搜索词."""
         text = raw.strip()
-        if text and text not in seeds:
-            seeds.append(text)
-
-        keywords: list[str] = []
-        for seed in seeds:
-            cleaned = re.sub(r"\s+", " ", cls._KEYWORD_NOISE_RE.sub(" ", seed)).strip()
-            tokens = [token for token in cleaned.split() if len(token) >= 2]
-            candidates = [cleaned, " ".join(tokens), tokens[0] if tokens else "", " ".join(tokens[:-1])]
-            for candidate in candidates:
-                candidate = candidate.strip()
-                if len(candidate) >= 4 and candidate not in keywords:
-                    keywords.append(candidate)
-        return keywords[: cls._HENTAI_MAX_KEYWORDS]
+        if not text:
+            return []
+        variants = [text]
+        cleaned = re.sub(r"\s+", " ", cls._KEYWORD_NOISE_RE.sub(" ", text)).strip()
+        if cleaned and cleaned not in variants:
+            variants.append(cleaned)
+        joined = " ".join(word for word in cleaned.split() if len(word) >= 2)
+        if joined and joined not in variants:
+            variants.append(joined)
+        return variants[: cls._HENTAI_MAX_TRIES]
 
     @classmethod
     def _title_ratio(cls, left: str, right: str) -> float:
@@ -200,15 +186,6 @@ class DmmCrawler(Crawler):
         if a == b:
             return 1.0
         return SequenceMatcher(None, a, b).ratio()
-
-    @classmethod
-    def _title_contains(cls, left: str, right: str) -> bool:
-        """一方完整包含另一方 (都至少 4 个可读字符) 时视为同一部: 副标题差异不该判错."""
-        a = cls._TITLE_NOISE_RE.sub("", left.lower())
-        b = cls._TITLE_NOISE_RE.sub("", right.lower())
-        if len(a) < 4 or len(b) < 4:
-            return False
-        return a in b or b in a
 
     @staticmethod
     def _detail_urls(text: str) -> list[str]:
@@ -226,45 +203,33 @@ class DmmCrawler(Crawler):
             urls.append(url)
         return urls
 
-    async def _search_hentai(self, number: str, file_path: str | None = None) -> str | None:
-        """按标题搜 DMM 动漫, 候选逐个抓取核对标题; 对不上宁可返回 None, 也不写错元数据."""
+    async def _search_hentai(self, number: str) -> str | None:
+        """按标题搜 DMM 动漫, 候选逐个抓取核对标题; 相似度不足宁可返回 None."""
         candidates: list[str] = []
-        for keyword in self._hentai_keywords(number, file_path):
+        for keyword in self._hentai_keywords(number):
             try:
                 text = await self.client.get_html(
                     self._HENTAI_SEARCH_URL.format(quote(keyword, safe="")), cookies=self.cookies
                 )
-            except RequestError as exc:
-                self.logger.debug("hentai search request failed", keyword=keyword, error=str(exc))
+            except RequestError:
                 continue
             found = self._detail_urls(text)
             anime = [url for url in found if "/anime/" in url]
             others = [url for url in found if url not in anime]
-            self.logger.debug("hentai search", keyword=keyword, detail_urls=len(found), anime=len(anime))
             for url in (*anime, *others):
                 if url not in candidates:
                     candidates.append(url)
-            if anime:
+            if candidates:
                 break
 
         for url in candidates[: self._HENTAI_MAX_TRIES]:
             try:
                 meta = await self._scrape(url)
-            except SourceError as exc:
-                self.logger.debug("hentai candidate scrape failed", url=url, error=str(exc))
+            except SourceError:
                 continue
             if meta is None or not meta.title:
                 continue
-            ratio = self._title_ratio(number, meta.title)
-            contained = self._title_contains(number, meta.title)
-            self.logger.debug(
-                "hentai title check",
-                url=url,
-                ratio=round(ratio, 3),
-                contained=contained,
-                title=meta.title,
-            )
-            if contained or ratio >= self._HENTAI_MIN_RATIO:
+            if self._title_ratio(number, meta.title) >= self._HENTAI_MIN_RATIO:
                 return url
         return None
 
