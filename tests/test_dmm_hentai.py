@@ -37,7 +37,6 @@ class TestTitleRatio:
         assert DmmCrawler._title_ratio("クール DEM〜眠れないオンナ〜", "クールDEM 眠れないオンナ") == 1.0
 
     def test_unrelated_is_below_threshold(self) -> None:
-    def test_unrelated_is_below_threshold(self) -> None:
         assert DmmCrawler._title_ratio("眠れないオンナ", "全然ちがう別作品のタイトル") < DmmCrawler._HENTAI_MIN_RATIO
 
     def test_missing_parenthetical_still_matches(self) -> None:
@@ -48,6 +47,7 @@ class TestTitleRatio:
     def test_contains_accepts_prefix_forms(self) -> None:
         assert DmmCrawler._title_contains("陰湿オタクにイカれる妹", "陰湿オタクにイカれる妹（彼女）3 精液奴隷")
         assert not DmmCrawler._title_contains("陰湿", "全然ちがう別作品のタイトル")
+
     def test_blank_is_zero(self) -> None:
         assert DmmCrawler._title_ratio("", "眠れないオンナ") == 0.0
 
