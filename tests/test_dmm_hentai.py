@@ -35,8 +35,8 @@ class TestTitleRatio:
 
 class TestDetailUrls:
     def test_parses_escaped_and_plain_json(self) -> None:
-        escaped = 'var x = {"detailUrl\\":\\"https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_1a/\\"};'
-        plain = '{"detailUrl":"https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_2b/"}'
+        escaped = '<html><body><script>var x = {"detailUrl\\":\\"https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_1a/\\"};</script></body></html>'
+        plain = '<html><body><script>{"detailUrl":"https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_2b/"}</script></body></html>'
         assert DmmCrawler._detail_urls(escaped) == ["https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_1a/"]
         assert DmmCrawler._detail_urls(plain) == ["https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_2b/"]
 
