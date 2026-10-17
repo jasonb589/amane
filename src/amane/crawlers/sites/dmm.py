@@ -240,9 +240,7 @@ class DmmCrawler(Crawler):
             found = self._detail_urls(text)
             anime = [url for url in found if "/anime/" in url]
             others = [url for url in found if url not in anime]
-            self.logger.debug(
-                "hentai search", keyword=keyword, detail_urls=len(found), anime=len(anime)
-            )
+            self.logger.debug("hentai search", keyword=keyword, detail_urls=len(found), anime=len(anime))
             for url in (*anime, *others):
                 if url not in candidates:
                     candidates.append(url)
