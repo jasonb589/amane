@@ -2,13 +2,16 @@
 
 import json
 import re
+from difflib import SequenceMatcher
 from enum import StrEnum
+from urllib.parse import quote
 
 from parsel import Selector
 from pydantic import ValidationError
 
 from ...enums import ActorGender, SiteName
 from ...net.errors import FailureReason, SourceError, parse_detail
+from ...parsing.file_info import ContentType
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
 from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
@@ -100,6 +103,9 @@ class DmmCrawler(Crawler):
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
         number = query.number
+        if query.content_type is ContentType.HENTAI:
+            # 里番没有番号: 改为按标题关键词搜索, 并要求抓到的标题与输入足够相似.
+            return await self._search_hentai(number)
         number_lower = number.lower()
 
         # 拆出前缀与数字.
@@ -147,6 +153,85 @@ class DmmCrawler(Crawler):
         exact_ids = frozenset({number_00, number_no_00})
         sorted_urls = sorted(all_urls, key=lambda u: self._selection_key(u, exact_ids), reverse=True)
         return sorted_urls[0] if sorted_urls else None
+
+    # ---- 里番 (hentai): 无番号, 按标题关键词搜索 ----
+    _HENTAI_SEARCH_URL = "https://www.dmm.co.jp/search/=/searchstr={}/"
+    _HENTAI_MAX_TRIES = 3
+    _HENTAI_MIN_RATIO = 0.55
+    _TITLE_NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
+    _KEYWORD_NOISE_RE = re.compile(r"[〜～~☆★・･\-–—_/|｜:：,，.。!?！？()\[\]【】「」『』\"'’]+")
+
+    @classmethod
+    def _hentai_keywords(cls, raw: str) -> list[str]:
+        """原文与去掉装饰符号后的关键词各算一个候选搜索词."""
+        text = raw.strip()
+        if not text:
+            return []
+        variants = [text]
+        cleaned = re.sub(r"\s+", " ", cls._KEYWORD_NOISE_RE.sub(" ", text)).strip()
+        if cleaned and cleaned not in variants:
+            variants.append(cleaned)
+        joined = " ".join(word for word in cleaned.split() if len(word) >= 2)
+        if joined and joined not in variants:
+            variants.append(joined)
+        return variants[: cls._HENTAI_MAX_TRIES]
+
+    @classmethod
+    def _title_ratio(cls, left: str, right: str) -> float:
+        """只比可读字符, 忽略空格与标点; 完全一致直接给 1."""
+        a = cls._TITLE_NOISE_RE.sub("", left.lower())
+        b = cls._TITLE_NOISE_RE.sub("", right.lower())
+        if not a or not b:
+            return 0.0
+        if a == b:
+            return 1.0
+        return SequenceMatcher(None, a, b).ratio()
+
+    @staticmethod
+    def _detail_urls(text: str) -> list[str]:
+        """搜索结果页的详情链接 (写在 script 的 detailUrl 字段里)."""
+        html = Selector(text=text)
+        raw_urls = set(html.re(r'detailUrl\\":\\"(.*?)\\"'))
+        if not raw_urls:
+            raw_urls = set(html.re(r'"detailUrl":"(.*?)"'))
+        urls: list[str] = []
+        for raw_url in raw_urls:
+            try:
+                url = raw_url.encode("utf-8").decode("unicode_escape")
+            except (UnicodeDecodeError, ValueError):
+                url = raw_url
+            urls.append(url)
+        return urls
+
+    async def _search_hentai(self, number: str) -> str | None:
+        """按标题搜 DMM 动漫, 候选逐个抓取核对标题; 相似度不足宁可返回 None."""
+        candidates: list[str] = []
+        for keyword in self._hentai_keywords(number):
+            try:
+                text = await self.client.get_html(
+                    self._HENTAI_SEARCH_URL.format(quote(keyword, safe="")), cookies=self.cookies
+                )
+            except RequestError:
+                continue
+            found = self._detail_urls(text)
+            anime = [url for url in found if "/anime/" in url]
+            others = [url for url in found if url not in anime]
+            for url in (*anime, *others):
+                if url not in candidates:
+                    candidates.append(url)
+            if candidates:
+                break
+
+        for url in candidates[: self._HENTAI_MAX_TRIES]:
+            try:
+                meta = await self._scrape(url)
+            except SourceError:
+                continue
+            if meta is None or not meta.title:
+                continue
+            if self._title_ratio(number, meta.title) >= self._HENTAI_MIN_RATIO:
+                return url
+        return None
 
     def _parse_search_results(self, html: Selector, prefix: str, digits: str) -> list[str]:
         # 详情 URL 嵌在 script 里, 同时试转义与非转义两种 JSON 写法.
