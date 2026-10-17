@@ -10,6 +10,7 @@
     "hasFilesYes": "有文件",
     "hasFilesNo": "无文件",
     "hasSubtitle": "中字",
+    "vr": "VR",
     "uncensored": "无码",
     "mosaic": "马赛克标记",
     "definition": "分辨率",
@@ -27,8 +28,7 @@
       "hentai": "动漫"
     },
     "mosaics": {
-      "censored": "有码",
-      "uncensored": "无码标记",
+      "uncensored": "无码",
       "cracked": "破解",
       "leaked": "流出"
     }
@@ -69,6 +69,7 @@
       "release": "发行日期",
       "runtime": "时长",
       "score": "评分",
+      "vr": "VR",
       "series": "系列",
       "directors": "导演",
       "actors": "演员",
@@ -106,6 +107,7 @@
     "deleteCommentMessage": "删除后无法恢复",
     "playTrailer": "播放预告片",
     "closeTrailer": "关闭预告片",
+    "trailerFailed": "无法播放此预告片",
     "coverUnavailable": "封面不可用",
     "playback": "播放",
     "playbackFailed": "无法播放此码流",

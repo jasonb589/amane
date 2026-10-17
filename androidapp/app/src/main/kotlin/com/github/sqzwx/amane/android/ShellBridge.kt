@@ -20,6 +20,17 @@ class ShellBridge(private val activity: BrowserActivity) {
     }
 
     /**
+     * 退出应用, 由页面的客户端设置页调用.
+     *
+     * 壳内的返回手势是后退 (见 `BrowserActivity.handleBack`), 退回首页后也只是结束当前活动, 因此需要
+     * 一个明确的退出入口; 连任务一起收掉, 免得从最近任务回来又落在这一屏.
+     */
+    @JavascriptInterface
+    fun exitApp() {
+        activity.runOnUiThread { activity.exitApp() }
+    }
+
+    /**
      * 页面报告"触点处是否还有可以向上滚的内容", 决定下拉刷新能否接管这次手势.
      *
      * 手势在 MOVE 越过阈值时才判定, 因此页面在 `touchstart` 里推来的值来得及生效. 这是状态推送而不是
@@ -40,5 +51,39 @@ class ShellBridge(private val activity: BrowserActivity) {
     fun webViewPackage(): String {
         val info = WebViewCompat.getCurrentWebViewPackage(activity) ?: return ""
         return "${info.packageName} ${info.versionName.orEmpty()}".trim()
+    }
+
+    /**
+     * 系统媒体音量, 0..1; 与 [setMediaVolume] 成对.
+     *
+     * 页面里的手势直接写系统值: 音量是系统值与元素音量的乘积, 只改元素音量时手势拖到满格也只能得到系统
+     * 音量的一部分. 页面没有设置系统音量的 API, 因此这条路径只存在于壳内 (见 `web/src/lib/shell.ts`).
+     */
+    @JavascriptInterface
+    fun mediaVolume(): Double = activity.mediaVolume()
+
+    @JavascriptInterface
+    fun setMediaVolume(value: Double) {
+        activity.setMediaVolume(value)
+    }
+
+    /** 系统媒体音量的一档大小, 供页面把连读的手势值取整到档位; 取不到时为 0. */
+    @JavascriptInterface
+    fun mediaVolumeStep(): Double = activity.mediaVolumeStep()
+
+    /** 当前亮度, 0..1; 与 [setScreenBrightness] 成对. */
+    @JavascriptInterface
+    fun screenBrightness(): Double = activity.screenBrightness()
+
+    /** 写入窗口亮度; 只影响本应用, 且在本应用没有设置过时以系统亮度为起手基值. */
+    @JavascriptInterface
+    fun setScreenBrightness(value: Double) {
+        activity.setScreenBrightness(value)
+    }
+
+    /** 交还系统亮度, 由页面在离开播放器时调用. */
+    @JavascriptInterface
+    fun clearScreenBrightness() {
+        activity.clearScreenBrightness()
     }
 }

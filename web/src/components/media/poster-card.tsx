@@ -7,6 +7,7 @@ import type { MetadataResponse } from "@/client/types.gen";
 import { FilePhaseOverlay } from "@/components/media/file-phase-badges";
 import { OverlayChip, OverlayChipLabel } from "@/components/media/overlay-chip";
 import { ProxyImage } from "@/components/media/proxy-image";
+import { VrOverlayChip } from "@/components/media/vr-badge";
 import { ageAtRelease } from "@/lib/format-birthday";
 import { formatReleaseYearMonth } from "@/lib/format-release";
 import { proxyImageUrl } from "@/lib/utils";
@@ -90,8 +91,8 @@ export function PosterCard({
             }
           />
           {selectable && (
-            /* 圆点叠在 `<Link>` 上: 两个都要拦 — stopPropagation 挡住 Link 的 onClick,
-               preventDefault 挡住锚点的浏览器默认跳转. */
+            /* 圆点叠在 `<Link>` 里, 两个都要拦: stopPropagation 拦住 Link 的 onClick,
+               preventDefault 拦住锚点的浏览器默认跳转. */
             <button
               type="button"
               className={classes.toggle}
@@ -108,17 +109,22 @@ export function PosterCard({
               {selected && <IconCheck size={13} stroke={3} />}
             </button>
           )}
-          {item.score != null && (
-            <Box pos="absolute" top={6} right={6}>
-              <OverlayChip>
-                <IconStar
-                  size={11}
-                  color="var(--mantine-color-yellow-4)"
-                  fill="var(--mantine-color-yellow-4)"
-                />
-                <OverlayChipLabel>{item.score.toFixed(1)}</OverlayChipLabel>
-              </OverlayChip>
-            </Box>
+          {/* 与评分同角成组: 左上角被相位水印 (马赛克标记) 占用, 单独放会与它重叠. */}
+          {(item.vr || item.score != null) && (
+            <Group pos="absolute" top={6} right={6} gap={4} wrap="nowrap">
+              {item.vr && <VrOverlayChip />}
+              {item.score != null && (
+                <OverlayChip>
+                  <IconStar
+                    size={11}
+                    color="var(--mantine-color-yellow-4)"
+                    fill="var(--mantine-color-yellow-4)"
+                  />
+                  <OverlayChipLabel>{item.score.toFixed(1)}</OverlayChipLabel>
+                </OverlayChip>
+              )}
+            </Group>
+          )}
           )}
           {releaseLabel && (
             <Box pos="absolute" bottom={6} right={6}>

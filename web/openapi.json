@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Amane API",
-    "version": "0.21.0"
+    "version": "0.22.0"
   },
   "paths": {
     "/api/health": {
@@ -549,10 +549,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter by uncensored (mosaic marker or uncensored content type)",
+              "description": "Filter by uncensored (own marker or uncensored number content type)",
               "title": "Uncensored"
             },
-            "description": "Filter by uncensored (mosaic marker or uncensored content type)"
+            "description": "Filter by uncensored (own marker or uncensored number content type)"
           },
           {
             "name": "definition",
@@ -585,10 +585,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter by content type",
+              "description": "Filter by owning number content type",
               "title": "Content Type"
             },
-            "description": "Filter by content type"
+            "description": "Filter by owning number content type"
           },
           {
             "name": "limit",
@@ -1103,6 +1103,24 @@
             "description": "Filter by linked file subtitle marker"
           },
           {
+            "name": "vr",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by VR marker (entry tag vocabulary)",
+              "title": "Vr"
+            },
+            "description": "Filter by VR marker (entry tag vocabulary)"
+          },
+          {
             "name": "mosaic",
             "in": "query",
             "required": false,
@@ -1133,10 +1151,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter by uncensored file (mosaic marker or uncensored content type)",
+              "description": "Filter by uncensored number (own content type or linked file marker)",
               "title": "Uncensored"
             },
-            "description": "Filter by uncensored file (mosaic marker or uncensored content type)"
+            "description": "Filter by uncensored number (own content type or linked file marker)"
           },
           {
             "name": "definition",
@@ -1169,10 +1187,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter by linked file content type",
+              "description": "Filter by number content type",
               "title": "Content Type"
             },
-            "description": "Filter by linked file content type"
+            "description": "Filter by number content type"
           },
           {
             "name": "saved_query_id",
@@ -9032,6 +9050,11 @@
             "title": "Has Subtitle",
             "default": false
           },
+          "censored": {
+            "type": "boolean",
+            "title": "Censored",
+            "default": false
+          },
           "uncensored": {
             "type": "boolean",
             "title": "Uncensored",
@@ -9059,7 +9082,7 @@
         },
         "type": "object",
         "title": "FilePhaseSummary",
-        "description": "关联文件相位聚合: 任一文件具备即亮; definition 取最高档."
+        "description": "条目相位聚合; 判定见 ``parsing/file_info.py::summarize_file_phases``, definition 取最高档."
       },
       "FootprintNoticeKind": {
         "type": "string",
@@ -9141,7 +9164,8 @@
                   "javdb",
                   "fc2ppvdb",
                   "fc2",
-                  "freejavbt"
+                  "freejavbt",
+                  "airav"
                 ],
                 "hentai": [
                   "getchu",
@@ -11007,9 +11031,6 @@
           "status": {
             "$ref": "#/components/schemas/MediaFileStatus"
           },
-          "content_type": {
-            "$ref": "#/components/schemas/ContentType"
-          },
           "mosaic": {
             "anyOf": [
               {
@@ -11019,6 +11040,16 @@
                 "type": "null"
               }
             ]
+          },
+          "censored": {
+            "type": "boolean",
+            "title": "Censored",
+            "default": false
+          },
+          "uncensored": {
+            "type": "boolean",
+            "title": "Uncensored",
+            "default": false
           },
           "has_subtitle": {
             "type": "boolean",
@@ -11077,8 +11108,7 @@
           "id",
           "library_id",
           "path",
-          "status",
-          "content_type"
+          "status"
         ],
         "title": "MediaFileResponse"
       },
@@ -11249,7 +11279,7 @@
                 "type": "null"
               }
             ],
-            "description": "内容类型; None = 服务端推断 (挂载文件路径 → 番号模式)"
+            "description": "内容类型; None = 用条目已落定的类型 (不重新推断)"
           },
           "use_cache": {
             "items": {
@@ -11695,6 +11725,9 @@
             "type": "string",
             "title": "Number"
           },
+          "content_type": {
+            "$ref": "#/components/schemas/ContentType"
+          },
           "title": {
             "anyOf": [
               {
@@ -11848,6 +11881,11 @@
             ],
             "title": "Score"
           },
+          "vr": {
+            "type": "boolean",
+            "title": "Vr",
+            "default": false
+          },
           "poster_urls": {
             "items": {
               "type": "string"
@@ -11954,7 +11992,8 @@
         "type": "object",
         "required": [
           "id",
-          "number"
+          "number",
+          "content_type"
         ],
         "title": "MetadataResponse"
       },
@@ -12013,12 +12052,12 @@
       "Mosaic": {
         "type": "string",
         "enum": [
-          "censored",
           "uncensored",
           "cracked",
           "leaked"
         ],
-        "title": "Mosaic"
+        "title": "Mosaic",
+        "description": "马赛克标记; 有码是条目类型, 不在此列."
       },
       "MoveMode": {
         "type": "string",

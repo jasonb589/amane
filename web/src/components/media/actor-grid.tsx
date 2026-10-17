@@ -18,14 +18,9 @@ import { IconEraser, IconRefresh, IconTag, IconUser, IconX } from "@tabler/icons
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import type { ParseKeys } from "i18next";
-import { forwardRef, memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  VirtuosoGrid,
-  type GridItemProps,
-  type GridListProps,
-  type GridStateSnapshot,
-} from "react-virtuoso";
+import { Virtuoso, type StateSnapshot, type VirtuosoHandle } from "react-virtuoso";
 import {
   batchActorUserTagsMutation,
   listActorsQueryKey,
@@ -41,17 +36,16 @@ import { confirm } from "@/lib/confirm";
 import { exhaustiveRecord } from "@/lib/exhaustive";
 import { USER_TAG_FACET_LIST } from "@/lib/facets";
 import { ActorCard } from "./actor-card";
-
 /**
- * 演员墙的虚拟化状态按历史条目保存: 挂载时还原格子尺寸与滚动位置.
+ * 演员墙的虚拟化状态按历史条目保存: 挂载时还原行尺寸与滚动位置.
  *
  * 路由器在 onRendered 复位窗口滚动, 此刻虚拟列表尚未产生高度, 复位会被浏览器夹回文档顶部;
  * 快照由 Virtuoso 在挂载后自行应用, 不依赖复位时机. 上限只保留最近浏览的若干条目.
  */
-const GRID_STATE_CACHE = new Map<string, GridStateSnapshot>();
+const GRID_STATE_CACHE = new Map<string, StateSnapshot>();
 const GRID_STATE_LIMIT = 16;
 
-function rememberGridState(key: string, state: GridStateSnapshot): void {
+function rememberGridState(key: string, state: StateSnapshot): void {
   GRID_STATE_CACHE.delete(key);
   GRID_STATE_CACHE.set(key, state);
   if (GRID_STATE_CACHE.size > GRID_STATE_LIMIT) {
@@ -63,54 +57,66 @@ function rememberGridState(key: string, state: GridStateSnapshot): void {
 // sm/md 收窄一列: 48em 起导航栏展开, 内容区反而变窄, 沿用桌面列数会让缩略图小一档.
 const GRID_COLS = { base: 2, xs: 3, sm: 3, md: 4, lg: 6, xl: 7 } as const;
 
-type MetadataKey = ParseKeys<"metadata">;
-
-const GENDER_I18N_KEY = exhaustiveRecord<ActorGender>()({
-  female: "browse.person.genderFemale",
-  male: "browse.person.genderMale",
-  unknown: "browse.person.genderUnknown",
-} as const satisfies Record<ActorGender, MetadataKey>);
-
 interface ActorGridProps {
   items: ActorResponse[];
   loading?: boolean;
   emptyMessage?: string;
 }
 
-const ActorGridList = forwardRef<HTMLDivElement, GridListProps>(function ActorGridList(
-  { style, children, className, ...props },
-  ref,
-) {
-  const cols = useMatches(GRID_COLS);
+/**
+ * 卡片按列数切行: 行是虚拟化的单元, 行高由该行最高的卡片决定.
+ *
+ * 不使用 `VirtuosoGrid` — 它只测首个渲染元素的尺寸, 并据这一个高度推算全表的位置与文档高度,
+ * 卡片高度不等时整表都会算错 (上游 #703 / #1220). 行距写在进行内边距上: margin 不计入
+ * Virtuoso 测量的元素尺寸.
+ */
+function toRows(items: readonly ActorResponse[], cols: number): ActorResponse[][] {
+  const rows: ActorResponse[][] = [];
+  for (let i = 0; i < items.length; i += cols) {
+    rows.push(items.slice(i, i + cols));
+  }
+  return rows;
+}
+
+/** 行键取该行首个演员: 追加分页只补齐末行, 已渲染行的身份不变. */
+function actorRowKey(_index: number, row: ActorResponse[]) {
+  return row[0].id;
+}
+
+function ActorGridRow({
+  items,
+  cols,
+  selected,
+  selectActive,
+  onToggleSelect,
+}: {
+  items: ActorResponse[];
+  cols: number;
+  selected: Set<number>;
+  selectActive: boolean;
+  onToggleSelect: (id: number) => void;
+}) {
   return (
     <div
-      ref={ref}
-      className={className}
       style={{
         display: "grid",
-        gap: "var(--mantine-spacing-md)",
+        columnGap: "var(--mantine-spacing-md)",
+        paddingBottom: "var(--mantine-spacing-md)",
         gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-        ...style,
       }}
-      {...props}
     >
-      {children}
+      {items.map((item) => (
+        <ActorCard
+          key={item.id}
+          item={item}
+          selected={selected.has(item.id)}
+          selectActive={selectActive}
+          onToggleSelect={onToggleSelect}
+        />
+      ))}
     </div>
   );
-});
-
-const ActorGridItem = forwardRef<HTMLDivElement, GridItemProps>(function ActorGridItem(
-  { children, style, ...props },
-  ref,
-) {
-  return (
-    <div ref={ref} {...props} style={{ ...style, minWidth: 0 }}>
-      {children}
-    </div>
-  );
-});
-
-const GRID_COMPONENTS = { List: ActorGridList, Item: ActorGridItem };
+}
 
 /**
  * 非虚拟化的演员网格, 给数量有界且与其它内容同页的场景使用 (虚拟化会接管窗口滚动).
@@ -127,10 +133,15 @@ export function ActorCardGrid({ items }: { items: ActorResponse[] }) {
   );
 }
 
-function actorCardKey(_index: number, item: ActorResponse) {
-  return item.id;
-}
-
+/**
+ * 窗口滚动虚拟化, 避免无限滚动把全部卡片留在 DOM.
+ *
+ * `restoreStateFrom` 只在挂载时生效, 变更时会重新应用快照 —
+ * 因此快照在挂载时读取一次, 身份在整个挂载期内保持稳定.
+ *
+ * 列表没有 Grid 的 `stateChanged`, 快照只能经句柄取; 卸载是唯一需要的时机 (快照只服务于
+ * 下一次挂载), 而父组件的清理函数先于子树的 ref 解绑执行, 句柄此时仍可用.
+ */
 interface ActorPosterWallProps {
   items: ActorResponse[];
   restoreKey: string;
@@ -140,35 +151,40 @@ interface ActorPosterWallProps {
   selectActive: boolean;
 }
 
-/**
- * 窗口滚动虚拟化, 避免无限滚动把全部卡片留在 DOM.
- *
- * `restoreStateFrom` 只在挂载时生效, 变更时会重新应用快照 —
- * 因此快照在挂载时读取一次, 身份在整个挂载期内保持稳定.
- */
 function ActorPosterWall({ items, restoreKey, selected, onToggleSelect, selectActive }: ActorPosterWallProps) {
+  const cols = useMatches(GRID_COLS);
+  const rows = useMemo(() => toRows(items, cols), [items, cols]);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [restoreState] = useState(() => GRID_STATE_CACHE.get(restoreKey));
-  const rememberState = useCallback(
-    (state: GridStateSnapshot) => rememberGridState(restoreKey, state),
-    [restoreKey],
-  );
-  // 选中态经闭包进入卡片; ActorCard 已 memo, 切换一格只重渲染该格.
-  const itemContent = useCallback(
-    (_index: number, item: ActorResponse) => (
-      <ActorCard item={item} selected={selected.has(item.id)} selectActive={selectActive} onToggleSelect={onToggleSelect} />
+  // 选中态经闭包进入行; ActorCard 已 memo, 切换一格只重渲染该行.
+  const renderRow = useCallback(
+    (_index: number, row: ActorResponse[]) => (
+      <ActorGridRow
+        items={row}
+        cols={cols}
+        selected={selected}
+        selectActive={selectActive}
+        onToggleSelect={onToggleSelect}
+      />
     ),
-    [selected, onToggleSelect, selectActive],
+    [cols, selected, selectActive, onToggleSelect],
   );
 
+  useEffect(() => {
+    const handle = virtuosoRef;
+    return () => {
+      handle.current?.getState((state) => rememberGridState(restoreKey, state));
+    };
+  }, [restoreKey]);
+
   return (
-    <VirtuosoGrid
+    <Virtuoso
+      ref={virtuosoRef}
       useWindowScroll
-      data={items}
-      components={GRID_COMPONENTS}
-      itemContent={itemContent}
-      computeItemKey={actorCardKey}
+      data={rows}
+      itemContent={renderRow}
+      computeItemKey={actorRowKey}
       restoreStateFrom={restoreState}
-      stateChanged={rememberState}
       increaseViewportBy={600}
     />
   );

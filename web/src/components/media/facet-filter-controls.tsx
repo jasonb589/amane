@@ -1,6 +1,6 @@
 /**
  * 片库列表的高级 facet 筛选: 展开后每个 kind 独立短搜索框, 选中即追加到 URL search.
- * 另含关联文件与文件相位筛选.
+ * 另含条目类型与关联文件相位筛选.
  */
 
 import { Collapse, Select, SimpleGrid, Stack, Text } from "@mantine/core";
@@ -34,6 +34,9 @@ interface FacetFilterControlsProps {
   /** 当前关联文件筛选; null = 不限. */
   hasFiles: HasFilesFilter;
   onHasFilesChange: (value: HasFilesFilter) => void;
+  /** 片库级 VR 判定 (来自标签), 与文件相位无关. */
+  vr: HasFilesFilter;
+  onVrChange: (value: HasFilesFilter) => void;
   filePhase: FilePhaseFilters;
   onFilePhaseChange: (value: FilePhaseFilters) => void;
 }
@@ -131,6 +134,8 @@ export function FacetFilterControls({
   onSelect,
   hasFiles,
   onHasFilesChange,
+  vr,
+  onVrChange,
   filePhase,
   onFilePhaseChange,
 }: FacetFilterControlsProps) {
@@ -165,6 +170,15 @@ export function FacetFilterControls({
             ]}
             value={triSelectValue(hasFiles)}
             onChange={(v) => onHasFilesChange(parseTriSelect(v))}
+            clearable
+            size="sm"
+          />
+          <Select
+            label={t("search.vr")}
+            placeholder={t("search.any")}
+            data={triData}
+            value={triSelectValue(vr)}
+            onChange={(v) => onVrChange(parseTriSelect(v))}
             clearable
             size="sm"
           />

@@ -9,6 +9,20 @@ from ..http import RequestError
 from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text, number_variants, select_number_index
 
+#: 竖版海报与横版放大图同目录同名, 只差文件名前缀; 详情页只引用后者, 海报地址由封面推导.
+_COVER_PREFIX = "pb_e_"
+_POSTER_PREFIX = "pf_e_"
+#: 素人条目的出演栏写的是站点的代名 (名字后跟年龄与职业), 不是可对齐的演员身份.
+_AMATEUR_TAG = "素人"
+
+
+def _poster_url(cover_url: str) -> str | None:
+    """横版封面地址 → 同目录竖版海报地址; 非 ``pb_e_`` 形态返回 ``None``."""
+    directory, _, filename = cover_url.rpartition("/")
+    if not directory or not filename.startswith(_COVER_PREFIX):
+        return None
+    return f"{directory}/{_POSTER_PREFIX}{filename.removeprefix(_COVER_PREFIX)}"
+
 
 class MGStageCrawler(Crawler):
     #: 详情页地址里的番号段, 检索结果与直达地址共用同一形态.
@@ -85,7 +99,14 @@ class MGStageCrawler(Crawler):
         number_match = re.search(r"/product_detail/([^/]+)", url)
         number = number_match.group(1) if number_match else ""
 
-        actors = extract_all_texts(html, '//th[contains(text(),"出演")]/following-sibling::td/a/text()')
+        tags = extract_all_texts(html, '//th[contains(text(),"ジャンル")]/following-sibling::td/a/text()')
+
+        # 素人条目的出演值是站点代名; 演员字段按首个非空来源锁定, 写入即顶掉 javdb 记的本人, 故不取.
+        actors = (
+            []
+            if any(_AMATEUR_TAG in tag for tag in tags)
+            else extract_all_texts(html, '//th[contains(text(),"出演")]/following-sibling::td/a/text()')
+        )
         studio = extract_text(html, '//th[contains(text(),"メーカー")]/following-sibling::td/a/text()')
         publisher = extract_text(html, '//th[contains(text(),"レーベル")]/following-sibling::td/a/text()')
         series = extract_text(html, '//th[contains(text(),"シリーズ")]/following-sibling::td/a/text()')
@@ -96,37 +117,35 @@ class MGStageCrawler(Crawler):
         release_raw = extract_text(html, '//th[contains(text(),"配信開始日")]/following-sibling::td/text()')
         release = release_raw.strip() if release_raw else None
 
-        tags = extract_all_texts(html, '//th[contains(text(),"ジャンル")]/following-sibling::td/a/text()')
+        # 封面: 主图可能是竖版小图 pf_o1_ 或横版 pb_p_/pb_e_; 放大图指向 pb_e_ (840x473 横版),
+        # 同目录下都有竖版大封面 pf_e_ (422x600), 页面不直接引用, 因此改写前缀推导.
+        cover = extract_text(html, '//a[@id="EnlargeImage"]/@href', '//img[@class="enlarge_image"]/@src')
+        thumb_url = cover or None
+        poster_url = _poster_url(cover)
+        if poster_url is None:
+            # 上游 _poster_url 只认 pb_e_; 主图是竖版小图时再按前缀推导一次.
+            for src in (extract_text(html, '//img[@class="enlarge_image"]/@src'), cover):
+                if not src:
+                    continue
+                derived = re.sub(r"/(?:pf|pb)_[a-z0-9]+_", "/pf_e_", src)
+                if derived and derived != src:
+                    poster_url = derived
+                    break
 
-        # 封面: 页面模板有两种, 主图分别是 pf_o1_ (166x236) 或 pb_p_ (540x304 横版),
-        # "画像を拡大する" 指向 pb_e_ (840x473 横版); 三者同目录下都有竖版大封面 pf_e_ (422x600),
-        # 页面不直接引用, 因此改写前缀推导; 取不到时自动退回原图 (下载按顺序取第一个成功者).
-        cover_thumb = extract_text(html, '//img[@class="enlarge_image"]/@src')
-        cover_enlarge = extract_text(html, '//a[@id="EnlargeImage"]/@href')
-        thumb_urls: list[str] = []
-        for src in (cover_thumb, cover_enlarge):
-            portrait = re.sub(r"/(?:pf|pb)_[a-z0-9]+_", "/pf_e_", src) if src else ""
-            if portrait and portrait != src:
-                thumb_urls.append(portrait)
-                break
-        for src in (cover_thumb, cover_enlarge):
-            if src and src not in thumb_urls:
-                thumb_urls.append(src)
-
-        # 剧照: 实际结构是 dl#sample-photo > dd > ul > li > a.sample_image; 旧选择器保留作退路.
         extrafanart = extract_all_texts(
             html,
+            '//dl[@id="sample-photo"]//li/a/@href',
             '//*[@id="sample-photo"]//a[@class="sample_image"]/@href',
             '//ul[@id="sample-photo"]/li/a/@href',
         )
 
-        # 简介: 文本在 dd 内, class 是 "txt introduction"; 部分版式下解析器会把嵌套 p 拆成兄弟节点,
-        # 因此按 dd 收文本, 只排除 "更多" 那一段.
+        # 商品紹介正文两种标记都收 (直接写在 p.txt.introduction, 或其中的 <p> 被解析器拍平为兄弟节点),
+        # 只排除「すべてを見る」.
         plot = "\n".join(
             extract_all_texts(
                 html,
-                '//dl[@id="introduction"]/dd/p[not(contains(@class,"more"))]//text()',
-                '//dl[@id="introduction"]/dd//text()[not(ancestor::p[contains(@class,"more")])]',
+                '//dl[@id="introduction"]/dd/p[not(contains(@class, "more"))]//text()',
+                '//dl[@id="introduction"]/dd//text()[not(ancestor::p[contains(@class, "more")])]',
             )
         )
 
@@ -141,7 +160,8 @@ class MGStageCrawler(Crawler):
             tags=tags,
             series=series or None,
             plot=plot or None,
-            thumb_urls=thumb_urls,
+            poster_urls=[poster_url] if poster_url else [],
+            thumb_urls=[thumb_url] if thumb_url else [],
             extrafanart=extrafanart,
             source_url=url,
             external_id=url,
