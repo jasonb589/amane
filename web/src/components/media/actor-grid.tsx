@@ -57,6 +57,14 @@ function rememberGridState(key: string, state: StateSnapshot): void {
 // sm/md 收窄一列: 48em 起导航栏展开, 内容区反而变窄, 沿用桌面列数会让缩略图小一档.
 const GRID_COLS = { base: 2, xs: 3, sm: 3, md: 4, lg: 6, xl: 7 } as const;
 
+type MetadataKey = ParseKeys<"metadata">;
+
+const GENDER_I18N_KEY = exhaustiveRecord<ActorGender>()({
+  female: "browse.person.genderFemale",
+  male: "browse.person.genderMale",
+  unknown: "browse.person.genderUnknown",
+} as const satisfies Record<ActorGender, MetadataKey>);
+
 interface ActorGridProps {
   items: ActorResponse[];
   loading?: boolean;
