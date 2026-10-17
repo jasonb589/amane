@@ -198,7 +198,7 @@ class DmmCrawler(Crawler):
         for raw_url in raw_urls:
             try:
                 url = raw_url.encode("utf-8").decode("unicode_escape")
-            except (UnicodeDecodeError, ValueError):
+            except UnicodeDecodeError, ValueError:
                 url = raw_url
             urls.append(url)
         return urls
