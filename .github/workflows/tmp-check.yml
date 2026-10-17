@@ -1,0 +1,68 @@
+name: tmp-check
+
+# 临时校验（同步上游后跑一次）: 后端迁移唯一 head + 我们改过的模块单测 + 前端类型检查.
+# 用 check-* 标签触发, 不碰 v* 构建; 校验完删除本文件.
+on:
+  push:
+    tags: ["check-*"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Ruff
+        run: uv run ruff check src tests --output-format=concise
+
+      - name: Alembic heads (必须恰好 1 个)
+        run: |
+          out=$(uv run alembic heads)
+          echo "$out"
+          echo "$out" | grep -c "(head)" | grep -qx 1
+
+      - name: Import smoke
+        run: |
+          uv run python - <<'PY'
+          from amane.crawlers.sites.dmm import DmmCrawler
+          from amane.crawlers.sites.mgstage import MGStageCrawler
+          from amane.media.images import crop_poster, detect_face_box
+          from amane.notify.service import NotificationService, build_request
+          from amane.notify.templates import render
+          from amane.parsing.file_info import parse_file_info
+          print("imports ok", DmmCrawler._hentai_keywords("クール DEM〜眠れないオンナ〜"))
+          PY
+
+      - name: Pytest (本次相关用例)
+        run: uv run pytest tests/test_dmm_hentai.py tests/test_notify_service.py tests/test_notify_templates.py -q
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "11"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --dir web exec tsc -b --noEmit
+
+      - name: Lint (oxlint)
+        run: pnpm --dir web exec oxlint .
