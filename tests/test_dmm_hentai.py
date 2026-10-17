@@ -4,9 +4,10 @@ from amane.crawlers.sites.dmm import DmmCrawler
 
 
 class TestHentaiKeywords:
-    def test_keeps_original_first(self) -> None:
+    def test_cleaned_form_first(self) -> None:
+        # 装饰符先洗掉再搜 (含「〜」的原串命中率明显更差).
         keywords = DmmCrawler._hentai_keywords("クール DEM〜眠れないオンナ〜")
-        assert keywords[0] == "クール DEM〜眠れないオンナ〜"
+        assert keywords[0] == "クール DEM 眠れないオンナ"
 
     def test_strips_decoration_marks(self) -> None:
         keywords = DmmCrawler._hentai_keywords("クール DEM〜眠れないオンナ〜")
