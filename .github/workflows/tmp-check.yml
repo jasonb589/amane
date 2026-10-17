@@ -1,0 +1,27 @@
+name: tmp-check
+
+# 临时校验: 只跑本次改动的 lint 与单测 (里番标题搜索). 校验完成后删除本文件.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Ruff (只查本次改动)
+        run: |
+          uv run ruff check src/amane/crawlers/sites/dmm.py tests/test_dmm_hentai.py
+          uv run ruff format --check src/amane/crawlers/sites/dmm.py tests/test_dmm_hentai.py
+
+      - name: Pytest (新测试)
+        run: uv run pytest tests/test_dmm_hentai.py -q
+
+      - name: 导入冒烟
+        run: uv run python -c "from amane.crawlers.sites.dmm import DmmCrawler; print(DmmCrawler._hentai_keywords('クール DEM〜眠れないオンナ〜'))"
