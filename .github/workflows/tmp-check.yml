@@ -1,0 +1,36 @@
+name: tmp-check
+
+# 临时校验（Tenhow 源原生化）。check-* 标签触发，跑完删除。
+on:
+  push:
+    tags: ["check-*"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Ruff
+        run: |
+          uv run ruff check src tests --output-format=concise
+          uv run ruff format --check src/amane/crawlers/sites/tenhow.py tests/test_tenhow_source.py src/amane/enums.py
+
+      - name: Pytest
+        run: uv run pytest tests/test_tenhow_source.py tests/utils/test_utils.py -q
+
+      - name: 注册冒烟
+        run: |
+          uv run python - <<'PY'
+          from amane.crawlers import registry
+          from amane.crawlers.site_roles import FILM_METADATA_SITES
+          from amane.enums import SiteName
+          assert SiteName.TENHOW in FILM_METADATA_SITES, "tenhow 没进电影源清单"
+          cls = registry.get(SiteName.TENHOW)
+          assert cls is not None, "tenhow 没注册"
+          prof = cls.profile()
+          print("ok:", prof.name, "| url:", prof.base_url, "| traits:", [t.value for t in prof.traits])
+          PY

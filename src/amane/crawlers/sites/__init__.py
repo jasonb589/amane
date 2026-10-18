@@ -20,6 +20,7 @@ from .mgstage import MGStageCrawler
 from .official import OfficialCrawler
 from .prestige import PrestigeCrawler
 from .r18dev import R18DevCrawler
+from .tenhow import TenhowCrawler
 from .theporndb import ThePornDBCrawler
 from .xcity import XCityCrawler
 
@@ -46,6 +47,7 @@ __all__ = [
     "OfficialCrawler",
     "PrestigeCrawler",
     "R18DevCrawler",
+    "TenhowCrawler",
     "ThePornDBCrawler",
     "XCityCrawler",
 ]

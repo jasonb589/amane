@@ -28,6 +28,7 @@ class SiteName(StrEnum):
     OFFICIAL = "official"
     PRESTIGE = "prestige"
     R18DEV = "r18dev"
+    TENHOW = "tenhow"
     THEPORNDB = "theporndb"
     WIKIPEDIA = "wikipedia"
     XCITY = "xcity"

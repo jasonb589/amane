@@ -37,6 +37,7 @@ from .sites import (
     OfficialCrawler,
     PrestigeCrawler,
     R18DevCrawler,
+    TenhowCrawler,
     ThePornDBCrawler,
     XCityCrawler,
 )
@@ -64,6 +65,7 @@ registry.register(IqqtvCrawler)
 registry.register(PrestigeCrawler)
 registry.register(R18DevCrawler)
 registry.register(ThePornDBCrawler)
+registry.register(TenhowCrawler)
 registry.register(OfficialCrawler)
 
 # 演员站在 amane.crawlers.actor 导入时注册.
