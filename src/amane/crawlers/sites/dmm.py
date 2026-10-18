@@ -215,10 +215,11 @@ class DmmCrawler(Crawler):
             except RequestError:
                 continue
             found = self._detail_urls(text)
-            anime = [url for url in found if "/anime/" in url]
-            others = [url for url in found if url not in anime]
-            for url in (*anime, *others):
+            # 配信页 (/digital/ = video.dmm.co.jp) 优先: 字段更全, sample 剧照也更多;
+            # 通販 (/mono/) 次之, 其它兜底. 同一档内保持搜索排名顺序 (sorted 稳定).
+            for url in sorted(found, key=_hentai_priority):
                 if url not in candidates:
+                    candidates.append(url)
                     candidates.append(url)
             if candidates:
                 break
@@ -729,3 +730,16 @@ _FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789"
 def _hentai_digits(text: str) -> frozenset[str]:
     """标题里的数字 (集数 / 卷数 / 序号), 全角先归一到半角."""
     return frozenset(re.findall(r"\d+", text.translate(_FULLWIDTH_DIGITS)))
+
+
+def _hentai_priority(url: str) -> int:
+    """里番候选排序: 配信页 > 通販页 > 其它.
+
+    配信页 (``/digital/`` 即 video.dmm.co.jp) 的字段更全 (系列 / 配信日 / 类型) 且 sample
+    剧照更多; 通販页只有 DVD 元数据。用最左键排序, 同档内保持搜索排名顺序。
+    """
+    if "/digital/" in url or "video.dmm.co.jp" in url:
+        return 0
+    if "/mono/" in url:
+        return 1
+    return 2

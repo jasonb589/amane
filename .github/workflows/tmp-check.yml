@@ -1,0 +1,32 @@
+name: tmp-check
+
+on:
+  push:
+    tags: ["check-*"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Ruff
+        run: uv run ruff check src tests --output-format=concise
+
+      - name: Pytest
+        run: uv run pytest tests/test_dmm_hentai.py tests/test_dmm_hentai_priority.py tests/test_dmm_episode_guard.py -q
+
+      - name: 排序冒烟
+        run: |
+          uv run python - <<'PY'
+          from amane.crawlers.sites.dmm import _hentai_priority
+
+          mono = "https://www.dmm.co.jp/mono/anime/-/detail/=/cid=196glod0313/"
+          digital = "https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_1a/"
+          ordered = sorted([mono, digital], key=_hentai_priority)
+          assert ordered[0] == digital, ordered
+          print("digital first:", _hentai_priority(digital), "<", _hentai_priority(mono))
+          PY
