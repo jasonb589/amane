@@ -81,21 +81,16 @@ def _open_links(html: str) -> str:
 
 
 def _cid_map(html: str) -> dict[str, str]:
-    """演员页 → {cid: ASIN}; 每个 cid 归属最近的前一张封面."""
+    """演员页 → {cid: ASIN}; 每个 cid 归属**最近的前一张**封面.
+
+    插件版取的是「整页第一张」, 一个演员页有几十个作品时会全部指向同一张封面 (串图);
+    这里改成最近一张, 与注释一致.
+    """
     text = _open_links(html)
     images = [(match.start(), match.group(1)) for match in _ASIN_RE.finditer(text)]
     if not images:
         return {}
     out: dict[str, str] = {}
-    for match in list(_CID_RE.finditer(text)) + list(_DIGITAL_RE.finditer(text)):
-        for position, asin in images:
-            if position >= match.start():
-                break
-            out.setdefault(match.group(1), asin)
-    return out
-
-
-def _names_on_page(html: str, page: str) -> dict[str, str]:
     for match in list(_CID_RE.finditer(text)) + list(_DIGITAL_RE.finditer(text)):
         nearest: str | None = None
         for position, asin in images:
@@ -104,6 +99,15 @@ def _names_on_page(html: str, page: str) -> dict[str, str]:
             nearest = asin
         if nearest is not None:
             out.setdefault(match.group(1), nearest)
+    return out
+
+
+def _names_on_page(html: str, page: str) -> dict[str, str]:
+    """从一页收集「演员名 → 页面」; 演员页自身用页面标题补一条."""
+    found: dict[str, str] = {}
+    title_match = _TITLE_RE.search(html)
+    if title_match:
+        name_match = _ACTRESS_TITLE_RE.match(title_match.group(1).strip())
         if name_match:
             found.setdefault(_norm_name(name_match.group(1)), page)
     for match in _PAIR_RE.finditer(html):
