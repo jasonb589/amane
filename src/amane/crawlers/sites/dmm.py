@@ -721,11 +721,9 @@ class DmmCrawler(Crawler):
         cid = cid_match.group(1)
         return mp4_url.replace("playlist.m3u8", f"{cid}_sm_w.mp4")
 
+_FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
+
 
 def _hentai_digits(text: str) -> frozenset[str]:
-    """标题里的数字 (集数 / 卷数 / 序号), 用于拒绝串集.
-
-    ``OVA初恋時間。 ＃1 セル版`` 与 ``＃4`` 的相似度仍有 0.93, 单靠相似度会把第 1 集刮成第 4 集,
-    因此两边都有数字时要求数字一致.
-    """
-    return frozenset(re.findall(r"\d+", text))
+    """标题里的数字 (集数 / 卷数 / 序号), 全角先归一到半角."""
+    return frozenset(re.findall(r"\d+", text.translate(_FULLWIDTH_DIGITS)))
