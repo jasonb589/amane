@@ -96,11 +96,14 @@ def _cid_map(html: str) -> dict[str, str]:
 
 
 def _names_on_page(html: str, page: str) -> dict[str, str]:
-    """从一页收集「演员名 → 页面」; 演员页自身用页面标题补一条."""
-    found: dict[str, str] = {}
-    title_match = _TITLE_RE.search(html)
-    if title_match:
-        name_match = _ACTRESS_TITLE_RE.match(title_match.group(1).strip())
+    for match in list(_CID_RE.finditer(text)) + list(_DIGITAL_RE.finditer(text)):
+        nearest: str | None = None
+        for position, asin in images:
+            if position >= match.start():
+                break
+            nearest = asin
+        if nearest is not None:
+            out.setdefault(match.group(1), nearest)
         if name_match:
             found.setdefault(_norm_name(name_match.group(1)), page)
     for match in _PAIR_RE.finditer(html):
