@@ -25,9 +25,9 @@ from .tenhow import TenhowCrawler
 from .theporndb import ThePornDBCrawler
 from .xcity import XCityCrawler
 
+__all__ = [
     "AiravCrawler",
     "AmazonCrawler",
-    "AiravCrawler",
     "AvbaseCrawler",
     "AvsoxCrawler",
     "DahliaCrawler",
@@ -49,7 +49,6 @@ from .xcity import XCityCrawler
     "OfficialCrawler",
     "PrestigeCrawler",
     "R18DevCrawler",
-    "TenhowCrawler",
     "TenhowCrawler",
     "ThePornDBCrawler",
     "XCityCrawler",

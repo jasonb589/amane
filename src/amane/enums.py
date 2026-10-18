@@ -5,6 +5,7 @@ class SiteName(StrEnum):
     """爬虫站点名称 (影片与演员源共用)."""
 
     AIRAV = "airav"
+    AMAZON = "amazon"
     AVBASE = "avbase"
     AVSOX = "avsox"
     DAHLIA = "dahlia"
@@ -17,9 +18,6 @@ class SiteName(StrEnum):
     GETCHU = "getchu"
     GFRIENDS = "gfriends"
     GIGA = "giga"
-    AIRAV = "airav"
-    AMAZON = "amazon"
-    AVBASE = "avbase"
     JAVBUS = "javbus"
     JAVDB = "javdb"
     JAVLIBRARY = "javlibrary"
