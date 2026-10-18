@@ -220,7 +220,6 @@ class DmmCrawler(Crawler):
             for url in sorted(found, key=_hentai_priority):
                 if url not in candidates:
                     candidates.append(url)
-                    candidates.append(url)
             if candidates:
                 break
 
