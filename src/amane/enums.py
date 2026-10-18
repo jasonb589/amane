@@ -18,6 +18,7 @@ class SiteName(StrEnum):
     GETCHU = "getchu"
     GFRIENDS = "gfriends"
     GIGA = "giga"
+    JAV321 = "jav321"
     JAVBUS = "javbus"
     JAVDB = "javdb"
     JAVLIBRARY = "javlibrary"
