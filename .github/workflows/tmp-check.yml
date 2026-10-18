@@ -37,21 +37,5 @@ jobs:
               print("ok:", prof.name, "| url:", prof.base_url, "| traits:", [t.value for t in prof.traits])
           PY
 
-      - name: 线上抓一次 Amazon（只验证能解析出候选，允许失败）
-        run: |
-          uv run python - <<'PY' || true
-          from urllib.parse import quote
-          from urllib.request import Request, urlopen
-
-          from amane.crawlers.sites.amazon import _SEARCH_URL, _parse_results
-
-          url = _SEARCH_URL.format(term=quote("Diabolus 鬼哭 下巻", safe=""))
-          req = Request(url, headers={"Accept-Language": "ja-JP,ja;q=0.9", "User-Agent": "Mozilla/5.0"})
-          try:
-              with urlopen(req, timeout=30) as resp:  # noqa: S310
-                  html = resp.read().decode("utf-8", "replace")
-                  print("amazon http", resp.status, "candidates", len(_parse_results(html)))
-          except Exception as exc:  # noqa: BLE001
-              print("amazon probe skipped:", type(exc).__name__)
           PY
           PY
