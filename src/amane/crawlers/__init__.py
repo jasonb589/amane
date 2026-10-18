@@ -62,13 +62,13 @@ registry.register(Kin8Crawler)
 registry.register(FC2ClubCrawler)
 registry.register(FC2PPVDBCrawler)
 registry.register(GetchuCrawler)
+registry.register(IqqtvCrawler)
+registry.register(PrestigeCrawler)
+registry.register(R18DevCrawler)
 registry.register(ThePornDBCrawler)
 registry.register(OfficialCrawler)
 registry.register(AmazonCrawler)
 registry.register(TenhowCrawler)
-registry.register(AmazonCrawler)
-registry.register(TenhowCrawler)
-registry.register(OfficialCrawler)
 
 # 演员站在 amane.crawlers.actor 导入时注册.
 
