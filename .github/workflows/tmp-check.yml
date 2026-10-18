@@ -30,12 +30,9 @@ jobs:
           from amane.crawlers.site_roles import FILM_METADATA_SITES
           from amane.enums import SiteName
           for site in (SiteName.TENHOW, SiteName.AMAZON):
-              assert site in FILM_METADATA_SITES, f"{site} 没进电影源清单"
+              assert site in FILM_METADATA_SITES, f"{site} not in film sites"
               cls = registry.get(site)
-              assert cls is not None, f"{site} 没注册"
+              assert cls is not None, f"{site} not registered"
               prof = cls.profile()
               print("ok:", prof.name, "| url:", prof.base_url, "| traits:", [t.value for t in prof.traits])
-          PY
-
-          PY
           PY
