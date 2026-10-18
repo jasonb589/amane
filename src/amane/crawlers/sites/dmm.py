@@ -724,6 +724,7 @@ class DmmCrawler(Crawler):
 _FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
 
 
+
 def _hentai_digits(text: str) -> frozenset[str]:
     """标题里的数字 (集数 / 卷数 / 序号), 全角先归一到半角."""
     return frozenset(re.findall(r"\d+", text.translate(_FULLWIDTH_DIGITS)))
