@@ -353,6 +353,13 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             translated = await self._translate_field(metadata.plot, field_language, MetadataField.PLOT, use_cache)
             if translated:
                 metadata.plot = translated
+        if MetadataField.TAGS in fields and metadata.tags:
+            # 标签是列表: 逐条翻译 (每条独立缓存, 第二次起直接命中), 单条失败保留原文.
+            translated_tags: list[str] = []
+            for tag in metadata.tags:
+                translated = await self._translate_field(tag, field_language, MetadataField.TAGS, use_cache)
+                translated_tags.append(translated or tag)
+            metadata.tags = translated_tags
 
     async def _translate_field(
         self, value: str, field_language: FieldLanguage, field: MetadataField, use_cache: bool

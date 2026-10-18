@@ -1,5 +1,6 @@
 name: tmp-check
 
+# 临时：把 ruff format 的改动打出来（用于本地对齐格式），并跑一遍测试。
 on:
   push:
     tags: ["check-*"]
@@ -10,7 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
-      - name: 只跑格式检查并打印 diff
-        run: uv run ruff format --check --diff src/amane/utils/language.py tests/utils/test_utils.py || true
-      - name: 顺带看 language.py 前 60 行
-        run: sed -n '1,60p' src/amane/utils/language.py
+      - name: ruff format 后打印 diff（这才是 CI 要的格式）
+        run: |
+          uv run ruff format src/amane/utils/language.py tests/utils/test_utils.py src/amane/handlers/scrape.py
+          git --no-pager diff --stat
+          git --no-pager diff
+      - name: ruff check
+        run: uv run ruff check src tests --output-format=concise
+      - name: pytest
+        run: uv run pytest tests/utils/test_utils.py tests/test_notify_service.py tests/test_dmm_hentai.py -q
