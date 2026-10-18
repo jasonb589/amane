@@ -91,6 +91,13 @@ class AmazonCrawler(Crawler):
             headers={"Accept-Language": "ja-JP,ja;q=0.9"},
         )
 
+    async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
+        # 检索整段写在 fetch 里 (要读 partial_result), 基类的两段式接口在这里不用.
+        return None
+
+    async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
+        return None
+
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
         partial = query.partial_result
