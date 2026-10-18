@@ -37,7 +37,10 @@ export function PosterCard({
   const { t } = useTranslation(["metadata", "common"]);
   const [errored, setErrored] = useState(false);
   const selectable = onToggleSelect != null;
-  const posterUrl = proxyImageUrl(item.poster_url ?? item.poster_urls?.[0]);
+  // 海报缺失时退回竖图/缩略图: theporndb 一类源只给横版背景图, 否则片库海报视图整格空白.
+  const posterUrl = proxyImageUrl(
+    item.poster_url ?? item.poster_urls?.[0] ?? item.thumb_url ?? item.thumb_urls?.[0],
+  );
   const showImage = posterUrl && !errored;
   const actors = item.actors ?? [];
   const actorsLabel = actors.length > 0 ? actors.join(" / ") : null;

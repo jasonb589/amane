@@ -1,0 +1,50 @@
+name: tmp-check
+
+# 临时校验（欧美：翻译判定 + 海报兜底）。check-* 标签触发，跑完删除。
+on:
+  push:
+    tags: ["check-*"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+      - name: Ruff
+        run: |
+          uv run ruff check src tests --output-format=concise
+          uv run ruff format --check src/amane/utils/language.py tests/utils/test_utils.py
+      - name: Pytest (语言判定)
+        run: uv run pytest tests/utils/test_utils.py -q
+      - name: 真实案例冒烟
+        run: |
+          uv run python - <<'PY'
+          from amane.enums import Language
+          from amane.utils.language import needs_llm_translation
+          plot = "Eva moved to LA a few months ago \u2014 they\u2019re back."
+          assert needs_llm_translation(plot, Language.ZH_CN) is True, "英文简介必须翻译"
+          assert needs_llm_translation("时隔重逢", Language.ZH_CN) is False
+          assert needs_llm_translation("眠れないオンナ", Language.ZH_CN) is True
+          print("ok")
+          PY
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "11"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm --dir web exec tsc -b --noEmit
+      - name: Lint
+        run: pnpm --dir web exec oxlint .

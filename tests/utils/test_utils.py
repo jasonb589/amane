@@ -56,6 +56,10 @@ def test_is_ascii_only(s, expected):
         ("你好世界", Language.ZH_CN, False),
         ("後愛上你", Language.ZH_CN, False),  # 繁→简由 zhconv 处理
         ("后爱上你", Language.ZH_TW, False),
+        # 英文里带全角标点 (弯引号 / 长破折号) 仍算外语: 旧的 is_ascii_only 判据会在这里漏翻
+        ("they’re back in LA", Language.ZH_CN, True),
+        ("Eva moved — a big time", Language.ZH_CN, True),
+        ("they’re back in LA", Language.EN, False),
         # 边界: 空串
         ("", Language.ZH_CN, False),
         # 纯数字/符号: ASCII, 目标非英文时形式上 True 但内容无意义 (调用方按需跳过)
