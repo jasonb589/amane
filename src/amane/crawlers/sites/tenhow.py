@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import override
+from typing import ClassVar, override
 
 from ...enums import SiteName
 from ...plugins.models import SourceTrait
@@ -40,7 +40,7 @@ _LINK_RE = re.compile(r'href="([a-z0-9_]+)\.html"')
 _PAIR_RE = re.compile(r'href="([a-z0-9_]+)\.html"[^>]*>([^<]{1,40})</a>')
 _CID_RE = re.compile(r"cid(?:=|%3D)([0-9A-Za-z_-]+)")
 _DIGITAL_RE = re.compile(r"[?&]id(?:=|%3D)([0-9A-Za-z_-]+)")
-_TITLE_RE = re.compile(r"<title>(.*?)</title>", re.S)
+_TITLE_RE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
 _ACTRESS_TITLE_RE = re.compile(r"^(.*?)(?:の)?アダルトDVDパケ写")
 
 
@@ -114,11 +114,11 @@ class TenhowCrawler(Crawler):
     """只用演员名 + 番号补一张高清封面, 不提供其它字段."""
 
     # 进程内共享的索引状态 (插件版本写在 data_dir; 核心没有该概念, 进程存活期内够用).
-    _index: dict[str, str] = {}
-    _pending: list[str] = []
-    _crawled: set[str] = set()
-    _updated: float = 0.0
-    _pages: dict[str, tuple[float, dict[str, str]]] = {}
+    _index: ClassVar[dict[str, str]] = {}
+    _pending: ClassVar[list[str]] = []
+    _crawled: ClassVar[set[str]] = set()
+    _updated: ClassVar[float] = 0.0
+    _pages: ClassVar[dict[str, tuple[float, dict[str, str]]]] = {}
 
     @classmethod
     @override
