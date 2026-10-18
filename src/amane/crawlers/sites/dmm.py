@@ -156,7 +156,8 @@ class DmmCrawler(Crawler):
 
     # ---- 里番 (hentai): 无番号, 按标题关键词搜索 ----
     _HENTAI_SEARCH_URL = "https://www.dmm.co.jp/search/=/searchstr={}/"
-    _HENTAI_MAX_TRIES = 3
+    _HENTAI_MAX_TRIES = 8
+    _HENTAI_MAX_KEYWORDS = 3
     _HENTAI_MIN_RATIO = 0.55
     _TITLE_NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
     _KEYWORD_NOISE_RE = re.compile(r"[〜～~☆★・･\-–—_/|｜:：,，.。!?！？()\[\]【】「」『』\"'’]+")
@@ -174,7 +175,7 @@ class DmmCrawler(Crawler):
         joined = " ".join(word for word in cleaned.split() if len(word) >= 2)
         if joined and joined not in variants:
             variants.append(joined)
-        return variants[: cls._HENTAI_MAX_TRIES]
+        return variants[: cls._HENTAI_MAX_KEYWORDS]
 
     @classmethod
     def _title_ratio(cls, left: str, right: str) -> float:
