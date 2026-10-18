@@ -17,7 +17,11 @@ def test_parse_results_reads_asin_image_and_alt() -> None:
 
 
 def test_parse_results_skips_blocks_without_image() -> None:
-    html = 'data-asin="B00TEST003"><span>没有图片的块</span>data-asin="B00TEST004"><img alt="有图" src="https://m.media-amazon.com/images/I/71zzzQ.jpg">'
+def test_parse_results_skips_blocks_without_image() -> None:
+    html = (
+        'data-asin="B00TEST003"><span>没有图片的块</span>'
+        'data-asin="B00TEST004"><img alt="有图有真相的商品" src="https://m.media-amazon.com/images/I/71zzzQ.jpg">'
+    )
     out = _parse_results(html)
     assert [row[0] for row in out] == ["B00TEST004"]
 
