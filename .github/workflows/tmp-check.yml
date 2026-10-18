@@ -14,9 +14,7 @@ jobs:
         with:
           enable-cache: true
       - name: Ruff
-        run: |
-          uv run ruff check src tests --output-format=concise
-          uv run ruff format --check --diff src/amane/crawlers/sites/dmm.py tests/test_dmm_episode_guard.py || true
+        run: uv run ruff check src tests --output-format=concise
           uv run ruff check src tests --output-format=concise
           uv run ruff format --check src/amane/crawlers/sites/dmm.py tests/test_dmm_episode_guard.py
 
