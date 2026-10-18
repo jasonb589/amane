@@ -1,4 +1,5 @@
 from .airav import AiravCrawler
+from .amazon import AmazonCrawler
 from .avbase import AvbaseCrawler
 from .avsox import AvsoxCrawler
 from .dahlia import DahliaCrawler
@@ -24,7 +25,8 @@ from .tenhow import TenhowCrawler
 from .theporndb import ThePornDBCrawler
 from .xcity import XCityCrawler
 
-__all__ = [
+    "AiravCrawler",
+    "AmazonCrawler",
     "AiravCrawler",
     "AvbaseCrawler",
     "AvsoxCrawler",
@@ -47,6 +49,7 @@ __all__ = [
     "OfficialCrawler",
     "PrestigeCrawler",
     "R18DevCrawler",
+    "TenhowCrawler",
     "TenhowCrawler",
     "ThePornDBCrawler",
     "XCityCrawler",

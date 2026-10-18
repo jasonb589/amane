@@ -16,6 +16,7 @@ from .models import FetchOptions, FilmActor, MediaMetadata, film_actors
 from .registry import registry
 from .sites import (
     AiravCrawler,
+    AmazonCrawler,
     AvbaseCrawler,
     AvsoxCrawler,
     DahliaCrawler,
@@ -64,7 +65,8 @@ registry.register(GetchuCrawler)
 registry.register(IqqtvCrawler)
 registry.register(PrestigeCrawler)
 registry.register(R18DevCrawler)
-registry.register(ThePornDBCrawler)
+registry.register(OfficialCrawler)
+registry.register(AmazonCrawler)
 registry.register(TenhowCrawler)
 registry.register(OfficialCrawler)
 

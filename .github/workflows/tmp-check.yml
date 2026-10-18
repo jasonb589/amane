@@ -1,6 +1,6 @@
 name: tmp-check
 
-# 临时校验（Tenhow 源原生化）。check-* 标签触发，跑完删除。
+# 临时校验（Tenhow + Amazon 两个原生化海报源）。check-* 标签触发，跑完删除。
 on:
   push:
     tags: ["check-*"]
@@ -17,10 +17,11 @@ jobs:
       - name: Ruff
         run: |
           uv run ruff check src tests --output-format=concise
-          uv run ruff format --check src/amane/crawlers/sites/tenhow.py tests/test_tenhow_source.py src/amane/enums.py
+          uv run ruff format --check src/amane/crawlers/sites/tenhow.py src/amane/crawlers/sites/amazon.py \
+            tests/test_tenhow_source.py tests/test_amazon_source.py src/amane/enums.py
 
       - name: Pytest
-        run: uv run pytest tests/test_tenhow_source.py tests/utils/test_utils.py -q
+        run: uv run pytest tests/test_tenhow_source.py tests/test_amazon_source.py tests/utils/test_utils.py -q
 
       - name: 注册冒烟
         run: |
@@ -28,9 +29,30 @@ jobs:
           from amane.crawlers import registry
           from amane.crawlers.site_roles import FILM_METADATA_SITES
           from amane.enums import SiteName
-          assert SiteName.TENHOW in FILM_METADATA_SITES, "tenhow 没进电影源清单"
-          cls = registry.get(SiteName.TENHOW)
-          assert cls is not None, "tenhow 没注册"
-          prof = cls.profile()
-          print("ok:", prof.name, "| url:", prof.base_url, "| traits:", [t.value for t in prof.traits])
+          for site in (SiteName.TENHOW, SiteName.AMAZON):
+              assert site in FILM_METADATA_SITES, f"{site} 没进电影源清单"
+              cls = registry.get(site)
+              assert cls is not None, f"{site} 没注册"
+              prof = cls.profile()
+              print("ok:", prof.name, "| url:", prof.base_url, "| traits:", [t.value for t in prof.traits])
+          PY
+
+      - name: 线上抓一次 Amazon（只验证能解析出候选，不断言结果）
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          from amane.crawlers.sites.amazon import _parse_results, _SEARCH_URL
+          from urllib.parse import quote
+          import httpx
+
+          async def main() -> None:
+              url = _SEARCH_URL.format(term=quote("Diabolus 鬼哭 下巻", safe=""))
+              async with httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
+                  r = await c.get(url, headers={"Accept-Language": "ja-JP,ja;q=0.9", "User-Agent": "Mozilla/5.0"})
+              rows = _parse_results(r.text)
+              print("amazon http", r.status_code, "candidates", len(rows))
+              for row in rows[:3]:
+                  print("  ", row[0], row[2][:40])
+
+          asyncio.run(main())
           PY
