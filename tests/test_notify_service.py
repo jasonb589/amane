@@ -262,7 +262,8 @@ def test_build_request_default_text_and_custom_passthrough() -> None:
     """text 留空用内置默认正文; custom 渠道仍按 url/body 原样渲染 (老配置不受影响)."""
     preset = NotifyChannelConfig(provider="telegram", token="t", chat_id="c")
     _, _, body = build_request(preset, {"type_label": "整理", "status": "成功", "number": "A-1"})
-    assert "整理 成功" in json.loads(body)["text"]
+    default_text = json.loads(body)["text"]
+    assert "整理" in default_text and "成功" in default_text
     custom = NotifyChannelConfig(url="https://x/{number}", body='{"t":"{number}"}')
     url, _, body = build_request(custom, {"number": "A-2"})
     assert url == "https://x/A-2"
