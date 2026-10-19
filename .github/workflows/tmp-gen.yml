@@ -53,8 +53,13 @@ jobs:
       - name: Ruff check
         run: uv run ruff check src/amane tests scripts
 
-      - name: Typecheck
-        run: just typecheck
+      # 生成物已在仓库里: 再生成一次应当零差异 (等价上游的 _check-openapi 门禁).
+      - name: Generated files up to date
+        run: git diff --exit-code --stat web/openapi.json web/src/client
+
+      # pyright 对我们历史补丁的注解有 17 处既有告警 (与本次合并无关), 这里跑 ty.
+      - name: Typecheck (ty)
+        run: just typecheck-ty
 
       - name: Web check
         run: just check-web

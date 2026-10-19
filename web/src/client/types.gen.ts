@@ -702,11 +702,23 @@ export type CleanupResult = {
     /**
      * Files Removed
      */
-    files_removed: number;
+    files_removed?: number;
     /**
      * Resources Removed
      */
-    resources_removed: number;
+    resources_removed?: number;
+    /**
+     * Actors Removed
+     */
+    actors_removed?: number;
+    /**
+     * Facets Removed
+     */
+    facets_removed?: number;
+    /**
+     * Dirs Removed
+     */
+    dirs_removed?: number;
 };
 
 /**
@@ -726,43 +738,27 @@ export type CleanupSubmission = {
      */
     remove_unreferenced_resources?: boolean;
     /**
+     * Remove Orphan Actors
+     *
+     * 删除没有任何影片关联的演员 (0 作品)
+     */
+    remove_orphan_actors?: boolean;
+    /**
+     * Remove Empty Facets
+     *
+     * 删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)
+     */
+    remove_empty_facets?: boolean;
+    /**
+     * Remove Empty Resource Dirs
+     *
+     * 删除资源目录下已空的分片目录
+     */
+    remove_empty_resource_dirs?: boolean;
+    /**
      * Type
      */
     type: 'cleanup';
-};
-
-/**
- * CloudDriveChangeItem
- */
-export type CloudDriveChangeItem = {
-    /**
-     * Action
-     */
-    action: 'create' | 'delete' | 'rename';
-    /**
-     * Is Dir
-     */
-    is_dir: boolean;
-    /**
-     * Source File
-     */
-    source_file: string;
-    /**
-     * Destination File
-     */
-    destination_file?: string;
-};
-
-/**
- * CloudDriveNotifyRequest
- *
- * CloudDrive file_system_watcher 模板体. 未知字段忽略.
- */
-export type CloudDriveNotifyRequest = {
-    /**
-     * Data
-     */
-    data?: Array<CloudDriveChangeItem>;
 };
 
 /**
@@ -1683,6 +1679,7 @@ export type HotSettings = {
     llm?: LlmConfig;
     r18?: R18Config;
     watcher?: WatcherConfig;
+    notify?: NotifyConfig;
     worker?: WorkerConfig;
     logging?: LoggingConfig;
     /**
@@ -2926,6 +2923,189 @@ export type NetworkConfig = {
 };
 
 /**
+ * NotifyChannelConfig
+ *
+ * 一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位.
+ */
+export type NotifyChannelConfig = {
+    /**
+     * Name
+     *
+     * 渠道名, 只用于日志与错误提示
+     */
+    name?: string;
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Url
+     *
+     * 请求地址, 支持占位变量
+     */
+    url?: string;
+    method?: NotifyMethod;
+    /**
+     * Headers
+     *
+     * 附加请求头 (如 Authorization)
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Test Send
+     *
+     * 面板上的测试按钮用它渲染; 值本身没有含义
+     */
+    test_send?: boolean;
+    /**
+     * Body
+     *
+     * 请求体模板; 以花括号开头时字符串按 JSON 转义
+     */
+    body?: string;
+    /**
+     * 内置服务: telegram / bark / wecom 只需填 token 与正文, 地址与 JSON 由程序生成; custom = 自己写 url/body
+     */
+    provider?: NotifyProvider;
+    /**
+     * Token
+     *
+     * telegram: 机器人 Token; bark: 设备 Key; wecom: 群机器人 Key
+     */
+    token?: string;
+    /**
+     * Chat Id
+     *
+     * telegram 的频道/群 ID (如 -1001234567890); 其它服务留空
+     */
+    chat_id?: string;
+    /**
+     * Text
+     *
+     * 消息正文模板, 支持 {变量}; 留空用内置默认正文
+     */
+    text?: string;
+    /**
+     * Parse Mode
+     *
+     * telegram 可选: HTML 或 MarkdownV2; 留空按纯文本
+     */
+    parse_mode?: string;
+    /**
+     * Send Photo
+     *
+     * telegram: 有 poster_url 时改发图片+标题 (sendPhoto)
+     */
+    send_photo?: boolean;
+    /**
+     * Events
+     *
+     * 订阅的事件; 空 = 全部
+     */
+    events?: Array<NotifyEvent>;
+    /**
+     * Task Types
+     *
+     * 只通知这些任务类型; 空 = 全部
+     */
+    task_types?: Array<NotifyTaskType>;
+    /**
+     * Content Types
+     *
+     * 只通知这些内容类型; 空 = 全部
+     */
+    content_types?: Array<ContentType>;
+    /**
+     * Require
+     *
+     * 这些变量为空时跳过该渠道 (如 photo 类渠道填 poster_url, 避免必然失败的请求)
+     */
+    require?: Array<string>;
+    /**
+     * Throttle Seconds
+     *
+     * 静默窗口: 连续事件攒成一条, 静默这么多秒后才发送; 0 = 来一条发一条
+     */
+    throttle_seconds?: number;
+    /**
+     * Max Wait Seconds
+     *
+     * 合并最长等待秒数, 防止流水线不停时永远不发; 0 = 不设上限
+     */
+    max_wait_seconds?: number;
+    /**
+     * Timeout
+     *
+     * 单次请求超时 (秒)
+     */
+    timeout?: number;
+};
+
+/**
+ * NotifyConfig
+ *
+ * 任务完成 / 失败时的出站通知: 一份模板引擎覆盖所有渠道.
+ */
+export type NotifyConfig = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Panel Url
+     *
+     * 面板地址, 用于 link 变量; 如 https://amane.example.com
+     */
+    panel_url?: string;
+    /**
+     * Log Tail Lines
+     *
+     * 大于 0 时把任务日志最后 N 行放进 log_tail
+     */
+    log_tail_lines?: number;
+    /**
+     * Channels
+     *
+     * 渠道列表, 每个渠道一条通知 (界面里折叠显示, 一次展开一个)
+     */
+    channels?: Array<NotifyChannelConfig>;
+};
+
+/**
+ * NotifyEvent
+ *
+ * 可订阅的事件.
+ *
+ * 取值故意不带点: 前端枚举选项的 i18n key 是 ``options.<取值>``, i18next 把点当层级分隔符,
+ * ``task.completed`` 这样的取值查不到翻译, 于是退回显示原始值. 与 ``EventType`` 的映射在
+ * ``notify/service.py`` 的 ``_EVENT_KEYS`` 里.
+ */
+export type NotifyEvent = 'completed' | 'failed' | 'file_discovered' | 'file_removed';
+
+/**
+ * NotifyMethod
+ *
+ * 通知请求方法.
+ */
+export type NotifyMethod = 'post' | 'get';
+
+/**
+ * NotifyProvider
+ *
+ * 内置通知服务: 选好后只填 Token / 频道 / 正文, 请求地址与 JSON 由程序生成.
+ */
+export type NotifyProvider = 'custom' | 'telegram' | 'bark' | 'wecom';
+
+/**
+ * NotifyTaskType
+ *
+ * 可通知的任务类型 (取值与 ``db.models.TaskType`` 一致, 由测试守住不漂移).
+ */
+export type NotifyTaskType = 'scrape' | 'organize' | 'refresh' | 'cleanup' | 'upscale' | 'r18_import' | 'actor_scrape' | 'rescrape' | 'scan_invalid' | 'delete';
+
+/**
  * OptionalPathTemplateDefaults
  *
  * 附属模板缺省 (Library 对应列为 None 时 ORGANIZE 使用).
@@ -3291,6 +3471,13 @@ export type PluginResponse = {
      */
     path?: string | null;
 };
+
+/**
+ * PosterCropMode
+ *
+ * 海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``).
+ */
+export type PosterCropMode = 'right' | 'center' | 'none' | 'face';
 
 /**
  * R18Config
@@ -4023,6 +4210,14 @@ export type ScrapingConfig = {
      */
     poster_crop_skip_ratio?: number;
     /**
+     * Poster Crop Mode
+     *
+     * 按内容类型选择海报裁剪方式: right 取封面右侧 (默认); center 居中裁剪; none 不裁剪 (保留原图); face 人脸识别裁剪 (找不到人脸时回退 right). 仅「裁切海报」打开时生效.
+     */
+    poster_crop_mode?: {
+        [key in ContentType]?: PosterCropMode;
+    };
+    /**
      * Jpeg Quality
      */
     jpeg_quality?: number;
@@ -4030,19 +4225,19 @@ export type ScrapingConfig = {
      * Content Routes
      */
     content_routes?: {
-        [key in ContentType]?: Array<'airav' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'theporndb' | 'xcity'>;
+        [key in ContentType]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xcity'>;
     };
     /**
      * Field Priority
      */
     field_priority?: {
-        [key in MetadataField]?: Array<'airav' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'theporndb' | 'xcity'>;
+        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xcity'>;
     };
     /**
      * Field Blacklist
      */
     field_blacklist?: {
-        [key in MetadataField]?: Array<'airav' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'theporndb' | 'xcity'>;
+        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xcity'>;
     };
     /**
      * Field Language
@@ -4178,7 +4373,7 @@ export type SiteConfig = {
  *
  * 爬虫站点名称 (影片与演员源共用).
  */
-export type SiteName = 'airav' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'theporndb' | 'wikipedia' | 'xcity';
+export type SiteName = 'airav' | 'amazon' | 'avbase' | 'avsox' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'wikipedia' | 'xcity';
 
 /**
  * SiteOutcomeKind
@@ -5030,6 +5225,10 @@ export type WatcherConfig = {
      * Media Extensions
      */
     media_extensions?: Array<string>;
+    /**
+     * Escape Strings
+     */
+    escape_strings?: Array<string>;
 };
 
 /**
@@ -5165,6 +5364,40 @@ export type GetConfigSchemaResponses = {
 };
 
 export type GetConfigSchemaResponse = GetConfigSchemaResponses[keyof GetConfigSchemaResponses];
+
+export type TestNotifyData = {
+    /**
+     * Req
+     */
+    body: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/config/notify/test';
+};
+
+export type TestNotifyErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestNotifyError = TestNotifyErrors[keyof TestNotifyErrors];
+
+export type TestNotifyResponses = {
+    /**
+     * Response Test Notify
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type TestNotifyResponse = TestNotifyResponses[keyof TestNotifyResponses];
 
 export type GetCleanupInventoryData = {
     body?: never;
@@ -8303,20 +8536,11 @@ export type UpdateLibraryResponses = {
 export type UpdateLibraryResponse = UpdateLibraryResponses[keyof UpdateLibraryResponses];
 
 export type ClouddriveNotifyData = {
-    body: CloudDriveNotifyRequest;
+    body?: never;
     path?: never;
     query?: never;
     url: '/api/webhooks/clouddrive';
 };
-
-export type ClouddriveNotifyErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ClouddriveNotifyError = ClouddriveNotifyErrors[keyof ClouddriveNotifyErrors];
 
 export type ClouddriveNotifyResponses = {
     /**
