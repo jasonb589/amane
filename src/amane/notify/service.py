@@ -109,7 +109,14 @@ def _batch_line(count: int, numbers: list[str], limit: int = 5) -> str:
 
 
 #: 预设服务的默认正文: text 留空时用它, 保证"选好服务就能收到东西".
-_DEFAULT_TEXT = "{type_label} {status}\n{number} {title}\n📚 {library} · 耗时 {duration}{batch}"
+_DEFAULT_TEXT = (
+    "{status_icon} {type_label} · {status}\n"
+    "🎬 {number}\n"
+    "{title}\n"
+    "👥 {actors}\n"
+    "🖼 {category_label} · 💾 {library}\n"
+    "⏱ {duration} · {finished_at_local}{batch}"
+)
 
 
 def _split_title(text: str) -> tuple[str, str]:
@@ -126,7 +133,8 @@ def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tu
     """
     headers = dict(channel.headers)
     if channel.provider is not NotifyProvider.CUSTOM:
-        rendered = render(channel.text or _DEFAULT_TEXT, variables)
+        html_mode = channel.provider is NotifyProvider.TELEGRAM and channel.parse_mode.strip().upper() == "HTML"
+        rendered = render(channel.text or _DEFAULT_TEXT, variables, html_mode=html_mode)
         headers["Content-Type"] = "application/json"
         if channel.provider is NotifyProvider.TELEGRAM:
             chat_id = channel.chat_id.strip()
@@ -405,6 +413,7 @@ class NotificationService:
             "type_label": _TYPE_LABELS.get(task_type, task_type),
             "status": "失败" if failed else "成功",
             "success": not failed,
+            "status_icon": "❌" if failed else "✅",
             "error": error,
             "duration": _format_duration(task.started_at, task.finished_at) if task is not None else "",
             "number": number,

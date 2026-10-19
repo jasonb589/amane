@@ -1,0 +1,45 @@
+name: tmp-check
+
+on:
+  push:
+    tags: ["check-*"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Ruff
+        run: uv run ruff check src tests --output-format=concise
+
+      - name: Pytest（通知相关全跑）
+        run: uv run pytest tests/test_notify_templates.py tests/test_notify_service.py tests/test_notify_html.py -q
+
+      - name: 渲染冒烟
+        run: |
+          uv run python - <<'PY'
+          from amane.notify.service import _DEFAULT_TEXT
+          from amane.notify.templates import render
+
+          variables = {
+              "status_icon": "✅",
+              "type_label": "刮削",
+              "status": "成功",
+              "number": "ABC-123",
+              "title": "测试 & <标题>",
+              "actors": "某演员",
+              "category_label": "有码",
+              "library": "正常",
+              "duration": "1m 23s",
+              "finished_at_local": "2026-10-18 20:00:00",
+              "batch": "",
+          }
+          print(render(_DEFAULT_TEXT, variables))
+          escaped = render("<b>{title}</b>", variables, html_mode=True)
+          assert "&amp;" in escaped and "&lt;标题&gt;" in escaped, escaped
+          print("escaped ok:", escaped)
+          PY

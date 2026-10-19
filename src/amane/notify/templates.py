@@ -12,7 +12,8 @@
 """
 
 from __future__ import annotations
-
+import html
+import json
 import json
 import re
 from collections.abc import Mapping
@@ -60,8 +61,12 @@ def _parse_tail(tail: str) -> tuple[str | None, int | None]:
     return mode, limit
 
 
-def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = False) -> str:
-    """把模板里的占位符换成变量值; 认不出的占位原样保留."""
+def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = False, html_mode: bool = False) -> str:
+    """把模板里的占位符换成变量值; 认不出的占位原样保留.
+
+    ``html_mode`` 时对每个变量值做 HTML 转义 (模板里自己写的 ``<b>`` 等不受影响),
+    用 ``| r`` 可以对该处关掉转义.
+    """
     default_mode = "json" if json_mode else ""
 
     def replace(match: re.Match[str]) -> str:
@@ -89,6 +94,8 @@ def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = Fal
             return json_escape(text)
         if mode == "url":
             return quote(text, safe="")
+        if html_mode and mode != "raw":
+            return html.escape(text)
         return text
 
     return _SINGLE.sub(replace, _DOUBLE.sub(replace, template))
