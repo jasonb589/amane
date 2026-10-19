@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Amane API",
-    "version": "0.22.0"
+    "version": "0.22.1"
   },
   "paths": {
     "/api/health": {
@@ -8382,6 +8382,7 @@
           "ip_banned",
           "geo_restricted",
           "age_verification",
+          "login_required",
           "empty_response",
           "no_usable_metadata",
           "parse_error",
