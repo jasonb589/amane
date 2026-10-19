@@ -1,0 +1,55 @@
+name: tmp-gen
+
+# 临时: 合并上游后重新生成 OpenAPI 与前端客户端, 并跑完整检查.
+# 打完 gen-* 标签即用即删 (生成物以 artifact 形式取回).
+on:
+  push:
+    tags: ["gen-*"]
+
+jobs:
+  gen:
+    name: generate + check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "11"
+
+      - name: Setup just
+        uses: extractions/setup-just@v4
+
+      - name: Sync
+        run: just ci-sync
+
+      - name: Generate (openapi + client)
+        run: just generate
+
+      - name: Upload generated
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated
+          path: |
+            web/openapi.json
+            web/src/client/**
+
+      - name: Check (lint + typecheck + web check + tests)
+        run: just check
+
+      - name: Build web
+        run: just _web-build
