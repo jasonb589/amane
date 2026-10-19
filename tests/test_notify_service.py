@@ -47,6 +47,10 @@ class _StubRepo:
                 "actors": ["演员A"],
                 "studio": "片商",
                 "release": "2026-01-01",
+                "series": "系列",
+                "directors": ["导演A"],
+                "score": 8.2,
+                "runtime": 120,
             },
         )()
 

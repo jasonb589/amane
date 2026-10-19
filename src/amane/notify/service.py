@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -108,14 +109,73 @@ def _batch_line(count: int, numbers: list[str], limit: int = 5) -> str:
     return "\n" + text
 
 
+#: HTML 标签不算"内容": 模板自己写的 ``<b>`` 不该把空字段那一行留在卡片上.
+_TAG_RE = re.compile(r"<[^>]*>")
+_WORD_RE = re.compile(r"\w")
+#: 行尾悬空的字段: ``🏢 片商 · 📅 `` 里 ``·`` 后面那个空字段, 连分隔符一起去掉.
+#: 只吃"分隔符之后没有任何字母数字汉字"的尾巴, ``有码 · 💾 主库`` 这种正常尾巴不动.
+_TRAIL_JUNK_RE = re.compile(r"[\s·・|｜,，、]+[^\w<]*$")
+#: 行首"图标 + 分隔符"但分隔符前没有任何内容的前缀 (``🏢  · 📅 2026-01-01`` 里的 ``🏢  · ``
+#: 前面那个空字段): 连分隔符一起去掉, 后面那个字段的图标留着.
+_LEAD_JUNK_RE = re.compile(r"^[^\w<]*(?:·|・|\|｜)\s*")
+
+
+def _squash_lines(text: str) -> str:
+    """卡片收尾: 丢掉只剩图标的空行, 合并连续空行, 去掉悬空的分隔符.
+
+    模板里把可选字段 (出演者 / 标签 / 剧情) 各写成一行, 字段缺省时那一行只剩图标和 ``·``,
+    原样发出去就是一串丑空行. 这里按"去掉 HTML 标签后还有没有字母数字汉字"来判定.
+    """
+    lines: list[str] = []
+    for raw in text.splitlines():
+        line = _LEAD_JUNK_RE.sub("", raw.rstrip(), count=1)
+        if not line:
+            if lines and not lines[-1]:
+                continue
+            lines.append("")
+            continue
+        if not _WORD_RE.search(_TAG_RE.sub("", line)):
+            continue
+        lines.append(_TRAIL_JUNK_RE.sub("", line))
+    while lines and not lines[-1]:
+        lines.pop()
+    while lines and not lines[0]:
+        lines.pop(0)
+    return "\n".join(lines)
+
+
+def _short_list(items: list[str], limit: int, unit: str) -> str:
+    """卡片上的列表字段: 超过 ``limit`` 项收成"前 N 项 等 M 人"."""
+    if not items:
+        return ""
+    if len(items) <= limit:
+        return "、".join(items)
+    return f"{'、'.join(items[:limit])} 等 {len(items)} {unit}"
+
+
+def _ellipsis(text: str, limit: int) -> str:
+    """长文本截断并补省略号 (模板的 ``:N`` 不带省略号, 卡片上断得很突兀)."""
+    flat = " ".join(text.split())
+    if len(flat) <= limit:
+        return flat
+    return flat[:limit].rstrip() + "…"
+
+
+def _short_time(value: str) -> str:
+    """``2026-10-18 04:00:39`` → ``10-18 04:00``: 卡片上时间不占宽度."""
+    return value[5:16] if len(value) >= 16 else value
+
+
 #: 预设服务的默认正文: text 留空时用它, 保证"选好服务就能收到东西".
+#: 空字段 (缺出演者 / 片商) 那一行由 ``_squash_lines`` 收掉, 不会留下孤零零的图标.
 _DEFAULT_TEXT = (
     "{status_icon} {type_label} · {status}\n"
     "🎬 {number}\n"
     "{title}\n"
-    "👥 {actors}\n"
+    "👥 {actors_short}\n"
+    "🏢 {studio} · 📅 {release}\n"
     "🖼 {category_label} · 💾 {library}\n"
-    "⏱ {duration} · {finished_at_local}{batch}"
+    "⏱ {duration} · 🕒 {time_short}{batch}"
 )
 
 
@@ -134,7 +194,7 @@ def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tu
     headers = dict(channel.headers)
     if channel.provider is not NotifyProvider.CUSTOM:
         html_mode = channel.provider is NotifyProvider.TELEGRAM and channel.parse_mode.strip().upper() == "HTML"
-        rendered = render(channel.text or _DEFAULT_TEXT, variables, html_mode=html_mode)
+        rendered = _squash_lines(render(channel.text or _DEFAULT_TEXT, variables, html_mode=html_mode))
         headers["Content-Type"] = "application/json"
         if channel.provider is NotifyProvider.TELEGRAM:
             chat_id = channel.chat_id.strip()
@@ -163,6 +223,8 @@ def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tu
             )
     body = render(channel.body, variables, json_mode=channel.body.lstrip().startswith("{"))
     return render(channel.url, variables), headers, body
+
+
 @dataclass
 class _Pending:
     """合并窗口内累积的同渠道同类事件."""
@@ -277,9 +339,7 @@ class NotificationService:
             pending.numbers.append(number)
         pending.timer = asyncio.create_task(self._flush_later(index, channel, failed, pending.first_at))
 
-    async def _flush_later(
-        self, index: int, channel: NotifyChannelConfig, failed: bool, first_at: float
-    ) -> None:
+    async def _flush_later(self, index: int, channel: NotifyChannelConfig, failed: bool, first_at: float) -> None:
         """静默窗口结束就发; 期间每来一个新事件都会被 cancel 后重新计时."""
         key = (index, failed)
         wait = float(channel.throttle_seconds)
@@ -378,6 +438,12 @@ class NotificationService:
         actors = ""
         studio = ""
         release = ""
+        series = ""
+        directors = ""
+        score = ""
+        runtime = ""
+        actor_list: list[str] = []
+        tag_list: list[str] = []
         category = str(infer_content_type(number)) if number else ""
         category_label = _CATEGORY_LABELS.get(category, category)
         if number and repo is not None:
@@ -389,10 +455,16 @@ class NotificationService:
                 poster = metadata.poster_url or (metadata.poster_urls[0] if metadata.poster_urls else "")
                 thumb = metadata.thumb_url or (metadata.thumb_urls[0] if metadata.thumb_urls else "")
                 plot = metadata.plot or ""
-                tags = "、".join(metadata.tags or [])
-                actors = "、".join(_actor_name(item) for item in (metadata.actors or []))
+                tag_list = [str(item) for item in (metadata.tags or []) if str(item).strip()]
+                actor_list = [name for name in map(_actor_name, metadata.actors or []) if name]
+                tags = "、".join(tag_list)
+                actors = "、".join(actor_list)
                 studio = metadata.studio or ""
                 release = metadata.release or ""
+                series = metadata.series or ""
+                directors = "、".join(metadata.directors or [])
+                score = f"{metadata.score:g}" if metadata.score is not None else ""
+                runtime = f"{metadata.runtime} 分钟" if metadata.runtime else ""
         library = ""
         library_id = payload.get("library_id")
         if repo is not None and isinstance(library_id, int):
@@ -407,6 +479,8 @@ class NotificationService:
         finished_local = ""
         if task is not None and task.finished_at is not None:
             finished_local = _local_time(task.finished_at)
+        panel = config.panel_url.rstrip("/")
+        link = f"{panel}/tasks" if panel else ""
         return {
             "task_id": raw_id if isinstance(raw_id, int) else "",
             "type": task_type,
@@ -419,10 +493,19 @@ class NotificationService:
             "number": number,
             "title": title,
             "plot": plot,
+            # 卡片用的精简版: 长字段按条数 / 字数收一收, 免得一条通知占满屏幕.
+            "plot_short": _ellipsis(plot, 160),
             "tags": tags,
+            "tags_short": _short_list(tag_list, 4, "个"),
             "actors": actors,
+            "actors_short": _short_list(actor_list, 3, "人"),
             "studio": studio,
             "release": release,
+            "year": release[:4] if release else "",
+            "series": series,
+            "directors": directors,
+            "score": score,
+            "runtime": runtime,
             "category": category,
             "category_label": category_label,
             "library": library,
@@ -430,7 +513,10 @@ class NotificationService:
             "thumb_url": thumb,
             "finished_at": finished,
             "finished_at_local": finished_local,
-            "link": f"{config.panel_url.rstrip('/')}/tasks" if config.panel_url else "",
+            "time_short": _short_time(finished_local),
+            "link": link,
+            # 带面板按钮的整行 HTML: 用 ``{link_line|r}`` 引用 (关掉转义), 没有面板地址时整行为空.
+            "link_line": f'<a href="{link}">▸ 打开面板</a>' if link else "",
             "log_tail": await self._log_tail(raw_id, config.log_tail_lines) if config.log_tail_lines > 0 else "",
             "count": 1,
             "numbers": number,
@@ -489,10 +575,18 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "number": "ABC-123",
     "title": "测试标题 (来自通知测试)",
     "plot": "这是一条测试通知: 看到它说明该渠道的配置可用.",
+    "plot_short": "这是一条测试通知: 看到它说明该渠道的配置可用.",
     "tags": "测试",
+    "tags_short": "测试",
     "actors": "测试演员",
+    "actors_short": "测试演员",
     "studio": "测试片商",
     "release": "2026-01-01",
+    "year": "2026",
+    "series": "测试系列",
+    "directors": "测试导演",
+    "score": "8.2",
+    "runtime": "120 分钟",
     "category": "censored",
     "category_label": "有码",
     "library": "测试库",
@@ -500,7 +594,10 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "thumb_url": "",
     "finished_at": "2026-01-01T12:00:00",
     "finished_at_local": "2026-01-01 20:00:00",
+    "time_short": "01-01 20:00",
+    "status_icon": "✅",
     "link": "",
+    "link_line": "",
     "log_tail": "",
     "count": 1,
     "numbers": "",
