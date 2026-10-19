@@ -1,7 +1,9 @@
 name: tmp-gen
 
-# 临时: 合并上游后重新生成 OpenAPI 与前端客户端, 并跑完整检查.
+# 临时: 合并上游后重新生成 OpenAPI 与前端客户端, 并逐项跑检查.
 # 打完 gen-* 标签即用即删 (生成物以 artifact 形式取回).
+# 不跑 `just check`: 里面的 ruff format --check 会把我们历史补丁的排版一起挑出来
+# (上游 CI 管不到这些文件), 与本版合并无关.
 on:
   push:
     tags: ["gen-*"]
@@ -30,7 +32,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-
       - name: Setup just
         uses: extractions/setup-just@v4
 
@@ -49,8 +50,17 @@ jobs:
             web/openapi.json
             web/src/client/**
 
-      - name: Check (lint + typecheck + web check + tests)
-        run: just check
+      - name: Ruff check
+        run: uv run ruff check src/amane tests scripts
+
+      - name: Typecheck
+        run: just typecheck
+
+      - name: Web check
+        run: just check-web
+
+      - name: Tests
+        run: just test-cov
 
       - name: Build web
         run: just _web-build
