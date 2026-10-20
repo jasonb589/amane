@@ -147,7 +147,8 @@ async def materialize_images(
             and thumb_local
         ):
             ratio = config.scraping.poster_ratio
-            args = f"{mode}:{ratio:.4f}"
+            # ``right`` 是旧版唯一行为: args 保持纯比例, 既有派生资源不失效; 其它模式才加前缀.
+            args = f"{ratio:.4f}" if mode == "right" else f"{mode}:{ratio:.4f}"
             local_thumb = thumb_local
 
             async def crop_producer(dest: Path) -> bool:
