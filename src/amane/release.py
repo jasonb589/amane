@@ -8,6 +8,7 @@ APP 发布之后就会拿到 APP 的 tag, 解析不出版本, 更新提示随之
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -40,9 +41,20 @@ def _release_version(tag: str) -> Version | None:
         return None
 
 
+def _loose_version(text: str) -> Version | None:
+    """宽松解析: 自定义构建号 ``0.22.1-custom.3`` 不是合法 PEP440, 比较前截掉 ``-custom.N`` 这类后缀.
+
+    只用于"当前版本"这一侧 — tag 那一侧保持严格, 免得 ``app-*`` 之类的发布线混进更新提示.
+    """
+    try:
+        return Version(re.split(r"[-+]", _strip_v(text).strip(), maxsplit=1)[0])
+    except InvalidVersion:
+        return None
+
+
 def is_newer(latest: str, current: str) -> bool:
     """比较 GitHub tag 与包版本; 任一侧解析不出都视为"不是更新" — 非版本 tag 不能变成更新提示."""
-    left, right = _release_version(latest), _release_version(current)
+    left, right = _release_version(latest), _loose_version(current)
     if left is None or right is None:
         return False
     return left > right

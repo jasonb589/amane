@@ -87,3 +87,27 @@ async def resource_store(tmp_path: Path) -> AsyncGenerator[ResourceStore]:
     yield ResourceStore(engine=engine, base_dir=tmp_path / "resources")
 
     await engine.dispose()
+
+
+#: 本分支的有意差异: **删除就是纯删除** —— 删 facet 只删实体与关联, 不写屏蔽规则,
+#: 也不回填已有影片的真值 (见 ``db/repos/facet_helpers.py`` 里 delete_* 的说明).
+#: 上游这几个用例断言的正是相反行为 (删了就写成屏蔽规则、并清洗历史), 在这里统一跳过:
+#: 直接改上游测试文件的话每次同步都要解冲突, 集中登记在这里更省事, 差异也一目了然.
+DIVERGED_FROM_UPSTREAM: dict[str, str] = {
+    node: "本分支『删除就是纯删除』: 不给删除写屏蔽规则, 上游断言相反行为"
+    for node in (
+        "tests/db/test_facets.py::TestFacetRenameMergeDelete::test_delete_blocks_and_alias_chain",
+        "tests/db/test_facets.py::TestFacetRenameMergeDelete::test_delete_rule_allows_name_again",
+        "tests/api/test_facets_write.py::test_facet_http_actor_rename_merge_delete",
+        "tests/db/test_repository.py::TestMetadataRepo::test_delete_blocks_own_names_keeps_shared",
+        "tests/db/test_repository.py::TestMetadataRepo::test_locked_actors_still_filtered_by_block_rule",
+    )
+}
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """把与上述有意差异冲突的上游用例标成 skipped, 其余照常跑."""
+    for item in items:
+        reason = DIVERGED_FROM_UPSTREAM.get(item.nodeid)
+        if reason is not None:
+            item.add_marker(pytest.mark.skip(reason=reason))
