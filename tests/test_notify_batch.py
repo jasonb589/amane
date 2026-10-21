@@ -24,13 +24,13 @@ def test_batch_summary_without_numbers() -> None:
 
 
 def test_clip_respects_limit_and_cuts_partial_tag() -> None:
-def test_clip_respects_limit_and_cuts_partial_tag() -> None:
     assert _clip("abc", 10) == "abc"
     clipped = _clip("x" * 50, 20)
     assert len(clipped) == 20
     assert clipped.endswith("…")
     # 截断点落在标签中间时不能留下半个 <blockq, 否则 Telegram 会报解析失败.
     assert _clip("头部<blockquote>内容", 8) == "头部…"
+
 
 def test_error_short_takes_first_line() -> None:
     error = "\n\nValueError: 番号解析失败\nTraceback ...\n"
