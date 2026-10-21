@@ -166,6 +166,55 @@ def _short_time(value: str) -> str:
     return value[5:16] if len(value) >= 16 else value
 
 
+#: 供应商正文上限: 超了对方直接回 400 (telegram 文本 4096 / 图片说明 1024, 企业微信 2048, bark 正文 1000).
+_MAX_TEXT: dict[NotifyProvider, int] = {
+    NotifyProvider.TELEGRAM: 4096,
+    NotifyProvider.WECOM: 2048,
+    NotifyProvider.BARK: 1000,
+}
+_MAX_CAPTION = 1024
+#: 5xx / 429 / 断连时的重试间隔.
+_RETRY_DELAY_S = 2.0
+_OPEN_TAG_RE = re.compile(r"<[^>]*$")
+
+
+def _batch_summary(count: int, numbers: list[str], limit: int = 5) -> str:
+    """合并成多条时的摘要行 (以换行开头; 单条时返回空串, 模板里那一段自然消失).
+
+    ``count`` 是合并进这条消息的**任务事件数**, ``numbers`` 是其中解析出番号的去重列表:
+    同一部片的多文件 (CD1/CD2 / 字幕版) 各自算一个事件, 自动整理还会再补一条子任务事件,
+    所以两个数往往不相等. 文案里必须把"任务数"和"影片数"分开写, 否则就会像
+    "共 80 项"却只涉及十几部片那样看不懂.
+    """
+    if count <= 1:
+        return ""
+    distinct = list(dict.fromkeys(numbers))
+    if not distinct:
+        return f"\n共 {count} 个任务"
+    shown = "、".join(distinct[:limit])
+    tail = " 等" if len(distinct) > limit else ""
+    return f"\n共 {count} 个任务 · 涉及 {len(distinct)} 部：{shown}{tail}"
+
+
+def _clip(text: str, limit: int) -> str:
+    """按服务上限截断 (省略号算在限额内), 顺手砍掉被切断的半截 HTML 标签.
+
+    截断点落在 ``<blockquote`` 中间时留下半个标签, Telegram 会直接报 entities 解析失败.
+    """
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return _OPEN_TAG_RE.sub("", text[: limit - 1]).rstrip() + "…"
+
+
+def _error_short(error: str, limit: int = 120) -> str:
+    """失败通知里的错误摘要: 取第一段非空文本 (堆栈第一行), 按字数收一下."""
+    for line in error.splitlines():
+        text = line.strip()
+        if text:
+            return _ellipsis(text, limit)
+    return ""
+
+
 #: 预设服务的默认正文: text 留空时用它, 保证"选好服务就能收到东西".
 #: 空字段 (缺出演者 / 片商) 那一行由 ``_squash_lines`` 收掉, 不会留下孤零零的图标.
 _DEFAULT_TEXT = (
@@ -175,6 +224,7 @@ _DEFAULT_TEXT = (
     "👥 {actors_short}\n"
     "🏢 {studio} · 📅 {release}\n"
     "🖼 {category_label} · 💾 {library}\n"
+    "🚫 {error_short}\n"
     "⏱ {duration} · 🕒 {time_short}{batch}"
 )
 
@@ -201,20 +251,27 @@ def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tu
             photo = str(variables.get("poster_url") or "") if channel.send_photo else ""
             if photo:
                 method = "sendPhoto"
-                payload: dict[str, Any] = {"chat_id": chat_id, "photo": photo, "caption": rendered}
+                payload: dict[str, Any] = {
+                    "chat_id": chat_id,
+                    "photo": photo,
+                    "caption": _clip(rendered, _MAX_CAPTION),
+                }
             else:
                 method = "sendMessage"
-                payload = {"chat_id": chat_id, "text": rendered, "disable_web_page_preview": True}
+                payload = {
+                    "chat_id": chat_id,
+                    "text": _clip(rendered, _MAX_TEXT[NotifyProvider.TELEGRAM]),
+                    "disable_web_page_preview": True,
+                }
             if channel.parse_mode:
                 payload["parse_mode"] = channel.parse_mode
             token = channel.token.strip()
             return f"https://api.telegram.org/bot{token}/{method}", headers, json.dumps(payload, ensure_ascii=False)
         if channel.provider is NotifyProvider.BARK:
-            title, body = _split_title(rendered)
+            title, body = _split_title(_clip(rendered, _MAX_TEXT[NotifyProvider.BARK]))
             payload = {"device_key": channel.token.strip(), "title": title, "body": body}
-            return "https://api.day.app/push", headers, json.dumps(payload, ensure_ascii=False)
         if channel.provider is NotifyProvider.WECOM:
-            payload = {"msgtype": "text", "text": {"content": rendered}}
+            payload = {"msgtype": "text", "text": {"content": _clip(rendered, _MAX_TEXT[NotifyProvider.WECOM])}}
             key = channel.token.strip()
             return (
                 f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}",
@@ -358,11 +415,14 @@ class NotificationService:
         self._pending.pop(key, None)
         variables = dict(pending.variables)
         count = max(pending.count, 1)
+        distinct = list(dict.fromkeys(pending.numbers))
         variables["count"] = count
-        variables["numbers"] = "、".join(pending.numbers)
-        variables["batch"] = _batch_line(count, pending.numbers)
-        self._spawn(channel, variables)
+        variables["task_count"] = count
+        variables["movie_count"] = len(distinct)
+        variables["numbers"] = "、".join(distinct)
+        variables["batch"] = _batch_summary(count, distinct)
 
+        self._spawn(channel, variables)
     def _spawn(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> None:
         task = asyncio.create_task(self._send(channel, variables))
         self._sending.add(task)
@@ -370,7 +430,8 @@ class NotificationService:
 
     async def _send(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[bool, str]:
         web = self._web
-        if web is None:  # pragma: no cover - enabled 已保证非空
+        # enabled 已保证 web 非空; send_test 也会先判空, 这里只是兜底.
+        if web is None:
             return False, "网络客户端未就绪"
         label = channel.name or channel.url or str(channel.provider)
         if channel.provider is not NotifyProvider.CUSTOM:
@@ -385,19 +446,30 @@ class NotificationService:
             # 不带 Content-Type 时对方会按表单解析 body, Telegram 会直接回
             # "Bad Request: message text is empty" (实测 400).
             headers["Content-Type"] = "application/json"
-        try:
-            response = await web.request(
-                channel.method.value.upper(),
-                url,
-                headers=headers or None,
-                data=body or None,
-                timeout=channel.timeout,
-                # 4xx 不抛异常: 要把对方的错误正文记进日志, 否则只看到一个 "HTTP 400".
-                ok_statuses=frozenset(range(400, 500)),
-            )
-        except RequestError as exc:
-            logger.warning("notify request failed", channel=label, error=str(exc))
-            return False, f"请求失败: {exc}"
+        response = None
+        last_error = ""
+        # 对方 5xx / 429 / 断连时重试一次: 漏一条通知比多等两秒更麻烦.
+        for attempt in (1, 2):
+            try:
+                response = await web.request(
+                    channel.method.value.upper(),
+                    url,
+                    headers=headers or None,
+                    data=body or None,
+                    timeout=channel.timeout,
+                    # 4xx 不抛异常: 要把对方的错误正文记进日志, 否则只看到一个 "HTTP 400".
+                    ok_statuses=frozenset(range(400, 500)),
+                )
+            except RequestError as exc:
+                response = None
+                last_error = f"请求失败: {exc}"
+                logger.warning("notify request failed", channel=label, error=str(exc), attempt=attempt)
+            if response is not None and response.status_code != 429 and response.status_code < 500:
+                break
+            if attempt == 1:
+                await asyncio.sleep(_RETRY_DELAY_S)
+        if response is None:
+            return False, last_error or "请求失败"
         if response.status_code >= 400:
             detail = response.text[:200]
             logger.warning(
@@ -407,6 +479,7 @@ class NotificationService:
                 body=detail,
             )
             return False, f"HTTP {response.status_code}: {detail}"
+        return True, f"HTTP {response.status_code}"
         return True, f"HTTP {response.status_code}"
 
     async def send_test(self, channel: NotifyChannelConfig) -> tuple[bool, str]:
@@ -489,6 +562,8 @@ class NotificationService:
             "success": not failed,
             "status_icon": "❌" if failed else "✅",
             "error": error,
+            # 失败卡片只放摘要: 完整堆栈留给日志页, 群里一条消息刷屏没人看.
+            "error_short": _error_short(error),
             "duration": _format_duration(task.started_at, task.finished_at) if task is not None else "",
             "number": number,
             "title": title,
@@ -519,6 +594,8 @@ class NotificationService:
             "link_line": f'<a href="{link}">▸ 打开面板</a>' if link else "",
             "log_tail": await self._log_tail(raw_id, config.log_tail_lines) if config.log_tail_lines > 0 else "",
             "count": 1,
+            "task_count": 1,
+            "movie_count": 1 if number else 0,
             "numbers": number,
             "batch": "",
         }
@@ -596,12 +673,15 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "finished_at_local": "2026-01-01 20:00:00",
     "time_short": "01-01 20:00",
     "status_icon": "✅",
+    "error_short": "",
+    "count": 1,
+    "task_count": 1,
+    "movie_count": 1,
+    "numbers": "",
+    "batch": "",
     "link": "",
     "link_line": "",
     "log_tail": "",
-    "count": 1,
-    "numbers": "",
-    "batch": "",
 }
 
 
