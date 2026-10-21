@@ -95,6 +95,7 @@ def test_default_text_uses_card_variables() -> None:
             "library": "",
             "duration": "",
             "time_short": "",
+            "error_short": "",
             "batch": "",
         },
     )

@@ -197,7 +197,7 @@ def test_quiet_window_merges_events_into_one_summary() -> None:
         body = web.calls[0]
         assert '"n":3' in body
         assert "ABC-1、ABC-2、ABC-3" in body
-        assert "共 3 项" in body
+        assert "共 3 个任务" in body
 
     asyncio.run(run())
 

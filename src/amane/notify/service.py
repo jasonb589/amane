@@ -270,6 +270,7 @@ def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tu
         if channel.provider is NotifyProvider.BARK:
             title, body = _split_title(_clip(rendered, _MAX_TEXT[NotifyProvider.BARK]))
             payload = {"device_key": channel.token.strip(), "title": title, "body": body}
+            return "https://api.day.app/push", headers, json.dumps(payload, ensure_ascii=False)
         if channel.provider is NotifyProvider.WECOM:
             payload = {"msgtype": "text", "text": {"content": _clip(rendered, _MAX_TEXT[NotifyProvider.WECOM])}}
             key = channel.token.strip()
