@@ -178,7 +178,7 @@ _RETRY_DELAY_S = 2.0
 _OPEN_TAG_RE = re.compile(r"<[^>]*$")
 
 
-def _batch_summary(count: int, numbers: list[str], limit: int = 5) -> str:
+def _batch_summary(count: int, numbers: list[str], limit: int = 8) -> str:
     """合并成多条时的摘要行 (以换行开头; 单条时返回空串, 模板里那一段自然消失).
 
     ``count`` 是合并进这条消息的**任务事件数**, ``numbers`` 是其中解析出番号的去重列表:
@@ -192,7 +192,7 @@ def _batch_summary(count: int, numbers: list[str], limit: int = 5) -> str:
     if not distinct:
         return f"\n共 {count} 个任务"
     shown = "、".join(distinct[:limit])
-    tail = " 等" if len(distinct) > limit else ""
+    tail = " …" if len(distinct) > limit else ""
     return f"\n共 {count} 个任务 · 涉及 {len(distinct)} 部：{shown}{tail}"
 
 
@@ -504,6 +504,18 @@ class NotificationService:
         payload: dict[str, Any] = dict(task.payload or {}) if task is not None else {}
         task_type = str(task.type) if task is not None else str(event.data.get("type") or "")
         number = await self._number(repo, payload)
+        if (
+            not number
+            and repo is not None
+            and task is not None
+            and isinstance(task.root_task_id, int)
+            and task.root_task_id != task.id
+        ):
+            # 自动整理这类子任务的 payload 只带 media_file_ids, 而整理后那些 id 已失效 (记录被重建),
+            # 番号回退到同一条链的根任务 (刮削) 的 payload, 否则合并摘要里只剩"共 N 个任务".
+            root = await repo.get_task(task.root_task_id)
+            if root is not None:
+                number = await self._number(repo, dict(root.payload or {}))
         title = ""
         poster = ""
         thumb = ""

@@ -9,9 +9,13 @@ def test_batch_summary_single_is_empty() -> None:
 
 def test_batch_summary_separates_task_and_movie_counts() -> None:
     # 任务事件数 与 去重番号数 要分开写: 同一部片的多文件 / 子任务会让事件数更大.
-    out = _batch_summary(80, ["IPX-580", "STAR-820", "MREC-013", "SSNI-888", "INDI-034", "X-1"])
-    assert out.startswith("\n共 80 个任务 · 涉及 6 部：")
-    assert "IPX-580、STAR-820、MREC-013、SSNI-888、INDI-034 等" in out
+    numbers = [f"ABC-{i:03d}" for i in range(1, 13)]
+    out = _batch_summary(80, numbers)
+    assert out.startswith("\n共 80 个任务 · 涉及 12 部：")
+    # 前 8 个列出来, 其余用省略号收掉.
+    assert "ABC-008" in out
+    assert "ABC-009" not in out
+    assert out.endswith(" …")
 
 
 def test_batch_summary_dedupes_repeated_numbers() -> None:
