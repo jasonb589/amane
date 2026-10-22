@@ -511,6 +511,12 @@ def _identify(
     return _fallback(stem, escape)
 
 
+def _normalize_six_digit(number: str) -> str:
+    """``122524_01`` / ``122524-1`` → ``122524-001``: 六位日期号在站内统一是「日期-三位序号」."""
+    head, _, tail = number.replace("_", "-").partition("-")
+    return f"{head}-{tail.zfill(3)}"
+
+
 def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[str, ContentType] | None:
     """命中已知形态则 (番号, 类型), 否则 None. 不含文件名回退."""
     t = _prepare(basename, escape_strings)
@@ -579,7 +585,9 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
         return file_number, _type_of_catalog_id(file_number)
     if m := _SIX_DIGIT_CATALOG.search(c):
         # 六位数字 + 短横线或下划线 + 序号 (010115-001 / 010115_001 是两部). 短于六位的数字号不命中.
-        return m.group(), ContentType.UNCENSORED
+        # 站内规范写法是"六位日期-三位序号": 文件名里的 122524_01 / 122524-1 统一补零并换成短横线,
+        # 否则这类写法在站点上永远搜不到.
+        return _normalize_six_digit(m.group()), ContentType.UNCENSORED
     # 前缀内含数字的番号按整段提取; 类型仍由分类器查表判定, 未收录前缀维持原结果.
     if m := _DIGIT_PREFIX_CATALOG.search(c):
         return m.group(), _type_of_catalog_id(m.group())
