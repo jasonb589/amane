@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping
 from datetime import date
 
 from parsel import Selector
@@ -47,6 +49,12 @@ _FANART_LIMIT = 12
 
 #: ISO8601 时长, 站点写作 ``T00H59M06S``.
 _DURATION = re.compile(r"^P?(?:T)?(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+)S)?$")
+
+#: 页面内嵌的 ``var Movie = {...}``: 站外素材 (10musume 等) 的封面与预告片都在里面.
+_MOVIE_JS = re.compile(r"var\s+Movie\s*=\s*(\{.*?\});", re.DOTALL)
+
+#: 出演者分隔符: 有的模板把多个名字塞进同一个节点.
+_NAME_SEPARATOR = re.compile(r"[,，、/]+")
 
 #: 无码站只服务这两类: 其它类型不浪费一次请求.
 _CONTENT_TYPES = frozenset({ContentType.UNCENSORED, ContentType.AMATEUR})
@@ -103,6 +111,55 @@ def is_detail_page(text: str) -> bool:
     return all(marker in text for marker in _DETAIL_MARKERS)
 
 
+def _movie_js(text: str) -> dict[str, object]:
+    """取页面内嵌的 ``var Movie = {...}``; 没有或解析失败返回空 dict.
+
+    站外素材 (10musume 等) 的封面与预告片都在这个对象里.
+    """
+    match = _MOVIE_JS.search(text)
+    if match is None:
+        return {}
+    try:
+        data = json.loads(match.group(1))
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _js_cover(movie: Mapping[str, object], number: str) -> str:
+    """站外素材的横向封面: ``https://www.{site_name}/assets/sample/{movie_id}/{image_name}``."""
+    site = movie.get("site_name")
+    movie_id = movie.get("movie_id") or number
+    image = movie.get("image_name") or "str.jpg"
+    if not isinstance(site, str) or not site:
+        return ""
+    if not isinstance(movie_id, str) or not isinstance(image, str):
+        return ""
+    return f"https://www.{site}/assets/sample/{movie_id}/{image}"
+
+
+def _parse_actors(html: Selector) -> list[str]:
+    """只取「出演」那一行里的演员.
+
+    页面其它位置 (相关影片卡片) 也带 ``itemprop="actor"``, 那些节点的文本是多部片的演员串,
+    扫进来就是一堆逗号拼接的垃圾 —— 所以必须限定在 ``li.movie-spec`` 的出演行内,
+    并把节点里用逗号/顿号连起来的名字拆开.
+    """
+    nodes = html.xpath(
+        "//li[contains(@class, 'movie-spec')]"
+        "[.//span[contains(@class, 'spec-title') and contains(text(), '出演')]]"
+        "//*[@itemprop='actor']"
+    )
+    names: list[str] = []
+    for node in nodes:
+        raw = (node.xpath("string()").get() or "").strip().strip('"').strip()
+        for piece in _NAME_SEPARATOR.split(raw):
+            cleaned = piece.strip().strip('"').strip()
+            if cleaned and cleaned not in names:
+                names.append(cleaned)
+    return names
+
+
 def parse_detail(text: str, number: str, url: str) -> MediaMetadata | None:
     """详情页 HTML → 元数据; 认不出标题视为不匹配."""
     html = Selector(text=text)
@@ -112,16 +169,22 @@ def parse_detail(text: str, number: str, url: str) -> MediaMetadata | None:
     if not title:
         return None
 
-    actors = extract_all_texts(html, "//a[@itemprop='actor']//span[@itemprop='name']/text()")
+    actors = _parse_actors(html)
     tags = extract_all_texts(html, "//a[@class='spec-item']/text()")
     duration = extract_text(html, "//span[@itemprop='duration']/@content")
     plot = extract_text(html, "//p[@itemprop='description']/text()")
 
-    # 封面只在页面真的引用过时才给: 另一套模板上这个路径是 404, 猜了就是无谓的失败请求.
+    # 封面有两种来源: 经典模板的 l_l.jpg, 或页面 JS 里 Movie 对象指到的站外素材.
     cover = ""
     cover_match = _COVER.search(text)
     if cover_match is not None and cover_match["number"] == number:
         cover = f"{BASE_URL}{cover_match.group(0)}"
+    movie = _movie_js(text)
+    if not cover:
+        cover = _js_cover(movie, number)
+
+    trailer = movie.get("sample_flash_url") if movie else ""
+    trailer_urls = [trailer] if isinstance(trailer, str) and trailer.startswith("http") else []
 
     # 剧照同理: 只取页面里写出的锚点.
     fanart: list[str] = []
@@ -146,6 +209,7 @@ def parse_detail(text: str, number: str, url: str) -> MediaMetadata | None:
         # 站点只有横版图: 封面进 thumb, 同时作为 poster 的兜底 (竖版由管线裁切).
         thumb_urls=[cover] if cover else [],
         poster_urls=[cover] if cover else [],
+        trailer_urls=trailer_urls,
         extrafanart=fanart,
         source_url=url,
     )

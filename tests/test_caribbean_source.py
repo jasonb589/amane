@@ -1,4 +1,4 @@
-"""カリビアンコム 源的解析用例 (番号变体 / 配信日 / 时长 / 详情页解析)."""
+"""カリビアンコム 源的解析用例 (番号变体 / 配信日 / 时长 / 两套模板的详情页解析)."""
 
 import pytest
 
@@ -10,6 +10,7 @@ from amane.crawlers.sites.caribbean import (
     runtime_minutes,
 )
 
+# 经典模板 (-NNN): 封面走 l_l.jpg, 剧照是真实锚点.
 _CLASSIC = """
 <html><head><title>テスト | 無修正アダルト動画 カリビアンコム</title></head>
 <body>
@@ -45,14 +46,46 @@ _CLASSIC = """
 </body></html>
 """
 
-# 另一套模板: 没有 l_l.jpg, 也没有剧照锚点.
+# 另一套模板 (_NN, 常是 10musume 的片挂在 caribbean 域名下): 没有 l_l.jpg 也没有剧照锚点,
+# 封面/预告片只能从页面内嵌的 var Movie 里取; 相关影片卡片里也带 itemprop="actor" (要滤掉).
 _PLAIN = """
-<html><head><title>性なる夜に大サービス！ちっちゃ可愛いサンタちゃん | カリビアンコム</title></head>
+<html><head><title>性なる夜に大サービス！ちっちゃ可愛いサンタちゃん 島河渚 | 無修正動画 カリビアンコム</title></head>
 <body>
 <h1 itemprop="name">性なる夜に大サービス！ちっちゃ可愛いサンタちゃん</h1>
 <p itemprop="description">サンタ姿の女の子。</p>
-<span itemprop="duration" content="T00H51M10S">00:51:10</span>
-<a itemprop="actor"><span itemprop="name">中田ゆめ</span></a>
+<ul itemscope itemtype="http://schema.org/VideoObject">
+  <li class="movie-spec">
+    <span class="spec-title">出演</span>
+    <span class="spec-content">
+      <span class="spec__tag" itemprop="actor" itemscope itemtype="http://schema.org/Person" itemprop="name">島河渚</span>
+    </span>
+  </li>
+  <li class="movie-spec">
+    <span class="spec-title">再生時間</span>
+    <span class="spec-content"><span itemprop="duration" content="T00H51M10S">00:51:10</span></span>
+  </li>
+</ul>
+<div class="related">
+  <div class="meta-data"><a itemprop="actor" href="/search/a/1.html">神楽麻衣,酒井まみ,安住美春</a></div>
+</div>
+<script>
+var Movie = {"movie_id":"122524_01","movie_site":"10m","image_name":"str.jpg",
+"sample_flash_url":"https://smovie.10musume.com/sample/movies/122524_01/480p.mp4",
+"site_name":"10musume.com"};
+</script>
+</body></html>
+"""
+
+# 出演行里一个节点塞了多个名字 (逗号/顿号混用).
+_MULTI_ACTORS = """
+<html><body>
+<h1 itemprop="name">タイトル</h1>
+<ul>
+  <li class="movie-spec">
+    <span class="spec-title">出演</span>
+    <span class="spec-content"><span itemprop="actor">香川洋子,玉置れに、神山ももか</span></span>
+  </li>
+</ul>
 </body></html>
 """
 
@@ -109,17 +142,32 @@ def test_parse_detail_classic_template() -> None:
     ]
 
 
-def test_parse_detail_other_template_has_no_images() -> None:
-    """``_01`` 模板的封面路径是 404, 页面也没剧照锚点: 图片一个都不该给."""
+def test_parse_detail_other_template_uses_movie_js_assets() -> None:
+    """``_01`` 模板: 封面与预告片来自页面内嵌的 var Movie, 剧照没有就不给."""
     meta = parse_detail(_PLAIN, "122524_01", "https://www.caribbeancom.com/moviepages/122524_01/index.html")
     assert meta is not None
     assert meta.number == "122524_01"
     assert meta.title == "性なる夜に大サービス！ちっちゃ可愛いサンタちゃん"
-    assert meta.thumb_urls == []
-    assert meta.poster_urls == []
-    assert meta.extrafanart == []
     assert meta.release == "2024-12-25"
     assert meta.runtime == 52
+    # 站外素材站 (10musume) 的横向封面, 之前这里是空的, 导致片库没图.
+    assert meta.thumb_urls == ["https://www.10musume.com/assets/sample/122524_01/str.jpg"]
+    assert meta.poster_urls == meta.thumb_urls
+    assert meta.trailer_urls == ["https://smovie.10musume.com/sample/movies/122524_01/480p.mp4"]
+    assert meta.extrafanart == []
+
+
+def test_actors_only_from_spec_row() -> None:
+    """相关影片卡片里的 itemprop="actor" 不能混进来 (那里的文本是多部片的演员串)."""
+    meta = parse_detail(_PLAIN, "122524_01", "https://www.caribbeancom.com/moviepages/122524_01/index.html")
+    assert meta is not None
+    assert [actor.name for actor in meta.actors] == ["島河渚"]
+
+
+def test_actors_split_by_separators() -> None:
+    meta = parse_detail(_MULTI_ACTORS, "010101_01", "https://www.caribbeancom.com/moviepages/010101_01/index.html")
+    assert meta is not None
+    assert [actor.name for actor in meta.actors] == ["香川洋子", "玉置れに", "神山ももか"]
 
 
 def test_is_detail_page() -> None:
