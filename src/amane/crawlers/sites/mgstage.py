@@ -24,6 +24,19 @@ def _poster_url(cover_url: str) -> str | None:
     return f"{directory}/{_POSTER_PREFIX}{filename.removeprefix(_COVER_PREFIX)}"
 
 
+def _wide_cover(cover_url: str) -> str | None:
+    """任意 ``pb_*`` / ``pf_*`` 封面地址 → 同图的 ``pb_e_`` 展开大图 (840x473); 推不出返回 ``None``.
+
+    素人页面主图可能是 ``pb_p_`` (540x304 小横版) 或 ``pf_o1_`` (166x236 小竖版), 两种前缀都指向
+    同一张图; 展开版 ``pb_e_`` 才是高清背景图/封面该用的那张. 只认 ``/pf_`` 会让主图是 ``pb_p_``
+    的条目永远停在 540x304.
+    """
+    if not cover_url:
+        return None
+    wide = re.sub(r"/(?:pf|pb)_[a-z0-9]+_", f"/{_COVER_PREFIX}", cover_url)
+    return wide if wide != cover_url else None
+
+
 class MGStageCrawler(Crawler):
     #: 详情页地址里的番号段, 检索结果与直达地址共用同一形态.
     _DETAIL_PATH = re.compile(r"/product/product_detail/([^/]+)/")
@@ -78,12 +91,21 @@ class MGStageCrawler(Crawler):
         meta = await super().fetch(query, options)
         if meta is None or query.content_type is not ContentType.AMATEUR or meta.poster_urls:
             return meta
-        cover = next((url for url in meta.thumb_urls if "/pf_" in url), "")
+        cover = meta.thumb_urls[0] if meta.thumb_urls else ""
         if not cover:
             return meta
-        wide = re.sub(r"/pf_[a-z0-9]+_", "/pb_e_", cover)
-        candidates = [cover] if wide == cover else [cover, wide]
-        return meta.model_copy(update={"poster_urls": candidates})
+        # 展开大图 ``pb_e_`` 是同一张图的 840x473 版本 (正面+书脊+封底), 两种主图前缀都要能推.
+        wide = _wide_cover(cover)
+        if wide is None:
+            return meta
+        return meta.model_copy(
+            update={
+                # 海报候选首个仍是原图 (竖版 pf_e_ 在 _scrape 里已单独推导), 大横图排后面备用.
+                "poster_urls": [cover, wide],
+                # 封面直接用大横图, 背景图/裁切都以它为准.
+                "thumb_urls": [wide, cover],
+            }
+        )
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         text = await self.client.get_html(url, cookies=self.cookies)
