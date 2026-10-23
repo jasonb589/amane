@@ -2982,6 +2982,18 @@ export const HotSettingsSchema = {
                         use_browser: 'auto',
                         use_proxy: true
                     },
+                    caribbean: {
+                        cookie: {},
+                        languages: [
+                            'zh',
+                            'ja',
+                            'en'
+                        ],
+                        official_routes: {},
+                        rate_limit: 2,
+                        use_browser: 'auto',
+                        use_proxy: true
+                    },
                     dahlia: {
                         cookie: {},
                         languages: [
@@ -8005,6 +8017,7 @@ export const ScrapingConfigSchema = {
                         'amazon',
                         'avbase',
                         'avsox',
+                        'caribbean',
                         'dahlia',
                         'dmm',
                         'faleno',
@@ -8048,6 +8061,7 @@ export const ScrapingConfigSchema = {
                         'amazon',
                         'avbase',
                         'avsox',
+                        'caribbean',
                         'dahlia',
                         'dmm',
                         'faleno',
@@ -8091,6 +8105,7 @@ export const ScrapingConfigSchema = {
                         'amazon',
                         'avbase',
                         'avsox',
+                        'caribbean',
                         'dahlia',
                         'dmm',
                         'faleno',
@@ -8384,6 +8399,7 @@ export const SiteNameSchema = {
         'amazon',
         'avbase',
         'avsox',
+        'caribbean',
         'dahlia',
         'dmm',
         'faleno',
