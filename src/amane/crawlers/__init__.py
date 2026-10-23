@@ -19,6 +19,7 @@ from .sites import (
     AmazonCrawler,
     AvbaseCrawler,
     AvsoxCrawler,
+    CaribbeanCrawler,
     DahliaCrawler,
     DmmCrawler,
     FalenoCrawler,
@@ -68,6 +69,7 @@ registry.register(R18DevCrawler)
 registry.register(ThePornDBCrawler)
 registry.register(OfficialCrawler)
 registry.register(AmazonCrawler)
+registry.register(CaribbeanCrawler)
 registry.register(TenhowCrawler)
 
 # 演员站在 amane.crawlers.actor 导入时注册.
