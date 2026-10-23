@@ -60,8 +60,9 @@ def test_canonical_number(raw: str, expected: str | None) -> None:
 
 
 def test_release_from_number() -> None:
+    # 前六位是 MMDDYY: 122524 → 2024-12-25 (与 javdb 上该片的配信日一致).
     assert release_from_number("122524-001") == "2024-12-25"
-    assert release_from_number("010115-001") == "2001-01-15"
+    assert release_from_number("010115-001") == "2015-01-01"
     assert release_from_number("999999-001") is None  # 非法日期
 
 

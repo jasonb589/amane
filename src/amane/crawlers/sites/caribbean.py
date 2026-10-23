@@ -7,7 +7,7 @@
 * ``a.spec-item`` 标签 (ジャンル/オリジナル動画 等)
 * 横版封面 ``/moviepages/{number}/images/l_l.jpg``, 剧照 ``/moviepages/{number}/images/l/NNN.jpg``
 
-站点不给竖版海报, 也不给配信日: 海报由管线从封面按配置裁切, 配信日由番号前六位 (YYMMDD) 推出.
+站点不给竖版海报, 也不给配信日: 海报由管线从封面按配置裁切, 配信日由番号前六位 (MMDDYY) 推出.
 
 番号两种写法并存: javdb 用 ``122524_01``, 本家与 javbus 用 ``122524-001``; 这里统一成后者再去请求.
 """
@@ -61,12 +61,12 @@ def canonical_number(number: str) -> str | None:
 
 
 def release_from_number(number: str) -> str | None:
-    """配信日不在页面上: 由番号前六位 ``YYMMDD`` 推出 (按 20xx 解释)."""
-    date_part = number.split("-", 1)[0]
-    if len(date_part) != 6 or not date_part.isdigit():
+    """配信日不在页面上: 番号前六位是 ``MMDDYY`` (``122524`` → 2024-12-25), 按 20xx 解释."""
+    digits = number.split("-", 1)[0]
+    if len(digits) != 6 or not digits.isdigit():
         return None
     try:
-        return date(int(f"20{date_part[:2]}"), int(date_part[2:4]), int(date_part[4:6])).isoformat()
+        return date(2000 + int(digits[4:6]), int(digits[0:2]), int(digits[2:4])).isoformat()
     except ValueError:
         return None
 
