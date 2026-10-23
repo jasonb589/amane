@@ -60,9 +60,9 @@ _PLAIN = """
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        # 两种写法是**两部不同的片**, 变体只换分隔符, 数字位绝不会被改.
-        ("122524_01", ["122524_01", "122524-001"]),
-        ("122524-001", ["122524-001", "122524_01"]),
+        # 两种写法是**两部不同的片**: 变体只换分隔符, 序号不补零 (补零就抓到另一部).
+        ("122524_01", ["122524_01", "122524-01"]),
+        ("122524-001", ["122524-001", "122524_001"]),
         ("SSIS-001", ["SSIS-001"]),
     ],
 )
@@ -124,4 +124,4 @@ def test_parse_detail_other_template_has_no_images() -> None:
 
 def test_is_detail_page() -> None:
     assert is_detail_page(_CLASSIC) is True
-    assert is_detail_page("<html>お探しのページは見つかりません caribbeancom</html>") is False
+    assert is_detail_page("<html>お探しのページは見つかりません</html>") is False

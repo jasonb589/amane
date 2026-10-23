@@ -51,8 +51,8 @@ _DURATION = re.compile(r"^P?(?:T)?(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+)S
 #: 无码站只服务这两类: 其它类型不浪费一次请求.
 _CONTENT_TYPES = frozenset({ContentType.UNCENSORED, ContentType.AMATEUR})
 
-#: 详情页的判定标记: 命中不到这两样就是站点给的提示页.
-_DETAIL_MARKERS = ("itemprop=\"name\"", "caribbeancom")
+#: 详情页的判定标记: 命中不到就是站点给的提示页 (标题里一定有站点名).
+_DETAIL_MARKERS = ("itemprop=\"name\"", "カリビアンコム")
 
 
 def split_number(number: str) -> tuple[str, str, str] | None:
@@ -64,7 +64,11 @@ def split_number(number: str) -> tuple[str, str, str] | None:
 
 
 def number_variants(number: str) -> list[str]:
-    """原写法在前, 换分隔符的写法在后; **数字位不变**(换数字位就是另一部片)."""
+    """原写法在前, 换分隔符的写法在后.
+
+    **只换分隔符, 数字位一位都不能动**: ``122524_01`` 与 ``122524-001`` 是两部不同的片,
+    把序号补零就等于去刮另一部, 比刮不到更糟.
+    """
     parts = split_number(number)
     if parts is None:
         return [number.strip()] if number.strip() else []
