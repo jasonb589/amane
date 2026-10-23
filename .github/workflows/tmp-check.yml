@@ -37,6 +37,15 @@ jobs:
       - name: Generate (openapi + client)
         run: just generate
 
+      - name: Upload generated
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated
+          path: |
+            web/openapi.json
+            web/src/client/**
+
       - name: Generated files up to date
         run: git diff --exit-code --stat web/openapi.json web/src/client
 
