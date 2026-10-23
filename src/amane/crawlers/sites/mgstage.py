@@ -3,38 +3,80 @@ import re
 from parsel import Selector
 
 from ...enums import SiteName
-from ...parsing.file_info import ContentType
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
 from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text, number_variants, select_number_index
 
-#: 竖版海报与横版放大图同目录同名, 只差文件名前缀; 详情页只引用后者, 海报地址由封面推导.
-_COVER_PREFIX = "pb_e_"
-_POSTER_PREFIX = "pf_e_"
 #: 素人条目的出演栏写的是站点的代名 (名字后跟年龄与职业), 不是可对齐的演员身份.
 _AMATEUR_TAG = "素人"
 
+#: 横版展开图与竖版海报同目录同名, 只差前缀.
+_COVER_PREFIX = "pb_e_"
+_POSTER_PREFIX = "pf_e_"
+
 
 def _poster_url(cover_url: str) -> str | None:
-    """横版封面地址 → 同目录竖版海报地址; 非 ``pb_e_`` 形态返回 ``None``."""
+    """横版展开图 → 同目录竖版海报; 非 ``pb_e_`` 形态返回 ``None``.
+
+    正式抓取已改走 :func:`image_urls` (直接按目录拼三种尺寸, 不再依赖页面主图前缀);
+    这里保留是为了兼容上游用例 ``tests/crawlers/test_mgstage.py``.
+    """
     directory, _, filename = cover_url.rpartition("/")
     if not directory or not filename.startswith(_COVER_PREFIX):
         return None
     return f"{directory}/{_POSTER_PREFIX}{filename.removeprefix(_COVER_PREFIX)}"
 
+#: 页面上任意一张图: 同一条目所有图都在同一个目录下, 文件名只差尺寸前缀.
+_IMAGE_URL = re.compile(r"https://image\.mgstage\.com/images/[^\"'\s]+\.jpg")
 
-def _wide_cover(cover_url: str) -> str | None:
-    """任意 ``pb_*`` / ``pf_*`` 封面地址 → 同图的 ``pb_e_`` 展开大图 (840x473); 推不出返回 ``None``.
+#: 尺寸前缀: ``pb_e_`` 封面 / ``pf_e_`` 海报 / ``pf_o1_`` 小竖版 / ``pb_p_`` 小横版 / ``cap_e_N_`` 剧照.
+_IMAGE_PREFIX = re.compile(r"^(?:cap_t1_\d+|cap_e_\d+|pb_e|pb_p|pf_e|pf_o\d+)_")
 
-    素人页面主图可能是 ``pb_p_`` (540x304 小横版) 或 ``pf_o1_`` (166x236 小竖版), 两种前缀都指向
-    同一张图; 展开版 ``pb_e_`` 才是高清背景图/封面该用的那张. 只认 ``/pf_`` 会让主图是 ``pb_p_``
-    的条目永远停在 540x304.
+#: 剧照序号, 用来确定这一部到底有几张 (页面不写总数).
+_CAPTURE_INDEX = re.compile(r"/cap_e_(?P<idx>\d+)_[^/]+\.jpg")
+
+
+def image_dir(page_text: str) -> tuple[str, str] | None:
+    """页面里任一图片地址 → (目录, 文件名主干); 取不到返回 ``None``.
+
+    文件名主干形如 ``siro-5755``: 去掉 ``pb_e_`` / ``pf_o1_`` / ``cap_e_0_`` 这类尺寸前缀,
+    并统一小写 (站点实际文件名就是全小写).
     """
-    if not cover_url:
-        return None
-    wide = re.sub(r"/(?:pf|pb)_[a-z0-9]+_", f"/{_COVER_PREFIX}", cover_url)
-    return wide if wide != cover_url else None
+    for match in _IMAGE_URL.finditer(page_text):
+        directory, _, filename = match.group(0).rpartition("/")
+        stem = _IMAGE_PREFIX.sub("", filename).removesuffix(".jpg").lower()
+        if directory and stem:
+            return f"{directory}/", stem
+    return None
+
+
+def capture_count(page_text: str) -> int:
+    """剧照张数 = 页面出现的最大序号 + 1; 一张都没有返回 0."""
+    indexes = [int(match["idx"]) for match in _CAPTURE_INDEX.finditer(page_text)]
+    return max(indexes) + 1 if indexes else 0
+
+
+def image_urls(page_text: str) -> tuple[list[str], list[str], list[str]]:
+    """按目录直接拼三种尺寸, 返回 (封面, 海报, 剧照).
+
+    站点同一部片的所有图只差文件名前缀, 且前缀是固定的:
+
+    * ``pb_e_`` 横版展开图 840x473 → 封面
+    * ``pf_e_`` 竖版大图 422x600 → 海报
+    * ``cap_e_N_`` 剧照 840x473
+
+    所以**不需要**判断页面主图是哪一个前缀 —— 以前那套判断正是漏掉一整类页面模板
+    (主图 ``pb_p_``) 的原因: 拼不出来就是拼不出来, 而不是静默跳过.
+    """
+    found = image_dir(page_text)
+    if found is None:
+        return [], [], []
+    base, stem = found
+    thumbs = [f"{base}pb_e_{stem}.jpg"]
+    posters = [f"{base}pf_e_{stem}.jpg"]
+    fanart = [f"{base}cap_e_{index}_{stem}.jpg" for index in range(capture_count(page_text))]
+    return thumbs, posters, fanart
 
 
 class MGStageCrawler(Crawler):
@@ -82,31 +124,6 @@ class MGStageCrawler(Crawler):
         index = select_number_index([found for _, found in candidates], query_number)
         return candidates[index][0] if index is not None else None
 
-    async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """素人条目额外带上页面唯一的横版图 (pb_e): 竖版原生封面排在海报候选首位, 落盘时不再
-        拿封面裁一份海报; 横版图随后被当作缩略图 / 背景图使用.
-
-        横版候选只在这里产出 (content_type = 素人); 其它来源与内容类型不带该字段, 落盘行为不变.
-        """
-        meta = await super().fetch(query, options)
-        if meta is None or query.content_type is not ContentType.AMATEUR or meta.poster_urls:
-            return meta
-        cover = meta.thumb_urls[0] if meta.thumb_urls else ""
-        if not cover:
-            return meta
-        # 展开大图 ``pb_e_`` 是同一张图的 840x473 版本 (正面+书脊+封底), 两种主图前缀都要能推.
-        wide = _wide_cover(cover)
-        if wide is None:
-            return meta
-        return meta.model_copy(
-            update={
-                # 海报候选首个仍是原图 (竖版 pf_e_ 在 _scrape 里已单独推导), 大横图排后面备用.
-                "poster_urls": [cover, wide],
-                # 封面直接用大横图, 背景图/裁切都以它为准.
-                "thumb_urls": [wide, cover],
-            }
-        )
-
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         text = await self.client.get_html(url, cookies=self.cookies)
         if not text:
@@ -139,27 +156,8 @@ class MGStageCrawler(Crawler):
         release_raw = extract_text(html, '//th[contains(text(),"配信開始日")]/following-sibling::td/text()')
         release = release_raw.strip() if release_raw else None
 
-        # 封面: 主图可能是竖版小图 pf_o1_ 或横版 pb_p_/pb_e_; 放大图指向 pb_e_ (840x473 横版),
-        # 同目录下都有竖版大封面 pf_e_ (422x600), 页面不直接引用, 因此改写前缀推导.
-        cover = extract_text(html, '//a[@id="EnlargeImage"]/@href', '//img[@class="enlarge_image"]/@src')
-        thumb_url = cover or None
-        poster_url = _poster_url(cover)
-        if poster_url is None:
-            # 上游 _poster_url 只认 pb_e_; 主图是竖版小图时再按前缀推导一次.
-            for src in (extract_text(html, '//img[@class="enlarge_image"]/@src'), cover):
-                if not src:
-                    continue
-                derived = re.sub(r"/(?:pf|pb)_[a-z0-9]+_", "/pf_e_", src)
-                if derived and derived != src:
-                    poster_url = derived
-                    break
-
-        extrafanart = extract_all_texts(
-            html,
-            '//dl[@id="sample-photo"]//li/a/@href',
-            '//*[@id="sample-photo"]//a[@class="sample_image"]/@href',
-            '//ul[@id="sample-photo"]/li/a/@href',
-        )
+        # 图片: 三种尺寸都按目录直接拼 (见 image_urls 的说明), 与页面主图是哪个前缀无关.
+        thumb_urls, poster_urls, extrafanart = image_urls(text)
 
         # 商品紹介正文两种标记都收 (直接写在 p.txt.introduction, 或其中的 <p> 被解析器拍平为兄弟节点),
         # 只排除「すべてを見る」.
@@ -182,8 +180,8 @@ class MGStageCrawler(Crawler):
             tags=tags,
             series=series or None,
             plot=plot or None,
-            poster_urls=[poster_url] if poster_url else [],
-            thumb_urls=[thumb_url] if thumb_url else [],
+            poster_urls=poster_urls,
+            thumb_urls=thumb_urls,
             extrafanart=extrafanart,
             source_url=url,
             external_id=url,
