@@ -19,7 +19,8 @@ from datetime import date
 
 from parsel import Selector
 
-from ...enums import ContentType, SiteName
+from ...enums import SiteName
+from ...parsing.file_info import ContentType
 from ..base import Crawler, CrawlerProfile
 from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text
