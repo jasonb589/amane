@@ -30,7 +30,7 @@
 `llm.system_prompt` 与 `llm.field_prompts` 覆盖内置提示词, 组装规则集中在 `translator.build_system_prompt`:
 
 - **三段拼接**: system 提示词 = 指令 + 字段说明 + 输出约束. `system_prompt` 只替换指令, `field_prompts[field]` 只替换该字段的说明; 未配置、空串与纯空白等价, 一律回退内置; 无内置说明的字段不追加空段.
-- **输出约束不在配置面内**: 「只输出译文本身」恒由 Amane 追加 — 译文写入标量字段, 附加解释会污染元数据.
+- **输出约束不在配置面内**: 「只输出译文正文」恒由 Amane 追加 — 译文写入标量字段, 附加解释会污染元数据.
 - **占位符**: 两处都支持 `{target_lang}`, 其余花括号按字面保留 (提示词因此可以包含 JSON 示例).
 - **长度上限**: 单条提示词上限 `config.manager.PROMPT_MAX_LENGTH`, 超长在配置校验阶段拒绝.
 
