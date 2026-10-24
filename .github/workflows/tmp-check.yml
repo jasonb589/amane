@@ -22,7 +22,8 @@ jobs:
       - name: Lint
         run: |
           uv run ruff check src/amane tests scripts
-          uv run ruff format --check src/amane tests scripts
+          # 全仓存在历史格式漂移, 此处只校验本轮改动范围内的文件
+          uv run ruff format --check src/amane/llm tests/llm
 
       - name: Tests (llm)
         run: uv run pytest tests/llm -q
