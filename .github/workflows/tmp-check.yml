@@ -1,0 +1,31 @@
+name: tmp-check
+
+# 临时校验: 仅用于本轮改动验证, 验证通过后删除.
+on:
+  push:
+    tags: ["check-*"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Sync deps
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Lint
+        run: |
+          uv run ruff check src/amane tests scripts
+          uv run ruff format --check src/amane tests scripts
+
+      - name: Tests (llm)
+        run: uv run pytest tests/llm -q
+
+      - name: Tests (all, 忽略 fixture 缺失)
+        run: uv run pytest tests/ -q -p no:randomly

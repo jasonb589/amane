@@ -41,16 +41,25 @@ _LANG_NAME: dict[Language, str] = {
 }
 
 _FIELD_HINT: dict[MetadataField, str] = {
-    MetadataField.TITLE: "这是一部影片的标题, 翻译应简洁自然, 保留专有名词与番号.",
-    MetadataField.PLOT: "这是一部影片的简介, 完整通顺地翻译全部内容.",
+    MetadataField.TITLE: (
+        "输入是影片标题. 译文须简洁自然, 符合{target_lang}的标题习惯; "
+        "番号(如 ABC-001)、人名、片商与系列名等专有名词原样保留, 不译、不音译."
+    ),
+    MetadataField.PLOT: (
+        "输入是影片简介. 逐句完整翻译, 不省略、不概括、不合并句子; "
+        "保持原文的段落与换行, 语气与原文一致; 同一专有名词的译法在全文中统一."
+    ),
 }
 
 TARGET_LANG_PLACEHOLDER = "{target_lang}"
 """自定义提示词中引用目标语言名的占位符."""
 
-_DEFAULT_SYSTEM_PROMPT = f"你是专业的影视元数据翻译. 将用户提供的文本翻译为{TARGET_LANG_PLACEHOLDER}."
+_DEFAULT_SYSTEM_PROMPT = (
+    "你是专业的影视元数据翻译, 负责把影片标题或简介等元数据翻译为{target_lang}. "
+    "译文须完整传达原意: 不增删信息, 不改写内容, 不添加原文没有的解释."
+)
 
-_OUTPUT_CONSTRAINT = "只输出译文本身, 不要解释、不要引号、不要附加任何内容."
+_OUTPUT_CONSTRAINT = "只输出译文正文: 不加解释、说明、前缀或后缀, 不加引号或书名号, 不使用代码块, 不重复原文."
 
 
 def build_system_prompt(

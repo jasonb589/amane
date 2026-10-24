@@ -12,24 +12,40 @@ from amane.config.manager import PROMPT_MAX_LENGTH
 from amane.enums import Language, MetadataField
 from amane.llm import TARGET_LANG_PLACEHOLDER, build_system_prompt
 
-_TITLE_HINT = "这是一部影片的标题, 翻译应简洁自然, 保留专有名词与番号."
-_PLOT_HINT = "这是一部影片的简介, 完整通顺地翻译全部内容."
-_OUTPUT_CONSTRAINT = "只输出译文本身, 不要解释、不要引号、不要附加任何内容."
+_TITLE_HINT = (
+    "输入是影片标题. 译文须简洁自然, 符合{target_lang}的标题习惯; "
+    "番号(如 ABC-001)、人名、片商与系列名等专有名词原样保留, 不译、不音译."
+)
+_PLOT_HINT = (
+    "输入是影片简介. 逐句完整翻译, 不省略、不概括、不合并句子; "
+    "保持原文的段落与换行, 语气与原文一致; 同一专有名词的译法在全文中统一."
+)
+_OUTPUT_CONSTRAINT = "只输出译文正文: 不加解释、说明、前缀或后缀, 不加引号或书名号, 不使用代码块, 不重复原文."
+
+
+def _hint(template: str, lang_name: str) -> str:
+    """内置说明含占位符, 期望值按目标语言替换后再拼接."""
+    return template.replace(TARGET_LANG_PLACEHOLDER, lang_name)
 
 
 def _instruction(lang_name: str) -> str:
-    return f"你是专业的影视元数据翻译. 将用户提供的文本翻译为{lang_name}."
+    return (
+        f"你是专业的影视元数据翻译, 负责把影片标题或简介等元数据翻译为{lang_name}. "
+        "译文须完整传达原意: 不增删信息, 不改写内容, 不添加原文没有的解释."
+    )
 
 
 _ZH = _instruction("简体中文")
 _ZH_TW = _instruction("繁體中文")
+_TITLE_ZH = _hint(_TITLE_HINT, "简体中文")
+_TITLE_TW = _hint(_TITLE_HINT, "繁體中文")
 
 
 @pytest.mark.parametrize(
     ("target", "field", "system_prompt", "field_prompts", "expected"),
     [
         # 未配置: 指令 + 内置字段说明 + 输出约束
-        (Language.ZH_CN, MetadataField.TITLE, None, None, f"{_ZH} {_TITLE_HINT} {_OUTPUT_CONSTRAINT}"),
+        (Language.ZH_CN, MetadataField.TITLE, None, None, f"{_ZH} {_TITLE_ZH} {_OUTPUT_CONSTRAINT}"),
         # 无内置说明的字段: 不追加空说明, 也不留下多余空格
         (Language.ZH_CN, MetadataField.SCORE, None, None, f"{_ZH} {_OUTPUT_CONSTRAINT}"),
         # 自定义指令: 占位符替换为目标语言名
@@ -38,7 +54,7 @@ _ZH_TW = _instruction("繁體中文")
             MetadataField.TITLE,
             f"将输入翻译为{TARGET_LANG_PLACEHOLDER}, 只使用中性词汇.",
             None,
-            f"将输入翻译为繁體中文, 只使用中性词汇. {_TITLE_HINT} {_OUTPUT_CONSTRAINT}",
+            f"将输入翻译为繁體中文, 只使用中性词汇. {_TITLE_TW} {_OUTPUT_CONSTRAINT}",
         ),
         # 不写占位符时按原文使用, 不自动补充目标语言
         (
@@ -46,10 +62,10 @@ _ZH_TW = _instruction("繁體中文")
             MetadataField.TITLE,
             "只输出中文译文.",
             None,
-            f"只输出中文译文. {_TITLE_HINT} {_OUTPUT_CONSTRAINT}",
+            f"只输出中文译文. {_TITLE_ZH} {_OUTPUT_CONSTRAINT}",
         ),
         # 空白指令回退内置
-        (Language.ZH_CN, MetadataField.TITLE, "   ", None, f"{_ZH} {_TITLE_HINT} {_OUTPUT_CONSTRAINT}"),
+        (Language.ZH_CN, MetadataField.TITLE, "   ", None, f"{_ZH} {_TITLE_ZH} {_OUTPUT_CONSTRAINT}"),
         # 字段说明覆盖该字段的内置说明, 且同样支持占位符
         (
             Language.ZH_TW,
