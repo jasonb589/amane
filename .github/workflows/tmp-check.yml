@@ -22,7 +22,7 @@ jobs:
       - name: Lint
         run: |
           uv run ruff check src/amane tests scripts
-          uv run ruff format --check src/amane/crawlers/sites tests/test_tenhow_source.py
+          uv run ruff format --check src/amane/crawlers/sites/tenhow.py tests/test_tenhow_source.py
 
       - name: Tests (tenhow + parsing)
         run: uv run pytest tests/test_tenhow_source.py tests/parsing -q
