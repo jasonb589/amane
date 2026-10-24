@@ -21,6 +21,7 @@ import time
 from typing import ClassVar, override
 
 from ...enums import SiteName
+from ...net.errors import RequestError
 from ...plugins.models import SourceTrait
 from ..base import Crawler, CrawlerProfile
 from ..models import FetchOptions, MediaMetadata, SearchQuery
@@ -29,9 +30,12 @@ SITE = "https://tenhow.net"
 
 # 索引有效期与规模: 到期后重建; 最多爬这么多页, 防止顺着链接扩散到全站.
 _INDEX_TTL = 21 * 86400
-_MAX_INDEX_PAGES = 400
+_MAX_INDEX_PAGES = 1500
 # 未命中时一次刮削顺带补的索引页数 (每页约 40~120KB).
 _MAX_PAGES_PER_FETCH = 12
+# 索引还小的时候一次补更多页: 冷启动若只攒 12 页, 要几十次刮削才轮得到分类页里的演员.
+_COLD_START_PAGES = 60
+_COLD_START_INDEX_SIZE = 300
 # 演员页解析结果的内存缓存 (同一演员的多个条目不必重复抓).
 _PAGE_CACHE_TTL = 6 * 3600
 
@@ -169,8 +173,14 @@ class TenhowCrawler(Crawler):
 
         # 没命中: 顺带把索引补一点, 后面的条目命中率随之提高.
         if self._pending or not self._crawled:
-            await self._extend_index(_MAX_PAGES_PER_FETCH)
+            await self._extend_index(self._page_budget())
         return None
+
+    def _page_budget(self) -> int:
+        """一次补索引的页数: 索引还很小时多补几页, 之后回落到固定值以控制请求量."""
+        if len(self._index) < _COLD_START_INDEX_SIZE:
+            return _COLD_START_PAGES
+        return _MAX_PAGES_PER_FETCH
 
     async def _lookup(self, page: str, wanted: set[str]) -> str | None:
         cached = self._pages.get(page)
@@ -178,7 +188,12 @@ class TenhowCrawler(Crawler):
         if cached is not None and now - cached[0] < _PAGE_CACHE_TTL:
             mapping = cached[1]
         else:
-            html = await self.client.get_html(f"{SITE}/{page}.html", cookies=self.cookies)
+            try:
+                html = await self.client.get_html(f"{SITE}/{page}.html", cookies=self.cookies)
+            except RequestError:
+                # 单页 404/5xx 只当没命中: 演员下架或页面改名, 不该让整个源判失败.
+                self._pages[page] = (now, {})
+                return None
             mapping = _cid_map(html)
             self._pages[page] = (now, mapping)
         for cid, asin in mapping.items():
@@ -203,7 +218,14 @@ class TenhowCrawler(Crawler):
             page = self._pending.pop(0)
             if page in self._crawled:
                 continue
-            html = await self.client.get_html(f"{SITE}/{page}", cookies=self.cookies)
+            try:
+                html = await self.client.get_html(f"{SITE}/{page}", cookies=self.cookies)
+            except RequestError:
+                # 死链只跳过并计入已爬, 否则同一页会被反复排到队首, 索引再也长不大;
+                # 也不能让补索引这条支线把整个源判成 404.
+                self._crawled.add(page)
+                done += 1
+                continue
             self._crawled.add(page)
             for name, target in _names_on_page(html, page.removesuffix(".html")).items():
                 self._index.setdefault(name, target)
