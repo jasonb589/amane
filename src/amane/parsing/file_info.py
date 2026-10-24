@@ -180,7 +180,9 @@ _CATALOG_NUMBER = re.compile(r"[A-Z]{2,}-\d{2,}[Z]?")
 #: 字母与数字同在前缀内的番号 (R18-292). 过宽回退会匹配其中的 18-292, 因此须在其之前按整段提取.
 _DIGIT_PREFIX_CATALOG = re.compile(r"[A-Z]{1,4}\d{1,4}-\d{2,4}[A-Z]?")
 _DMM_CONCAT = re.compile(r"([A-Z]{2,})00(\d{3})")
-_TMA_NUMBER = re.compile(r"T\d{2}-?\d{3,}")
+#: 左边界须断开: 否则 ``1DRPT00122`` 这类「字母 + 00nnn」里的 T00122 会先被当成 TMA 番号,
+#: 抢在 ``_DMM_CONCAT`` 之前返回.
+_TMA_NUMBER = re.compile(r"(?<![A-Z0-9])T\d{2}-?\d{3,}")
 _SIX_DIGIT_CATALOG = re.compile(r"(?<!\d)\d{6}[-_]\d{2,4}(?!\d)")
 _WESTERN_PROBE = re.compile(r"([A-Z0-9_]{2,})[-.]2?0?(\d{2}[-.]\d{2}[-.]\d{2})")
 _WESTERN_PARSE = re.compile(r"([A-Z0-9-]{2,})[-_.]2?0?(\d{2}[-.]\d{2}[-.]\d{2})")

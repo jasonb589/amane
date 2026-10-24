@@ -489,6 +489,8 @@ EXTRACT_NUMBER_CASES: list[tuple[str, str | None]] = [
     ("T38-068 新作", "T38-068"),
     ("[4K] R18-292 妹の爆乳は一見にしかず", "R18-292"),
     ("[4K] T38-068 标题", "T38-068"),
+    # TMA 番号须从词边界起算: 字母串里的 T00122 不是 TMA, 交给 DMM 连写规则.
+    ("1drpt00122", "DRPT-122"),
     ("010115-001", "010115-001"),
     ("010115_001", "010115_001"),
     ("259LUXU-1456", "259LUXU-1456"),
@@ -537,6 +539,10 @@ def test_detect_cd(filename: str, expected: int | None) -> None:
 
 ESCAPE_STRING_CASES: list[tuple[str, list[str], str]] = [
     ("/media/MIDV-123-4K.mp4", ["something"], "MIDV-123"),
+    # 4k688 的前导 "1" 与末尾 4Ks 不影响识别 (同 DLDSS / DANDYA 的站内命名).
+    ("/media/正常/4K688.com@1drpt00122_4Ks.mp4", ["4k688.com@"], "DRPT-122"),
+    ("/media/正常/4K688.com@1dldss00529_4Ks.mp4", ["4k688.com@"], "DLDSS-529"),
+    ("/media/正常/4K688.com@1dandya00052_4Ks.mp4", ["4k688.com@"], "DANDYA-052"),
 ]
 
 
