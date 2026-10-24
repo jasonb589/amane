@@ -55,7 +55,7 @@ def test_extend_index_skips_dead_pages_and_keeps_growing() -> None:
     crawler = TenhowCrawler(_StubClient(pages))
     asyncio.run(crawler._extend_index(10))
 
-    assert "dead.html" in TenhowCrawler._crawled
+    assert "dead" in TenhowCrawler._crawled
     assert TenhowCrawler._index["九野ひなの"] == "kuno_hinano"
 
 

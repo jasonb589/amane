@@ -219,7 +219,8 @@ class TenhowCrawler(Crawler):
             if page in self._crawled:
                 continue
             try:
-                html = await self.client.get_html(f"{SITE}/{page}", cookies=self.cookies)
+                # 链接在索引里存的是无扩展名的页名, 取页必须补 .html, 否则一律 404.
+                html = await self.client.get_html(f"{SITE}/{page}.html", cookies=self.cookies)
             except RequestError:
                 # 死链只跳过并计入已爬, 否则同一页会被反复排到队首, 索引再也长不大;
                 # 也不能让补索引这条支线把整个源判成 404.
