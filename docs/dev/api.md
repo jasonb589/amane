@@ -9,7 +9,7 @@ HTTP 宿主与 DI 在 `app.py` / `deps.py` / `middleware.py` / `spa.py`; `routes
 
 ## 路由划分
 
-全部挂载于 `/api` (`API_PREFIX`). 新端点纳入对应资源模块; 全新资源则新建模块并在 `routes/__init__.py` 注册.
+全部挂载于 `/api` (`API_PREFIX`); `bootstrap` 自身不设前缀, 路由为 `/agent-guide`, 随全局前缀暴露. 新端点纳入对应资源模块; 全新资源则新建模块并在 `routes/__init__.py` 注册.
 
 | 模块 | 前缀 | 职责 |
 |------|------|------|
@@ -33,6 +33,8 @@ HTTP 宿主与 DI 在 `app.py` / `deps.py` / `middleware.py` / `spa.py`; `routes
 | `resources` | `/resources` | 本地资源 + `GET /proxy` |
 | `agent` | `/agent` | 会话 CRUD / 标题 / trace / AG-UI; 见 [agent.md](agent.md) |
 | `saved-queries` | `/saved-queries` | 查询预设 CRUD / 结果 / 批量; 见 [agent.md](agent.md) |
+| `tools` | `/tools` | 外部智能体的工具索引、单工具入参与派发; 见 [agent.md](agent.md)「外部接入」 |
+| `bootstrap` | `/agent-guide` | 免鉴权的接入引导, 固定文本; 豁免见 `middleware.py::_TOKEN_EXEMPT` |
 | `ws` | `/ws` | EventBus 广播 |
 
 OpenAPI 列出参数, 不表达组合语义:
@@ -45,7 +47,7 @@ OpenAPI 列出参数, 不表达组合语义:
 - 注册顺序有约束的五处: `/facets/{kind}/rules` 先于 `/{facet_id}` (否则 `rules` 被当成 facet_id); `/plugins/reload` 先于 `/plugins/{plugin_id}` (否则 `reload` 被当成插件 ID); `/tasks/batch` 与 `/tasks/worker*` 先于 `/{task_id}` (否则被当成非法整数 id); `/feeds/items` 先于 `/{feed_id}`; `/playback/sources` 先于 `/{source_id}`.
 - 播放端点的形状 (流的一行、`available` / `key` / `detail` 的三种组合、Range、HLS 分片与字幕路径、404 / 502 语义) 见 [plugins.md](plugins.md)「播放源」.
 - `/network/check` 的探测范围 = 当前热配置真正会请求的来源 (各类型路由的并集 + 演员资料来源 / 头像来源), 省略 `source_ids` 即全量. `source_id` 是 `str` 而非 `SiteName` 枚举 (第三方来源是 `namespace.local`, 且来源集合随插件增删变化), 未知值无法用 schema 拒绝, 不存在的 ID 计入条目返回 `SKIPPED`. 逐来源的失败只进条目, 端点始终 200 — 探测结果本身就是响应体; `reason` 只在失败时给出, `skip_reason` 只在未探测时给出, `detail` 是语言中立的补充说明 (界面原样渲染, 不翻译). 探测不进入任务队列, 也不写入站点 outcome (那是刮削任务的记录).
-- 评论正文先去除首尾空白再校验长度, 全空白与超过 10000 字符均为 422. `updated_at` 晚于 `created_at` 表示正文被编辑过: PATCH 提交与库中一致的正文不写库, 也不刷新 `updated_at`, 前端据此判定「已编辑」; 排序由前端在详情响应上完成, 端点不提供 order 参数.
+- 评论正文先去除首尾空白再校验长度, 全空白与超过 10000 字符均为 422. `updated_at` 晚于 `created_at` 表示正文被编辑过: PATCH 提交与库中一致的正文不写库, 也不刷新 `updated_at`, 前端据此判定「已编辑」; 排序由前端在详情响应上完成, 端点不提供 order 参数; 正文按 Markdown 存储与返回, 服务端不解析.
 - `/files`: 路径解析为非严格 (虚拟 / 网络挂载盘无法规范化查询时按字面兜底), 相对 `path` 经 `base` 参数解析 (缺省 = 首个安全目录). 响应含规范 `path` (resolve 后的绝对路径), 前端文件浏览器以它为面包屑的唯一权威形态, 不做分段拼接.
 
 ## 依赖注入
@@ -55,6 +57,8 @@ OpenAPI 列出参数, 不表达组合语义:
 ## 中间件顺序
 
 `create_app` 先 `include_router` 再 `mount_spa` (SPA catch-all 会截获 `/api`), 最后注册 `LoggingMiddleware`. `add_middleware` 后注册者在栈外层 (`insert(0)`), 故 LoggingMiddleware 包住 TokenAuth / CORS / SPA fallback, 401 / 403 直返与内层中间件自身异常也进入请求日志. **新增自定义中间件时 LoggingMiddleware 必须仍为最外层.**
+
+**免鉴权只有两条**, 都在 `middleware.py::_TOKEN_EXEMPT` 里显式登记: `/api/health` 与接入引导 `/api/agent-guide`. 其余 `/api/*` 一律要 token; 非 `/api` 路径 (SPA 静态资源) 不校验. `/api/resources/*` 另接受图片 token (`?token=` 或 Bearer), 该凭证只能读取资源, 见 [config.md](config.md). 接口文档挂在 `/api/docs`, schema 在 `/api/docs/openapi.json`, 同样受校验 —— 它们完整暴露接口结构, 不对匿名开放; 根级 `/docs` / `/redoc` / `/openapi.json` 已不注册. 浏览器无法加 `Authorization`, 只能靠登录下发的 cookie (`path=/api`), 先在 Web 登录再访问; 命令行与智能体用 Bearer.
 
 `TokenAuthMiddleware` 与 `LoggingMiddleware` 都是 `BaseHTTPMiddleware`: 它交给下游的是包装过的 `receive`, 必须真正挂起等待才会收到 `http.disconnect`, 因此 `Request.is_disconnected()` (立刻取消式探测) 在本栈内恒为 `False`; 需要感知客户端离开的长响应改用 `DisconnectSignal` (见 [plugins.md](plugins.md)).
 
@@ -66,7 +70,7 @@ OpenAPI 列出参数, 不表达组合语义:
 
 **状态码**: 创建 201、任务入队 202、无返回体 204; 空 PATCH / 非法 cron → 422; 任务状态不允许的 record → 409.
 
-**资源缓存**: `/resources/{hash}` 与 `/proxy` 因就地超分 URL 不变, 不可 immutable — `Cache-Control: public, no-cache` + `content_hash` ETag. proxy 上游失败 502, 进程内负缓存 15 分钟 (不纳入配置), 同 URL singleflight; 刮削下载不经由该缓存.
+**资源缓存**: `/resources/{hash}` 与 `/proxy` 因就地超分 URL 不变, 不可 immutable — `Cache-Control: public, no-cache` + `content_hash` ETag. proxy 上游失败 502, 进程内负缓存 15 分钟 (不纳入配置), 同 URL singleflight; 刮削下载不经由该缓存. 图片 token 的 proxy 请求只从缓存读取: 未命中返回 404, 不经过负缓存与 singleflight, 也不发起请求.
 
 - **批量**: 命名分两层 — `batch` 后接**主体** (不接即资源本身), 动作进 body 的 `action` 当且仅当同一主体下的动作共享同一份参数 (`/tasks/batch` 的 cancel / delete / retry, `/facets/{kind}/batch` 的收藏, `/feeds/{id}/items/batch`, 两条 `batch/user-tags` 的 attach / detach); 参数形状不同或只有单动作时动作进路径 (`/metadata/batch/{delete,scrape}`, `/media/batch/delete`, `/actors/batch/{gender,clear-person}`, `/tasks/batch/submit`). 不存在的 id 计入 `missing` 而不报 404, 请求内重复条目计入 `skipped`, 参数级错误 (403 路径越界 / 422 参数互斥) 仍是整请求错误, 其余条目照常处理 (不是 all-or-nothing 事务); 计数口径为「实际处理数 + `missing` (+ `skipped`) = 请求条目数」. 单条写入复用所属批量端点 (单元素列表).
 - **批量落库**: 一个批量请求不在服务端逐条提交 — 实体批量写各自一次事务与一次 `IN` 查询; 任务批量入队 (`/tasks/batch/submit`) 逐项与 `POST /tasks` 同形且不设类型白名单, 按 `task_type` 合并为每类一次入队事务, 其 `missing` 只覆盖目标实体不存在的 404, 同番号不同文件各建一条 (逐文件结算不合并). 逐条循环提交不允许, 前端多选一律走批量端点 (见 [frontend.md](frontend.md)). `/tasks/batch` 的选择集是 `task_ids` **或**与列表同形的 `status` / `type` (两者互斥, 未传则不限): `cancel` 把排队 / 运行中标 `failed` 而不删行, `delete` 只动终态并清除磁盘产物, `retry` 只对 `failed` 按原 type / payload / priority 再入队并返回新 `task_ids`, 求交后为空则 `affected=0`. FeedItem 的历史操作是单端点 + 单一 action, 语义见 [feeds.md](feeds.md). 用户标签挂载 (影片 / 演员各一端点) 与标签新建 (`POST /facets/user_tag`: 按名称取回或新建, 响应与入参同序) 都只有批量入口: 未知标签 id 是请求级 404, 不存在的实体计入 `missing`, 已处于目标态计入 `unchanged`.

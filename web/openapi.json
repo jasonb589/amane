@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Amane API",
-    "version": "0.22.1-custom.3"
+    "version": "0.23.0"
   },
   "paths": {
     "/api/health": {
@@ -19,6 +19,27 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent-guide": {
+      "get": {
+        "tags": [
+          "agent-guide"
+        ],
+        "summary": "Get Agent Guide",
+        "operationId": "get_agent_guide",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -105,52 +126,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Get Config Schema"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/config/notify/test": {
-      "post": {
-        "tags": [
-          "config"
-        ],
-        "summary": "Test Notify",
-        "description": "用界面里正在编辑的渠道配置发一条测试通知 (不必先保存).",
-        "operationId": "test_notify",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "title": "Req"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Test Notify"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1591,7 +1566,7 @@
           "metadata"
         ],
         "summary": "Crop Poster From Thumb",
-        "description": "从封面 (thumb) 按像素框裁切海报, 写入派生 Resource 并更新 poster_urls.",
+        "description": "从封面 (thumb) 按像素框裁切海报, 写入派生 Resource 并更新 poster_urls.\n\n先按 EXIF 转正、再顺时针旋转 ``req.rotation``, 框相对旋转后的图像.",
         "operationId": "crop_poster_from_thumb",
         "parameters": [
           {
@@ -3270,7 +3245,7 @@
           "actors"
         ],
         "summary": "Crop Actor Avatar",
-        "description": "从当前主图 (image_urls[0]) 按像素框裁切头像, 结果前插为主图并保留原图.",
+        "description": "从当前主图 (image_urls[0]) 按像素框裁切头像, 结果前插为主图并保留原图.\n\n先按 EXIF 转正、再顺时针旋转 ``req.rotation``, 框相对旋转后的图像.",
         "operationId": "crop_actor_avatar",
         "parameters": [
           {
@@ -4524,7 +4499,7 @@
           "resources"
         ],
         "summary": "Proxy Image",
-        "description": "上游失败记入进程内负缓存 (15 分钟), 窗口内同 URL 直接 502.\n同 URL 进行中请求合并为一次 acquire.",
+        "description": "上游失败记入进程内负缓存 (15 分钟), 窗口内同 URL 直接 502.\n同 URL 进行中请求合并为一次 acquire.\n使用图片 token 的请求只从缓存读取资源: 未命中返回 404, 不发起对外请求, 不写入负缓存.",
         "operationId": "proxy_image",
         "parameters": [
           {
@@ -5065,7 +5040,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "anyOf": [
+                "oneOf": [
                   {
                     "$ref": "#/components/schemas/RefreshSubmission"
                   },
@@ -5097,6 +5072,21 @@
                     "$ref": "#/components/schemas/RescrapeSubmission"
                   }
                 ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "refresh": "#/components/schemas/RefreshSubmission",
+                    "organize": "#/components/schemas/OrganizeSubmission",
+                    "scan_invalid": "#/components/schemas/ScanInvalidSubmission",
+                    "delete": "#/components/schemas/DeleteSubmission",
+                    "scrape": "#/components/schemas/ScrapeSubmission",
+                    "cleanup": "#/components/schemas/CleanupSubmission",
+                    "upscale": "#/components/schemas/UpscaleSubmission",
+                    "r18_import": "#/components/schemas/R18ImportSubmission",
+                    "actor_scrape": "#/components/schemas/ActorScrapeSubmission",
+                    "rescrape": "#/components/schemas/RescrapeSubmission"
+                  }
+                },
                 "title": "Req"
               }
             }
@@ -5457,6 +5447,148 @@
         }
       }
     },
+    "/api/tools": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Tool Catalog",
+        "description": "工具索引: 客户端据此选工具, 不必内置工具清单.",
+        "operationId": "get_tool_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolCatalog"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/{name}": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Tool Detail",
+        "description": "单个工具的完整入参.",
+        "operationId": "get_tool_detail",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Call Tool",
+        "description": "派发一次工具调用.\n\n上下文固定为「已批准」且无会话: 外部通道没有可等用户点击的界面, 审批只对内置助理生效;\n无会话使交付的查询预设直接保留并进入预设列表.",
+        "operationId": "call_tool",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolCallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Call Tool"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/db-schema": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Db Schema",
+        "description": "库结构摘要, 供编写只读 SQL 时参考.",
+        "operationId": "get_db_schema",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Db Schema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/libraries/path-template-schema": {
       "get": {
         "tags": [
@@ -5671,11 +5803,31 @@
           "webhooks"
         ],
         "summary": "Clouddrive Notify",
-        "description": "CloudDrive file_system_watcher 回调. 鉴权与其它 /api 相同 (Bearer).\n\nCloudDrive2 不保证带 ``Content-Type: application/json``: 缺这个头时 FastAPI 不会把请求体\n交给模型, 整条通道直接 422 (上游 issue #384). 因此这里不看声明类型, 直接把原始 body 当\nJSON 解析, 只有真的解析不出来才回 422.",
+        "description": "CloudDrive file_system_watcher 回调. 鉴权与其它 /api 相同 (Bearer).",
         "operationId": "clouddrive_notify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudDriveNotifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -7592,31 +7744,18 @@
           },
           "files_removed": {
             "type": "integer",
-            "title": "Files Removed",
-            "default": 0
+            "title": "Files Removed"
           },
           "resources_removed": {
             "type": "integer",
-            "title": "Resources Removed",
-            "default": 0
-          },
-          "actors_removed": {
-            "type": "integer",
-            "title": "Actors Removed",
-            "default": 0
-          },
-          "facets_removed": {
-            "type": "integer",
-            "title": "Facets Removed",
-            "default": 0
-          },
-          "dirs_removed": {
-            "type": "integer",
-            "title": "Dirs Removed",
-            "default": 0
+            "title": "Resources Removed"
           }
         },
         "type": "object",
+        "required": [
+          "files_removed",
+          "resources_removed"
+        ],
         "title": "CleanupResult"
       },
       "CleanupSubmission": {
@@ -7633,24 +7772,6 @@
             "description": "删除不被任何 Metadata URL 字段引用的 Resource (含派生裁剪)",
             "default": true
           },
-          "remove_orphan_actors": {
-            "type": "boolean",
-            "title": "Remove Orphan Actors",
-            "description": "删除没有任何影片关联的演员 (0 作品)",
-            "default": true
-          },
-          "remove_empty_facets": {
-            "type": "boolean",
-            "title": "Remove Empty Facets",
-            "description": "删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)",
-            "default": true
-          },
-          "remove_empty_resource_dirs": {
-            "type": "boolean",
-            "title": "Remove Empty Resource Dirs",
-            "description": "删除资源目录下已空的分片目录",
-            "default": true
-          },
           "type": {
             "type": "string",
             "const": "cleanup",
@@ -7662,6 +7783,53 @@
           "type"
         ],
         "title": "CleanupSubmission"
+      },
+      "CloudDriveChangeItem": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "delete",
+              "rename"
+            ],
+            "title": "Action"
+          },
+          "is_dir": {
+            "type": "boolean",
+            "title": "Is Dir"
+          },
+          "source_file": {
+            "type": "string",
+            "title": "Source File"
+          },
+          "destination_file": {
+            "type": "string",
+            "title": "Destination File",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "is_dir",
+          "source_file"
+        ],
+        "title": "CloudDriveChangeItem"
+      },
+      "CloudDriveNotifyRequest": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CloudDriveChangeItem"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "title": "CloudDriveNotifyRequest",
+        "description": "CloudDrive file_system_watcher 模板体. 未知字段忽略."
       },
       "CommentCreateRequest": {
         "properties": {
@@ -7904,6 +8072,18 @@
             "exclusiveMinimum": 0.0,
             "title": "Bottom",
             "description": "裁切框下边界 (不含)"
+          },
+          "rotation": {
+            "type": "integer",
+            "enum": [
+              0,
+              90,
+              180,
+              270
+            ],
+            "title": "Rotation",
+            "description": "裁切前顺时针旋转的角度 (仅 90° 整数倍); 90° / 270° 后宽高互换",
+            "default": 0
           }
         },
         "type": "object",
@@ -7941,6 +8121,18 @@
             "exclusiveMinimum": 0.0,
             "title": "Bottom",
             "description": "裁切框下边界 (不含)"
+          },
+          "rotation": {
+            "type": "integer",
+            "enum": [
+              0,
+              90,
+              180,
+              270
+            ],
+            "title": "Rotation",
+            "description": "裁切前顺时针旋转的角度 (仅 90° 整数倍); 90° / 270° 后宽高互换",
+            "default": 0
           }
         },
         "type": "object",
@@ -9151,15 +9343,6 @@
               "crop_poster": true,
               "poster_ratio": 0.7,
               "poster_crop_skip_ratio": 0.9,
-              "poster_crop_mode": {
-                "amateur": "right",
-                "censored": "right",
-                "chinese": "right",
-                "fc2": "right",
-                "hentai": "right",
-                "uncensored": "right",
-                "western": "right"
-              },
               "jpeg_quality": 95,
               "content_routes": {
                 "amateur": [
@@ -9229,18 +9412,6 @@
                   "use_browser": "auto",
                   "use_proxy": true
                 },
-                "amazon": {
-                  "cookie": {},
-                  "languages": [
-                    "zh",
-                    "ja",
-                    "en"
-                  ],
-                  "official_routes": {},
-                  "rate_limit": 2.0,
-                  "use_browser": "auto",
-                  "use_proxy": true
-                },
                 "avbase": {
                   "cookie": {},
                   "languages": [
@@ -9254,18 +9425,6 @@
                   "use_proxy": true
                 },
                 "avsox": {
-                  "cookie": {},
-                  "languages": [
-                    "zh",
-                    "ja",
-                    "en"
-                  ],
-                  "official_routes": {},
-                  "rate_limit": 2.0,
-                  "use_browser": "auto",
-                  "use_proxy": true
-                },
-                "caribbean": {
                   "cookie": {},
                   "languages": [
                     "zh",
@@ -9529,18 +9688,6 @@
                   "use_browser": "auto",
                   "use_proxy": true
                 },
-                "tenhow": {
-                  "cookie": {},
-                  "languages": [
-                    "zh",
-                    "ja",
-                    "en"
-                  ],
-                  "official_routes": {},
-                  "rate_limit": 2.0,
-                  "use_browser": "auto",
-                  "use_proxy": true
-                },
                 "theporndb": {
                   "cookie": {},
                   "languages": [
@@ -9696,17 +9843,7 @@
                 ".ts",
                 ".iso",
                 ".strm"
-              ],
-              "escape_strings": []
-            }
-          },
-          "notify": {
-            "$ref": "#/components/schemas/NotifyConfig",
-            "default": {
-              "enabled": false,
-              "panel_url": "",
-              "log_tail_lines": 0,
-              "channels": []
+              ]
             }
           },
           "worker": {
@@ -12213,229 +12350,6 @@
         "type": "object",
         "title": "NetworkConfig"
       },
-      "NotifyChannelConfig": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "渠道名, 只用于日志与错误提示",
-            "default": ""
-          },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
-          },
-          "url": {
-            "type": "string",
-            "title": "Url",
-            "description": "请求地址, 支持占位变量",
-            "default": ""
-          },
-          "method": {
-            "$ref": "#/components/schemas/NotifyMethod",
-            "default": "post"
-          },
-          "headers": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Headers",
-            "description": "附加请求头 (如 Authorization)"
-          },
-          "test_send": {
-            "type": "boolean",
-            "title": "Test Send",
-            "description": "面板上的测试按钮用它渲染; 值本身没有含义",
-            "default": false,
-            "x-widget": "NotifyTest"
-          },
-          "body": {
-            "type": "string",
-            "title": "Body",
-            "description": "请求体模板; 以花括号开头时字符串按 JSON 转义",
-            "default": ""
-          },
-          "provider": {
-            "$ref": "#/components/schemas/NotifyProvider",
-            "description": "内置服务: telegram / bark / wecom 只需填 token 与正文, 地址与 JSON 由程序生成; custom = 自己写 url/body",
-            "default": "custom"
-          },
-          "token": {
-            "type": "string",
-            "title": "Token",
-            "description": "telegram: 机器人 Token; bark: 设备 Key; wecom: 群机器人 Key",
-            "default": ""
-          },
-          "chat_id": {
-            "type": "string",
-            "title": "Chat Id",
-            "description": "telegram 的频道/群 ID (如 -1001234567890); 其它服务留空",
-            "default": ""
-          },
-          "text": {
-            "type": "string",
-            "title": "Text",
-            "description": "消息正文模板, 支持 {变量}; 留空用内置默认正文",
-            "default": ""
-          },
-          "parse_mode": {
-            "type": "string",
-            "title": "Parse Mode",
-            "description": "telegram 可选: HTML 或 MarkdownV2; 留空按纯文本",
-            "default": ""
-          },
-          "send_photo": {
-            "type": "boolean",
-            "title": "Send Photo",
-            "description": "telegram: 有 poster_url 时改发图片+标题 (sendPhoto)",
-            "default": false
-          },
-          "events": {
-            "items": {
-              "$ref": "#/components/schemas/NotifyEvent"
-            },
-            "type": "array",
-            "title": "Events",
-            "description": "订阅的事件; 空 = 全部"
-          },
-          "task_types": {
-            "items": {
-              "$ref": "#/components/schemas/NotifyTaskType"
-            },
-            "type": "array",
-            "title": "Task Types",
-            "description": "只通知这些任务类型; 空 = 全部"
-          },
-          "content_types": {
-            "items": {
-              "$ref": "#/components/schemas/ContentType"
-            },
-            "type": "array",
-            "title": "Content Types",
-            "description": "只通知这些内容类型; 空 = 全部"
-          },
-          "require": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Require",
-            "description": "这些变量为空时跳过该渠道 (如 photo 类渠道填 poster_url, 避免必然失败的请求)"
-          },
-          "throttle_seconds": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": 0.0,
-            "title": "Throttle Seconds",
-            "description": "静默窗口: 连续事件攒成一条, 静默这么多秒后才发送; 0 = 来一条发一条",
-            "default": 0
-          },
-          "max_wait_seconds": {
-            "type": "integer",
-            "maximum": 86400.0,
-            "minimum": 0.0,
-            "title": "Max Wait Seconds",
-            "description": "合并最长等待秒数, 防止流水线不停时永远不发; 0 = 不设上限",
-            "default": 1800
-          },
-          "timeout": {
-            "type": "number",
-            "maximum": 120.0,
-            "minimum": 1.0,
-            "title": "Timeout",
-            "description": "单次请求超时 (秒)",
-            "default": 10.0
-          }
-        },
-        "type": "object",
-        "title": "NotifyChannelConfig",
-        "description": "一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位."
-      },
-      "NotifyConfig": {
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": false
-          },
-          "panel_url": {
-            "type": "string",
-            "title": "Panel Url",
-            "description": "面板地址, 用于 link 变量; 如 https://amane.example.com",
-            "default": ""
-          },
-          "log_tail_lines": {
-            "type": "integer",
-            "maximum": 200.0,
-            "minimum": 0.0,
-            "title": "Log Tail Lines",
-            "description": "大于 0 时把任务日志最后 N 行放进 log_tail",
-            "default": 0
-          },
-          "channels": {
-            "items": {
-              "$ref": "#/components/schemas/NotifyChannelConfig"
-            },
-            "type": "array",
-            "title": "Channels",
-            "description": "渠道列表, 每个渠道一条通知 (界面里折叠显示, 一次展开一个)",
-            "x-collapsible": true
-          }
-        },
-        "type": "object",
-        "title": "NotifyConfig",
-        "description": "任务完成 / 失败时的出站通知: 一份模板引擎覆盖所有渠道."
-      },
-      "NotifyEvent": {
-        "type": "string",
-        "enum": [
-          "completed",
-          "failed",
-          "file_discovered",
-          "file_removed"
-        ],
-        "title": "NotifyEvent",
-        "description": "可订阅的事件.\n\n取值故意不带点: 前端枚举选项的 i18n key 是 ``options.<取值>``, i18next 把点当层级分隔符,\n``task.completed`` 这样的取值查不到翻译, 于是退回显示原始值. 与 ``EventType`` 的映射在\n``notify/service.py`` 的 ``_EVENT_KEYS`` 里."
-      },
-      "NotifyMethod": {
-        "type": "string",
-        "enum": [
-          "post",
-          "get"
-        ],
-        "title": "NotifyMethod",
-        "description": "通知请求方法."
-      },
-      "NotifyProvider": {
-        "type": "string",
-        "enum": [
-          "custom",
-          "telegram",
-          "bark",
-          "wecom"
-        ],
-        "title": "NotifyProvider",
-        "description": "内置通知服务: 选好后只填 Token / 频道 / 正文, 请求地址与 JSON 由程序生成."
-      },
-      "NotifyTaskType": {
-        "type": "string",
-        "enum": [
-          "scrape",
-          "organize",
-          "refresh",
-          "cleanup",
-          "upscale",
-          "r18_import",
-          "actor_scrape",
-          "rescrape",
-          "scan_invalid",
-          "delete"
-        ],
-        "title": "NotifyTaskType",
-        "description": "可通知的任务类型 (取值与 ``db.models.TaskType`` 一致, 由测试守住不漂移)."
-      },
       "OptionalPathTemplateDefaults": {
         "properties": {
           "thumb_template": {
@@ -12963,17 +12877,6 @@
         ],
         "title": "PluginResponse"
       },
-      "PosterCropMode": {
-        "type": "string",
-        "enum": [
-          "right",
-          "center",
-          "none",
-          "face"
-        ],
-        "title": "PosterCropMode",
-        "description": "海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``)."
-      },
       "R18Config": {
         "properties": {
           "dsn": {
@@ -13451,6 +13354,43 @@
           "rescrape"
         ],
         "title": "RoutineType"
+      },
+      "RuntimePaths": {
+        "properties": {
+          "data_dir": {
+            "type": "string",
+            "title": "Data Dir"
+          },
+          "log_dir": {
+            "type": "string",
+            "title": "Log Dir"
+          },
+          "db_path": {
+            "type": "string",
+            "title": "Db Path"
+          },
+          "config_path": {
+            "type": "string",
+            "title": "Config Path"
+          },
+          "env": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Env"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data_dir",
+          "log_dir",
+          "db_path",
+          "config_path",
+          "env"
+        ],
+        "title": "RuntimePaths",
+        "description": "智能体可直接读取的位置; 供它自行查日志 / 配置 / 数据库, 不为这些能力做接口."
       },
       "SavedQueryBatchAction": {
         "type": "string",
@@ -14174,18 +14114,6 @@
             "title": "Poster Crop Skip Ratio",
             "default": 0.9
           },
-          "poster_crop_mode": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/PosterCropMode"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ContentType"
-            },
-            "type": "object",
-            "title": "Poster Crop Mode",
-            "description": "按内容类型选择海报裁剪方式: right 取封面右侧 (默认); center 居中裁剪; none 不裁剪 (保留原图); face 人脸识别裁剪 (找不到人脸时回退 right). 仅「裁切海报」打开时生效.",
-            "x-frozen-keys": true
-          },
           "jpeg_quality": {
             "type": "integer",
             "maximum": 100.0,
@@ -14200,10 +14128,8 @@
                 "type": "string",
                 "enum": [
                   "airav",
-                  "amazon",
                   "avbase",
                   "avsox",
-                  "caribbean",
                   "dahlia",
                   "dmm",
                   "faleno",
@@ -14223,7 +14149,6 @@
                   "official",
                   "prestige",
                   "r18dev",
-                  "tenhow",
                   "theporndb",
                   "xcity"
                 ]
@@ -14244,10 +14169,8 @@
                 "type": "string",
                 "enum": [
                   "airav",
-                  "amazon",
                   "avbase",
                   "avsox",
-                  "caribbean",
                   "dahlia",
                   "dmm",
                   "faleno",
@@ -14267,7 +14190,6 @@
                   "official",
                   "prestige",
                   "r18dev",
-                  "tenhow",
                   "theporndb",
                   "xcity"
                 ]
@@ -14288,10 +14210,8 @@
                 "type": "string",
                 "enum": [
                   "airav",
-                  "amazon",
                   "avbase",
                   "avsox",
-                  "caribbean",
                   "dahlia",
                   "dmm",
                   "faleno",
@@ -14311,7 +14231,6 @@
                   "official",
                   "prestige",
                   "r18dev",
-                  "tenhow",
                   "theporndb",
                   "xcity"
                 ]
@@ -14577,10 +14496,8 @@
         "type": "string",
         "enum": [
           "airav",
-          "amazon",
           "avbase",
           "avsox",
-          "caribbean",
           "dahlia",
           "dmm",
           "faleno",
@@ -14602,7 +14519,6 @@
           "official",
           "prestige",
           "r18dev",
-          "tenhow",
           "theporndb",
           "wikipedia",
           "xcity"
@@ -15606,6 +15522,18 @@
         "title": "TextDeltaRow",
         "description": "正文增量; 归块同 `ReasoningDeltaRow`."
       },
+      "ToolCallRequest": {
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Args",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "title": "ToolCallRequest"
+      },
       "ToolCallRow": {
         "properties": {
           "seq": {
@@ -15651,6 +15579,61 @@
         "title": "ToolCallRow",
         "description": "工具调用成形 (协议按增量传参, 这里已解析). 卡片的名字与参数由此行给出.\n\n`args` 在生成的 TS 类型里退化为 `unknown` (pydantic 的 `JsonValue` 无法表达到 schema),\n类型层面的保证到后端为止."
       },
+      "ToolCatalog": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "paths": {
+            "$ref": "#/components/schemas/RuntimePaths"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/ToolSummary"
+            },
+            "type": "array",
+            "title": "Tools"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "paths",
+          "tools"
+        ],
+        "title": "ToolCatalog"
+      },
+      "ToolDetail": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "group",
+          "description",
+          "params"
+        ],
+        "title": "ToolDetail",
+        "description": "单个工具的完整入参. 响应不声明返回 Schema, 调用方按实际响应体处理."
+      },
       "ToolResultRow": {
         "properties": {
           "seq": {
@@ -15690,6 +15673,35 @@
         ],
         "title": "ToolResultRow",
         "description": "工具回执. 名字与参数在同 id 的 `ToolCallRow`, 故本行只带结果 (续批的回合不会再报调用名)."
+      },
+      "ToolSummary": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "signature": {
+            "type": "string",
+            "title": "Signature"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "group",
+          "summary",
+          "signature"
+        ],
+        "title": "ToolSummary",
+        "description": "目录索引里的一条: 够选工具, 不够直接构造复杂入参."
       },
       "TrashSummaryResponse": {
         "properties": {
@@ -16088,13 +16100,6 @@
             },
             "type": "array",
             "title": "Media Extensions"
-          },
-          "escape_strings": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Escape Strings"
           }
         },
         "type": "object",

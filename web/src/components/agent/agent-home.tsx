@@ -70,7 +70,7 @@ import {
 import { cancelAguiTurn, getAgentTrace } from "@/client/sdk.gen";
 import type { AgentSessionResponse } from "@/client/types.gen";
 import { ChatComposer, parseThinking, type ThinkingValue } from "@/components/agent/chat-composer";
-import { MarkdownContent } from "@/components/agent/markdown-content";
+import { MarkdownContent } from "@/components/markdown/markdown-content";
 import { SavedQueryActions } from "@/components/agent/saved-query-actions";
 import { SavedQueryManager } from "@/components/agent/saved-query-manager";
 import { APP_SHELL_MAIN_HEIGHT } from "@/components/layout/app-shell-metrics";
@@ -89,10 +89,6 @@ import { formatDuration } from "@/lib/format-duration";
 import { downloadSavedQueryResult } from "@/lib/saved-query/download";
 import { TokenUsageBar, RequestUsageBar } from "@/components/agent/token-usage-bar";
 import { confirm } from "@/lib/confirm";
-
-function apiBase(): string {
-  return import.meta.env.VITE_API_URL || "";
-}
 
 /** 非 null 且非数组的对象. 工具参数与回执的形状判定需要排除数组, 故不用 `lib/utils.ts::isRecord` (含数组). */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -522,7 +518,7 @@ async function followTraceRows(
   onRows: (rows: TraceRow[]) => void,
 ): Promise<void> {
   const response = await apiFetch(
-    `${apiBase()}/api/agent/sessions/${sessionId}/agui/events?after_seq=${afterSeq}`,
+    `/api/agent/sessions/${sessionId}/agui/events?after_seq=${afterSeq}`,
     { signal },
   );
   if (!response.ok || response.body === null) return;
@@ -799,7 +795,7 @@ function AgUiThread({
   const agent = useMemo(
     () =>
       new HttpAgent({
-        url: `${apiBase()}/api/agent/sessions/${sessionId}/agui`,
+        url: `/api/agent/sessions/${sessionId}/agui`,
         threadId: String(sessionId),
         fetch: apiFetch,
       }),
