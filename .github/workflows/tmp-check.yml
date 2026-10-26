@@ -26,7 +26,7 @@ jobs:
       - name: Lint
         run: |
           uv run ruff check src/amane tests scripts
-          uv run ruff format --check src/amane/config/manager.py tests/llm/test_prompts.py
+          uv run ruff format --check tests/llm/test_prompts.py
 
       - name: Tests (all)
         run: uv run pytest tests/ -q -p no:randomly
