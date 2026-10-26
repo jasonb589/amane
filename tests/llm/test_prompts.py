@@ -105,15 +105,15 @@ def test_build_system_prompt(
     ("payload", "expected_system", "expected_fields"),
     [
         ({}, None, {}),
-        # 首尾空白去除
-        ({"system_prompt": "  只用中性词汇.  "}, "只用中性词汇.", {}),
+        # 非空白值原样保留 (不改写用户内容, 否则设置页保存后仍判为「有未保存的更改」)
+        ({"system_prompt": "  只用中性词汇.  "}, "  只用中性词汇.  ", {}),
         # 纯空白等价于未配置
         ({"system_prompt": "   "}, None, {}),
         # 空白条目与缺席等价, 只保留有内容的字段
         (
             {"field_prompts": {"title": " 标题简洁 ", "plot": "   "}},
             None,
-            {MetadataField.TITLE: "标题简洁"},
+            {MetadataField.TITLE: " 标题简洁 "},
         ),
     ],
 )

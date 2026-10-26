@@ -788,16 +788,20 @@ class LLMConfig(BaseModel):
     @field_validator("system_prompt")
     @classmethod
     def _blank_system_prompt_is_unset(cls, value: str | None) -> str | None:
-        """空白提示词与未配置等价, 避免把空白串写进 TOML."""
-        if value is None:
+        """纯空白提示词与未配置等价, 避免把空白串写进 TOML.
+
+        非空白值**原样保留**: 设置页用「表单值 vs 服务端值」判等来显示「有未保存的更改」,
+        服务端一旦改写内容 (哪怕只去掉行尾换行), 保存成功后面板仍会一直提示未保存.
+        """
+        if value is None or not value.strip():
             return None
-        return value.strip() or None
+        return value
 
     @field_validator("field_prompts")
     @classmethod
     def _blank_field_prompts_are_unset(cls, value: dict[MetadataField, str]) -> dict[MetadataField, str]:
-        """空白条目与缺席等价, 与可增减 key 的 dict 编码语义一致."""
-        return {field: text.strip() for field, text in value.items() if text.strip()}
+        """空白条目与缺席等价, 与可增减 key 的 dict 编码语义一致; 非空白条目原样保留."""
+        return {field: text for field, text in value.items() if text.strip()}
 
 
 class AgentThinkingMode(StrEnum):
