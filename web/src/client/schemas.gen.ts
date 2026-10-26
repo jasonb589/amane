@@ -3837,8 +3837,7 @@ export const LLMConfigSchema = {
         system_prompt: {
             anyOf: [
                 {
-                    type: 'string',
-                    maxLength: 2000
+                    type: 'string'
                 },
                 {
                     type: 'null'
@@ -3850,7 +3849,6 @@ export const LLMConfigSchema = {
         field_prompts: {
             additionalProperties: {
                 type: 'string',
-                maxLength: 2000,
                 'x-long': true
             },
             propertyNames: {

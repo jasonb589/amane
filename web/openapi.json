@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Amane API",
-    "version": "0.22.1-custom.11"
+    "version": "0.23.0-custom.1"
   },
   "paths": {
     "/api/health": {
@@ -10290,8 +10290,7 @@
           "system_prompt": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 2000
+                "type": "string"
               },
               {
                 "type": "null"
@@ -10303,7 +10302,6 @@
           "field_prompts": {
             "additionalProperties": {
               "type": "string",
-              "maxLength": 2000,
               "x-long": true
             },
             "propertyNames": {
