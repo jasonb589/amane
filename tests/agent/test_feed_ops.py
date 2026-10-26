@@ -234,6 +234,7 @@ async def test_list_and_batch_feed_items(feed_deps: AgentDeps) -> None:
         "number": "ABC-001",
         "content_type": "western",
         "media_file_id": None,
+        "path": None,
         "use_cache": [],
     }
 

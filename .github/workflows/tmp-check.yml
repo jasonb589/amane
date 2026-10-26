@@ -10,7 +10,7 @@ env:
   PNPM_VERSION: "11"
 
 jobs:
-  check:
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -19,18 +19,6 @@ jobs:
         uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Sync deps
         run: uv sync --frozen --all-extras --dev
@@ -43,14 +31,30 @@ jobs:
             src/amane/handlers/file.py \
             src/amane/media/__init__.py \
             src/amane/media/pipeline.py \
-            src/amane/crawlers/sites/tenhow.py \
-            src/amane/parsing/file_info.py \
-            src/amane/llm/translator.py \
-            tests/parsing/test_file_info.py \
-            tests/test_tenhow_source.py
+            tests/api/test_feeds.py \
+            tests/api/test_schedules.py \
+            tests/agent/test_feed_ops.py \
+            tests/agent/test_schedule_ops.py
 
       - name: Tests (all)
         run: uv run pytest tests/ -q -p no:randomly
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Web build (tsc + vite)
         working-directory: web

@@ -166,6 +166,7 @@ class TestFeedsCrud:
             "number": "ABC-001",
             "content_type": "western",
             "media_file_id": None,
+            "path": None,
             "use_cache": [],
         }
 

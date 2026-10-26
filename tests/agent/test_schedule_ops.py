@@ -74,6 +74,9 @@ async def test_create_update_and_trigger_schedule(schedule_deps: AgentDeps) -> N
         "type": "cleanup",
         "remove_missing_files": False,
         "remove_unreferenced_resources": True,
+        "remove_orphan_actors": True,
+        "remove_empty_facets": True,
+        "remove_empty_resource_dirs": True,
     }
 
     updated = await _tool_fn("update_schedule")(
