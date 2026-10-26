@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-import { listMediaQueryKey, listTasksQueryKey } from "@/client/@tanstack/react-query.gen";
+import { listMediaQueryKey, listMetadataQueryKey, listTasksQueryKey } from "@/client/@tanstack/react-query.gen";
 import { assertNever, exhaustiveTuple, isOneOf } from "@/lib/exhaustive";
 import { isRecord } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connection";
@@ -166,6 +166,15 @@ export function invalidateTaskQueries(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: [{ _id: "getTask" }] });
 }
 
+/**
+ * 库视图失效: 片库/分类/演员页读的都是 metadata 列表 (listMetadata), 媒体文件列表是另一条.
+ * 只失效 listMedia 会让"刮削完成但片库不刷新", 必须两条一起.
+ */
+export function invalidateLibraryQueries(queryClient: QueryClient): void {
+  queryClient.invalidateQueries({ queryKey: listMetadataQueryKey() });
+  queryClient.invalidateQueries({ queryKey: listMediaQueryKey() });
+}
+
 // 按 event.type 更新 store 并失效对应 query
 function handleEvent(queryClient: QueryClient, event: WSEvent) {
   switch (event.type) {
@@ -190,7 +199,8 @@ function handleEvent(queryClient: QueryClient, event: WSEvent) {
     case "task.completed":
       useProgressStore.getState().clearProgress(numField(event.data, "task_id", -1));
       invalidateTaskQueries(queryClient);
-      queryClient.invalidateQueries({ queryKey: listMediaQueryKey() });
+      // 刮削/整理/删除完成后片库要立刻反映结果; 高并发的 file.* 事件只失效媒体列表, 不重复拉元数据.
+      invalidateLibraryQueries(queryClient);
       break;
     case "task.failed":
       useProgressStore.getState().clearProgress(numField(event.data, "task_id", -1));
