@@ -8,7 +8,6 @@ import pytest
 from pydantic import ValidationError
 
 from amane.config import LLMConfig
-from amane.config.manager import PROMPT_MAX_LENGTH
 from amane.enums import Language, MetadataField
 from amane.llm import TARGET_LANG_PLACEHOLDER, build_system_prompt
 
@@ -131,9 +130,6 @@ def test_llm_config_prompt_normalization(
     [
         # 字段名受 MetadataField 约束
         ({"field_prompts": {"nope": "标题简洁"}}, "field_prompts.nope"),
-        # 单条长度上限
-        ({"system_prompt": "x" * (PROMPT_MAX_LENGTH + 1)}, "at most 2000 characters"),
-        ({"field_prompts": {"plot": "x" * (PROMPT_MAX_LENGTH + 1)}}, "at most 2000 characters"),
     ],
 )
 def test_llm_config_rejects_invalid_prompts(payload: dict, match: str) -> None:
@@ -141,9 +137,9 @@ def test_llm_config_rejects_invalid_prompts(payload: dict, match: str) -> None:
         LLMConfig.model_validate(payload)
 
 
-def test_llm_config_accepts_max_length_prompt() -> None:
-    """长度上限本身合法, 界外才拒绝."""
-    at_limit = "x" * PROMPT_MAX_LENGTH
-    cfg = LLMConfig(system_prompt=at_limit, field_prompts={MetadataField.TITLE: at_limit})
-    assert cfg.system_prompt == at_limit
-    assert cfg.field_prompts[MetadataField.TITLE] == at_limit
+def test_llm_config_accepts_long_prompts() -> None:
+    """提示词不设长度上限: 规则+示例写长了也必须能存下来."""
+    long_prompt = "x" * 20_000
+    cfg = LLMConfig(system_prompt=long_prompt, field_prompts={MetadataField.TITLE: long_prompt})
+    assert cfg.system_prompt == long_prompt
+    assert cfg.field_prompts[MetadataField.TITLE] == long_prompt

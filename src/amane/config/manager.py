@@ -748,11 +748,11 @@ class SrConfig(BaseModel):
     tta: bool = Field(default=False, json_schema_extra={"x-hidden": True})
 
 
-PROMPT_MAX_LENGTH = 2000
-"""单条提示词长度上限, 避免超长文本撑大 TOML 与设置表单."""
+PromptText = Annotated[str, Field(json_schema_extra={"x-long": True})]
+"""提示词文本框: ``x-long`` 声明多行, 顶层字段与 dict 值共用同一控制符.
 
-PromptText = Annotated[str, Field(max_length=PROMPT_MAX_LENGTH, json_schema_extra={"x-long": True})]
-"""提示词文本框: ``x-long`` 声明多行, 顶层字段与 dict 值共用同一控制符."""
+不设长度上限: 提示词要写清规则与示例, 2000 字很容易不够; 折行与体积由用户自行把握.
+"""
 
 
 class LLMConfig(BaseModel):
@@ -764,7 +764,7 @@ class LLMConfig(BaseModel):
     translate_fields: list[MetadataField] = Field(default_factory=lambda: [MetadataField.TITLE, MetadataField.PLOT])
     """当前仅支持文本标量字段 (title/plot)."""
 
-    system_prompt: str | None = Field(default=None, max_length=PROMPT_MAX_LENGTH, json_schema_extra={"x-long": True})
+    system_prompt: str | None = Field(default=None, json_schema_extra={"x-long": True})
     """自定义 system 提示词的指令部分; 空白等价于未配置, 使用内置.
 
     可用 ``{target_lang}`` 引用目标语言名; 字段说明与输出约束由 Amane 追加, 不受此值影响.
