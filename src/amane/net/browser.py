@@ -545,8 +545,10 @@ class SolverBackend:
             await self._ensure_session(scope)
             return await self._request_get(url, scope, timeout_ms, cookies)
         except RequestError as exc:
-            # 兼容服务 (trawl 之类): sessions.create 正常返回, 但会话绑定的 request.get 挂到超时.
-            # 标记后本实例后续请求全部走无会话, 避免每次刮削都白等一个超时.
+            # 兼容服务 (trawl 之类): sessions.create 正常返回, 但会话绑定的 request.get 会一直等到超时.
+            # 只对**超时**降级 —— 配置错、服务已关之类重试也没意义, 照常抛出.
+            if exc.failure is None or exc.failure.kind is not FailureKind.TIMEOUT:
+                raise
             logger.warning("solver sessions unusable, fall back to sessionless", url=self._url, error=str(exc))
             self._sessionless = True
             self._sessions.clear()

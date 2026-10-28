@@ -488,10 +488,15 @@ async def test_solver_recreates_missing_session_once():
     ]
 
 
+def _solver_timeout() -> RequestError:
+    """solver 侧超时: 会话绑定的取页挂住时客户端收到的错误形态."""
+    return RequestError("solver", RequestFailure(kind=FailureKind.TIMEOUT, message="timeout"))
+
+
 @pytest.mark.asyncio
 async def test_solver_falls_back_to_sessionless_when_session_request_fails():
     """兼容服务 (trawl) 建会话正常但会话绑定的取页会挂: 立即改走无会话请求, 不能整个人失败."""
-    solver, web = _make_solver([{"status": "ok"}, RequestError("solver", "Timeout after 30000 ms"), _SOLVER_OK])
+    solver, web = _make_solver([{"status": "ok"}, _solver_timeout(), _SOLVER_OK])
 
     html, failure = await solver.get_page("https://a.example/", scope="site-a")
 
@@ -504,9 +509,7 @@ async def test_solver_falls_back_to_sessionless_when_session_request_fails():
 @pytest.mark.asyncio
 async def test_solver_stays_sessionless_after_fallback():
     """降级是粘性的: 之后的来源不再建会话, 免得每次刮削都白等一个超时."""
-    solver, web = _make_solver(
-        [{"status": "ok"}, RequestError("solver", "Timeout after 30000 ms"), _SOLVER_OK, _SOLVER_OK]
-    )
+    solver, web = _make_solver([{"status": "ok"}, _solver_timeout(), _SOLVER_OK, _SOLVER_OK])
 
     await solver.get_page("https://a.example/", scope="site-a")
     html, failure = await solver.get_page("https://b.example/", scope="site-b")
