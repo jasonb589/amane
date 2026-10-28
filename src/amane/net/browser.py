@@ -482,6 +482,9 @@ class SolverBackend:
         self._url = url.rstrip("/")
         self._default_timeout = default_timeout
         self._sessions: set[str] = set()
+        # 有些兼容服务 (见 trawl) 只在**无 session** 时响应, 会话绑定的请求会挂到超时:
+        # 首次踩到就把该后端标记为不支持会话, 之后一律走一次性请求 (实例随热重建重置).
+        self._sessionless = False
         self._semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
         self._scope_locks: dict[str, asyncio.Lock] = {}
         self._lock = asyncio.Lock()
@@ -500,17 +503,15 @@ class SolverBackend:
         effective = timeout if timeout is not None else self._default_timeout
         async with self._semaphore, self._lock_for(scope):
             try:
-                await self._ensure_session(scope)
-                data = await self._request_get(url, scope, effective, cookies)
+                data = await self._request(url, scope, effective, cookies)
             except RequestError as exc:
                 return None, exc.failure or RequestFailure(kind=FailureKind.UNEXPECTED, message=exc.message)
             if not _solver_ok(data):
                 message = _solver_message(data)
-                if _is_missing_session(message):
+                if _is_missing_session(message) and not self._sessionless:
                     self._sessions.discard(scope)
                     try:
-                        await self._ensure_session(scope)
-                        data = await self._request_get(url, scope, effective, cookies)
+                        data = await self._request(url, scope, effective, cookies)
                     except RequestError as exc:
                         return None, exc.failure or RequestFailure(kind=FailureKind.UNEXPECTED, message=exc.message)
                     if not _solver_ok(data):
@@ -534,15 +535,33 @@ class SolverBackend:
             self._scope_locks[scope] = lock
         return lock
 
-    async def _request_get(
+    async def _request(
         self, url: str, scope: str, timeout_ms: float, cookies: Mapping[str, str] | None
+    ) -> dict[str, Any]:
+        """一次取页: 优先复用会话; 该后端不吃会话时降级为无会话请求."""
+        if self._sessionless:
+            return await self._request_get(url, None, timeout_ms, cookies)
+        try:
+            await self._ensure_session(scope)
+            return await self._request_get(url, scope, timeout_ms, cookies)
+        except RequestError as exc:
+            # 兼容服务 (trawl 之类): sessions.create 正常返回, 但会话绑定的 request.get 挂到超时.
+            # 标记后本实例后续请求全部走无会话, 避免每次刮削都白等一个超时.
+            logger.warning("solver sessions unusable, fall back to sessionless", url=self._url, error=str(exc))
+            self._sessionless = True
+            self._sessions.clear()
+            return await self._request_get(url, None, timeout_ms, cookies)
+
+    async def _request_get(
+        self, url: str, scope: str | None, timeout_ms: float, cookies: Mapping[str, str] | None
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "cmd": "request.get",
             "url": url,
-            "session": scope,
             "maxTimeout": int(timeout_ms),
         }
+        if scope is not None:
+            payload["session"] = scope
         if cookies:
             payload["cookies"] = [{"name": name, "value": value} for name, value in cookies.items()]
         return await self._post(payload, timeout_s=timeout_ms / 1000 + _SOLVER_HTTP_SLACK_S)

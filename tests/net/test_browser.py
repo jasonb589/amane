@@ -488,6 +488,39 @@ async def test_solver_recreates_missing_session_once():
     ]
 
 
+@pytest.mark.asyncio
+async def test_solver_falls_back_to_sessionless_when_session_request_fails():
+    """兼容服务 (trawl) 建会话正常但会话绑定的取页会挂: 立即改走无会话请求, 不能整个人失败."""
+    solver, web = _make_solver([{"status": "ok"}, RequestError("solver", "Timeout after 30000 ms"), _SOLVER_OK])
+
+    html, failure = await solver.get_page("https://a.example/", scope="site-a")
+
+    assert (html, failure) == ("<html>ok</html>", None)
+    assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create", "request.get", "request.get"]
+    assert web.calls[1][2]["json"]["session"] == "site-a"
+    assert "session" not in web.calls[2][2]["json"]
+
+
+@pytest.mark.asyncio
+async def test_solver_stays_sessionless_after_fallback():
+    """降级是粘性的: 之后的来源不再建会话, 免得每次刮削都白等一个超时."""
+    solver, web = _make_solver(
+        [{"status": "ok"}, RequestError("solver", "Timeout after 30000 ms"), _SOLVER_OK, _SOLVER_OK]
+    )
+
+    await solver.get_page("https://a.example/", scope="site-a")
+    html, failure = await solver.get_page("https://b.example/", scope="site-b")
+
+    assert (html, failure) == ("<html>ok</html>", None)
+    assert [call[2]["json"]["cmd"] for call in web.calls] == [
+        "sessions.create",
+        "request.get",
+        "request.get",
+        "request.get",
+    ]
+    assert "session" not in web.calls[3][2]["json"]
+
+
 _SOLVER_FAILURES: list[tuple[object, FailureKind, FailureReason]] = [
     (
         {"status": "error", "message": "Challenge not solved"},
