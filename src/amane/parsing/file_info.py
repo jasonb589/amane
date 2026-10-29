@@ -535,7 +535,9 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
             short_name = result[0][0].strip("-._").lower()
             full_name: str = _WESTERN_NAMES.get(short_name) or short_name
             date_part = result[0][1].replace("-", ".").replace("_", ".")
-            number = (full_name.lower().replace("-", "").replace(".", "").replace("_", "") + "." + date_part).capitalize()
+            number = (
+                full_name.lower().replace("-", "").replace(".", "").replace("_", "") + "." + date_part
+            ).capitalize()
             return number, ContentType.WESTERN
     # 其余规则用 catalog.
     if m := re.search(r"XXX-AV-\d{4,}", c):
