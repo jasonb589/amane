@@ -135,7 +135,12 @@ class R18Config(BaseModel):
     """只读角色 statement_timeout (秒)."""
 
     download_url: str | None = None
-    """dump 归档下载地址. 为空 = 不自动导入."""
+    """dump 归档下载地址. 为空 = 不自动导入.
+
+    可写 ``{latest}`` 占位符 (如 ``https://host/dumps/{latest}``): 运行时会列举该前缀,
+    取 ``LastModified`` 最新的 ``.sql.gz`` 再导入 —— r18.dev 每周产出新文件, 这样定时导入
+    才能真正追新, 不用手改日期.
+    """
 
     psql_path: str = "psql"
     """导入 dump 经由子进程 ``psql -f``; 容器须带 postgresql-client."""

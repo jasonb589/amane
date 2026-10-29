@@ -12,6 +12,8 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
+from urllib.parse import quote
+from xml.etree.ElementTree import ElementTree, ParseError
 
 import structlog
 from sqlalchemy import text
@@ -26,6 +28,49 @@ if TYPE_CHECKING:
     from ...net.http import WebClient
 
 logger = structlog.get_logger()
+
+_LATEST_TOKEN = "{latest}"
+"""下载地址里的占位符: 运行时换成桶内最新的 ``.sql.gz``, 免去每周手改日期."""
+
+_MAX_LIST_PAGES = 10
+"""列举分页上限 (S3 单页最多 1000 个 key, 十页足够覆盖一年周更)."""
+
+
+def _split_latest(url: str) -> tuple[str, str] | None:
+    """``https://host/dumps/{latest}`` → ``("https://host", "dumps/")``; 无占位符返回 None."""
+    index = url.find(_LATEST_TOKEN)
+    if index < 0:
+        return None
+    head = url[:index]
+    slash = head.rfind("/")
+    if slash < 0:
+        return None
+    return head[:slash], head[slash + 1 :]
+
+
+def parse_s3_listing(xml_text: str) -> tuple[list[tuple[str, str]], str | None]:
+    """S3 列举响应 → ([(key, last_modified)], 下一页 token). 命名空间前缀一律削掉."""
+    root = ElementTree.fromstring(xml_text)
+    entries: list[tuple[str, str]] = []
+    token: str | None = None
+    truncated = False
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag == "Contents":
+            key = modified = ""
+            for child in node:
+                name = child.tag.rsplit("}", 1)[-1]
+                if name == "Key":
+                    key = (child.text or "").strip()
+                elif name == "LastModified":
+                    modified = (child.text or "").strip()
+            if key:
+                entries.append((key, modified))
+        elif tag == "IsTruncated":
+            truncated = (node.text or "").strip().lower() == "true"
+        elif tag == "NextContinuationToken":
+            token = (node.text or "").strip() or None
+    return entries, token if truncated else None
 
 
 class RemoteMeta(NamedTuple):
@@ -47,8 +92,48 @@ class R18Importer:
         self.config = config
         self.client = web_client
 
-    async def fetch_remote_meta(self) -> RemoteMeta | None:
+    async def _resolve_download_url(self) -> str | None:
+        """把含 ``{latest}`` 的地址换成桶内最新的一份 dump; 普通地址原样返回."""
         url = self.config.download_url
+        if not url:
+            return None
+        parts = _split_latest(url)
+        if parts is None:
+            return url
+
+        root, prefix = parts
+        newest: tuple[str, str] | None = None
+        token: str | None = None
+        for _ in range(_MAX_LIST_PAGES):
+            listing = f"{root}/?list-type=2&max-keys=1000&prefix={quote(prefix)}"
+            if token:
+                listing += f"&continuation-token={quote(token)}"
+            try:
+                resp = await self.client.request("GET", listing)
+            except RequestError as exc:
+                logger.warning("r18 dump listing failed", error=exc.message)
+                return None
+            try:
+                entries, token = parse_s3_listing(resp.text)
+            except ParseError as exc:
+                logger.warning("r18 dump listing unparsable", error=str(exc))
+                return None
+            for key, modified in entries:
+                if not key.endswith(".sql.gz"):
+                    continue
+                if newest is None or modified > newest[1]:
+                    newest = (key, modified)
+            if token is None:
+                break
+
+        if newest is None:
+            logger.warning("r18 dump listing empty", prefix=prefix)
+            return None
+        logger.info("r18 dump resolved", key=newest[0], modified=newest[1])
+        return f"{root}/{newest[0]}"
+
+    async def fetch_remote_meta(self) -> RemoteMeta | None:
+        url = await self._resolve_download_url()
         if not url:
             return None
 
