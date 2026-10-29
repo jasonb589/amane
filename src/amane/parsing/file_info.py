@@ -184,8 +184,8 @@ _DMM_CONCAT = re.compile(r"([A-Z]{2,})00(\d{3})")
 #: 抢在 ``_DMM_CONCAT`` 之前返回.
 _TMA_NUMBER = re.compile(r"(?<![A-Z0-9])T\d{2}-?\d{3,}")
 _SIX_DIGIT_CATALOG = re.compile(r"(?<!\d)\d{6}[-_]\d{2,4}(?!\d)")
-_WESTERN_PROBE = re.compile(r"([A-Z0-9_]{2,})[-.]2?0?(\d{2}[-.]\d{2}[-.]\d{2})")
-_WESTERN_PARSE = re.compile(r"([A-Z0-9-]{2,})[-_.]2?0?(\d{2}[-.]\d{2}[-.]\d{2})")
+_WESTERN_PROBE = re.compile(r"([A-Z0-9_]{2,})[-_.]+2?0?(\d{2}[-_.]\d{2}[-_.]\d{2})")
+_WESTERN_PARSE = re.compile(r"([A-Z0-9-]{2,})[-_.]+2?0?(\d{2}[-_.]\d{2}[-_.]\d{2})")
 
 _ESCAPE_MARKERS = (
     "4K",
@@ -532,11 +532,10 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     if _WESTERN_PROBE.findall(dated):
         result = _WESTERN_PARSE.findall(dated)
         if result:
-            short_name = result[0][0].strip("-").lower()
+            short_name = result[0][0].strip("-._").lower()
             full_name: str = _WESTERN_NAMES.get(short_name) or short_name
-            number = (
-                full_name.lower().replace("-", "").replace(".", "") + "." + result[0][1].replace("-", ".")
-            ).capitalize()
+            date_part = result[0][1].replace("-", ".").replace("_", ".")
+            number = (full_name.lower().replace("-", "").replace(".", "").replace("_", "") + "." + date_part).capitalize()
             return number, ContentType.WESTERN
     # 其余规则用 catalog.
     if m := re.search(r"XXX-AV-\d{4,}", c):

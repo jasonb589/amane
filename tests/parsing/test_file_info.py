@@ -556,6 +556,14 @@ ESCAPE_STRING_CASES: list[tuple[str, list[str], str]] = [
     ("/media/正常/4K688.com@1drpt00122_4Ks.mp4", ["4k688.com@"], "DRPT-122"),
     ("/media/正常/4K688.com@1dldss00529_4Ks.mp4", ["4k688.com@"], "DLDSS-529"),
     ("/media/正常/4K688.com@1dandya00052_4Ks.mp4", ["4k688.com@"], "DANDYA-052"),
+    # 站名尾巴 + 双点日期: 之前 _WESTERN_PARSE 只允许单个分隔符, 于是落进兜底规则被当成 COM-17.
+    (
+        "/media/gx/正常/[中文字幕]BLACKED..17.04.15.AJ.APPLEGATE.4K-C/"
+        "489155.com@[中文字幕]BLACKED..17.04.15.AJ.APPLEGATE.4K-C.mp4",
+        ["489155.com@"],
+        "Blacked.17.04.15",
+    ),
+    ("/media/Blacked..17.04.15.AJ.APPLEGATE.4K-C.mp4", [], "Blacked.17.04.15"),
 ]
 
 
