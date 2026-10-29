@@ -84,7 +84,7 @@ async def test_resolve_latest_picks_newest_sql_gz() -> None:
     importer, web = _importer(f"{ROOT}/dumps/{{latest}}", [listing])
 
     assert await importer._resolve_download_url() == f"{ROOT}/dumps/r18_2026-10-27.sql.gz"
-    assert web.calls == [("GET", f"{ROOT}/?list-type=2&max-keys=1000&prefix=dumps%2F")]
+    assert web.calls == [("GET", f"{ROOT}/?list-type=2&max-keys=1000&prefix=dumps/")]
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def test_resolve_latest_follows_continuation_token() -> None:
     importer, web = _importer(f"{ROOT}/dumps/{{latest}}", [page1, page2])
 
     assert await importer._resolve_download_url() == f"{ROOT}/dumps/r18_2026-10-27.sql.gz"
-    assert web.calls[1] == ("GET", f"{ROOT}/?list-type=2&max-keys=1000&prefix=dumps%2F&continuation-token=tok")
+    assert web.calls[1] == ("GET", f"{ROOT}/?list-type=2&max-keys=1000&prefix=dumps/&continuation-token=tok")
 
 
 @pytest.mark.asyncio
