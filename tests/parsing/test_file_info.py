@@ -612,3 +612,19 @@ VR_CASES: list[tuple[list[str], bool]] = [
 @pytest.mark.parametrize(("tags", "expected"), VR_CASES)
 def test_is_vr(tags: list[str], expected: bool) -> None:
     assert is_vr(tags) is expected
+
+
+CJK_FALLBACK_CASES: list[tuple[str, ContentType]] = [
+    # 无番号、纯中日文的标题: 兜底按里番, 而不是让"欧美"那一套源全部落空
+    ("/media/gx/正常/義母 前編.mp4", ContentType.HENTAI),
+    ("/media/inbox/母娘 後編.mkv", ContentType.HENTAI),
+    ("/media/inbox/巨乳女教師.mp4", ContentType.HENTAI),
+    # 含字母或数字的仍按欧美兜底
+    ("/media/inbox/Big Tits 8.mp4", ContentType.WESTERN),
+    ("/media/inbox/My Wife Scene.mp4", ContentType.WESTERN),
+]
+
+
+@pytest.mark.parametrize(("path", "expected"), CJK_FALLBACK_CASES)
+def test_unmatched_cjk_title_falls_back_to_hentai(path: str, expected: ContentType) -> None:
+    assert parse_file_info(path).content_type is expected

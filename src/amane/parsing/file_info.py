@@ -18,6 +18,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TypedDict
 
+from ..utils.language import has_cjk
+
 # ---------------------------------------------------------------------------
 # Types
 # ---------------------------------------------------------------------------
@@ -613,8 +615,16 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     return None
 
 
+_ASCII_ALNUM = re.compile(r"[0-9A-Za-z]")
+
+
+def _is_cjk_title(text: str) -> bool:
+    """含中日文且不含任何字母数字: 「无番号、也不像欧美片名」的兜底判定依据."""
+    return has_cjk(text) and _ASCII_ALNUM.search(text) is None
+
+
 def _fallback(stem: str, escape: list[str]) -> tuple[str, ContentType]:
-    """路径仍未命中: FC2/HEYZO 关键字视为该族, 否则清理后的原文 + 欧美."""
+    """路径仍未命中: FC2/HEYZO 关键字视为该族, 含中日文且无字母数字的按里番, 其余清理后的原文 + 欧美."""
     t = _prepare(stem, escape)
     if "FC2" in t.catalog:
         return t.catalog.replace("PPV", "").replace("_", "-").replace("--", "-"), ContentType.FC2
@@ -627,6 +637,10 @@ def _fallback(stem: str, escape: list[str]) -> tuple[str, ContentType]:
     result = temp_name.strip("-_. ")
     if result.startswith("FC-"):
         return result.replace("FC-", "FC2-"), ContentType.FC2
+    # 欧美片名不会出现中日文; 含中日文且完全无字母数字的标题基本只剩里番/动画
+    # (有码 / 素人 / FC2 都带番号, 走不到这里), 判欧美会让该类型下的源全部落空.
+    if _is_cjk_title(t.escaped):
+        return result, ContentType.HENTAI
     return result, ContentType.WESTERN
 
 
