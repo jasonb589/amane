@@ -22,6 +22,8 @@ class SearchQuery:
     # 前序聚合结果 (已定值单源标量 + 第一段已抓到的图片地址), 只读; 仅 ``SourceTrait.NEEDS_PARTIAL`` 来源非空.
     # 为 ``None`` 当且仅当本次来源不在第二段; 单源路由下是空对象而非 ``None``.
     partial_result: AggregatedMetadata | None = None
+    #: 手动指定详情页: 非空时只有负责该域名的来源直接解析这个页面, 不做检索.
+    url: str | None = None
 
 
 @dataclass

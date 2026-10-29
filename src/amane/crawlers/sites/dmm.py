@@ -156,10 +156,13 @@ class DmmCrawler(Crawler):
 
     # ---- 里番 (hentai): 无番号, 按标题关键词搜索 ----
     _HENTAI_SEARCH_URL = "https://www.dmm.co.jp/search/=/searchstr={}/"
+    #: アダルトアニメ (通販) 分类页: 普通搜索不返回 アニメDVD 条目, 必须走这个目录.
+    _HENTAI_ANIME_SEARCH_URL = "https://www.dmm.co.jp/mono/anime/-/search/=/searchstr={}/"
     _HENTAI_MAX_TRIES = 8
     _HENTAI_MAX_KEYWORDS = 3
     _HENTAI_MIN_RATIO = 0.55
     _TITLE_NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
+    _HREF_DETAIL_RE = re.compile(r'href="(https://www\.dmm\.co\.jp/[^"]*?/-\/detail/=\/cid=[a-z0-9_]+/)')
     _KEYWORD_NOISE_RE = re.compile(r"[〜～~☆★・･\-–—_/|｜:：,，.。!?！？()\[\]【】「」『』\"'’]+")
 
     @classmethod
@@ -188,6 +191,11 @@ class DmmCrawler(Crawler):
             return 1.0
         return SequenceMatcher(None, a, b).ratio()
 
+    @classmethod
+    def _href_urls(cls, text: str) -> list[str]:
+        """分类搜索结果里的纯链接详情页 (アニメ目录只给 href, 没有 detailUrl JSON)."""
+        return [match[1] for match in cls._HREF_DETAIL_RE.finditer(text)]
+
     @staticmethod
     def _detail_urls(text: str) -> list[str]:
         """搜索结果页的详情链接 (写在 script 的 detailUrl 字段里)."""
@@ -208,13 +216,15 @@ class DmmCrawler(Crawler):
         """按标题搜 DMM 动漫, 候选逐个抓取核对标题; 相似度不足宁可返回 None."""
         candidates: list[str] = []
         for keyword in self._hentai_keywords(number):
-            try:
-                text = await self.client.get_html(
-                    self._HENTAI_SEARCH_URL.format(quote(keyword, safe="")), cookies=self.cookies
-                )
-            except RequestError:
-                continue
-            found = self._detail_urls(text)
+            found: list[str] = []
+            # アニメ目录页与普通搜索都要: 前者才有 アダルトアニメ 条目, 后者覆盖配信/通販其它分类.
+            for template in (self._HENTAI_ANIME_SEARCH_URL, self._HENTAI_SEARCH_URL):
+                try:
+                    text = await self.client.get_html(template.format(quote(keyword, safe="")), cookies=self.cookies)
+                except RequestError:
+                    continue
+                found.extend(self._href_urls(text))
+                found.extend(self._detail_urls(text))
             # 配信页 (/digital/ = video.dmm.co.jp) 优先: 字段更全, sample 剧照也更多;
             # 通販 (/mono/) 次之, 其它兜底. 同一档内保持搜索排名顺序 (sorted 稳定).
             for url in sorted(found, key=_hentai_priority):

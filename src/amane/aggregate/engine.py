@@ -108,6 +108,8 @@ def compile_priority(
 
 class CrawlerLike(Protocol):
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None: ...
+    async def fetch_from_url(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None: ...
+    def serves_url(self, url: str) -> bool: ...
 
 
 async def aggregate(
@@ -521,7 +523,13 @@ async def _fetch_one(
     if crawler is None:
         return node, None
 
+    if q.url and not crawler.serves_url(q.url):
+        # 指定 URL: 只由负责该域名的来源解析, 其它来源不参与.
+        return node, None
+
     async def _fetch() -> MediaMetadata | None:
+        if q.url:
+            return await crawler.fetch_from_url(q.url, options)
         return await crawler.fetch(q, options)
 
     fetched = await invoke_source(node.cache_key, _fetch)

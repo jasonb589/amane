@@ -105,6 +105,10 @@ class ScrapePayload(BaseModel):
     media_file_id: int | None = None
     path: str | None = None
     """源文件路径; 媒体记录被删掉时靠它重新登记, 保证自动整理不被静默跳过. 手动提交可留空."""
+
+    url: str | None = None
+    """手动指定详情页: 非空时跳过检索, 直接由负责该域名的来源解析这个页面
+    (冷门条目 —— 例如只有新配信站 id 的里番 —— 目录里搜不到, 但页面本身可解析)."""
     use_cache: set[CacheKind] = {CacheKind.metadata, CacheKind.trans}
 
 
