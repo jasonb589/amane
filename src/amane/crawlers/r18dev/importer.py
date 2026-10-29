@@ -12,8 +12,8 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
-from urllib.parse import quote
-from xml.etree.ElementTree import ElementTree, ParseError
+from urllib.parse import quote, urlsplit
+from xml.etree.ElementTree import ParseError, fromstring
 
 import structlog
 from sqlalchemy import text
@@ -41,16 +41,15 @@ def _split_latest(url: str) -> tuple[str, str] | None:
     index = url.find(_LATEST_TOKEN)
     if index < 0:
         return None
-    head = url[:index]
-    slash = head.rfind("/")
-    if slash < 0:
+    parsed = urlsplit(url[:index])
+    if not parsed.scheme or not parsed.netloc:
         return None
-    return head[:slash], head[slash + 1 :]
+    return f"{parsed.scheme}://{parsed.netloc}", parsed.path.lstrip("/")
 
 
 def parse_s3_listing(xml_text: str) -> tuple[list[tuple[str, str]], str | None]:
     """S3 列举响应 → ([(key, last_modified)], 下一页 token). 命名空间前缀一律削掉."""
-    root = ElementTree.fromstring(xml_text)
+    root = fromstring(xml_text)
     entries: list[tuple[str, str]] = []
     token: str | None = None
     truncated = False
