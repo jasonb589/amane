@@ -167,6 +167,7 @@ class TestFeedsCrud:
             "content_type": "western",
             "media_file_id": None,
             "path": None,
+            "url": None,
             "use_cache": [],
         }
 
