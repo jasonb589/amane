@@ -33,6 +33,21 @@ class TestTitleRatio:
         assert DmmCrawler._title_ratio("", "眠れないオンナ") == 0.0
 
 
+class TestHentaiTitleMatches:
+    def test_exact_after_normalization(self) -> None:
+        assert DmmCrawler._hentai_title_matches("クール DEM〜眠れないオンナ〜", "クールDEM 眠れないオンナ")
+
+    def test_rejects_similar_but_different_work(self) -> None:
+        """「義母 前編」与「美熟母 前編」归一化后只差一个字, 仍必须判为不同作品."""
+        assert not DmmCrawler._hentai_title_matches("義母 前編", "美熟母 前編")
+
+    def test_rejects_extra_words(self) -> None:
+        assert not DmmCrawler._hentai_title_matches("義母 前編", "義母 前編 特別版")
+
+    def test_blank_found_is_false(self) -> None:
+        assert not DmmCrawler._hentai_title_matches("義母 前編", None)
+
+
 class TestDetailUrls:
     def test_parses_escaped_and_plain_json(self) -> None:
         escaped = '<html><body><script>var x = {"detailUrl\\":\\"https://www.dmm.co.jp/digital/anime/-/detail/=/cid=h_1a/\\"};</script></body></html>'

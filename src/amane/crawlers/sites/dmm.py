@@ -196,6 +196,20 @@ class DmmCrawler(Crawler):
         """分类搜索结果里的纯链接详情页 (アニメ目录只给 href, 没有 detailUrl JSON)."""
         return [match[1] for match in cls._HREF_DETAIL_RE.finditer(text)]
 
+    @classmethod
+    def _hentai_title_matches(cls, wanted: str, found: str | None) -> bool:
+        """候选标题必须与 wanted 完全一致 (只忽略空格与标点差异).
+
+        宁可漏掉也不串作品: 「義母 前編」与「美熟母 前編」相似度已有 0.667, 短标题上任何阈值
+        都可能误判, 所以这里要求归一化后严格相等. 搜不到时可用 scrape 任务的 ``url`` 入参
+        直接给详情页.
+        """
+        if not found:
+            return False
+        left = cls._TITLE_NOISE_RE.sub("", wanted.lower())
+        right = cls._TITLE_NOISE_RE.sub("", found.lower())
+        return bool(left) and left == right
+
     @staticmethod
     def _detail_urls(text: str) -> list[str]:
         """搜索结果页的详情链接 (写在 script 的 detailUrl 字段里)."""
@@ -251,7 +265,7 @@ class DmmCrawler(Crawler):
                     title=meta.title,
                 )
                 continue
-            if self._title_ratio(number, meta.title) >= self._HENTAI_MIN_RATIO:
+            if self._hentai_title_matches(number, meta.title):
                 return url
         return None
 
