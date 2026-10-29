@@ -734,8 +734,8 @@ class DmmCrawler(Crawler):
         cid = cid_match.group(1)
         return mp4_url.replace("playlist.m3u8", f"{cid}_sm_w.mp4")
 
-_FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
 
+_FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
 
 
 def _hentai_digits(text: str) -> frozenset[str]:
