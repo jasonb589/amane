@@ -115,7 +115,7 @@ class _StubClient:
         self._items = list(items)
         self.calls: list[str] = []
 
-    async def get_html(self, url: str, **kwargs: Any) -> str:
+    async def get_text(self, url: str, **kwargs: Any) -> str:
         del kwargs
         self.calls.append(url)
         item = self._items.pop(0)
@@ -126,12 +126,13 @@ class _StubClient:
 
 @pytest.mark.asyncio
 async def test_fetch_retries_when_age_gate_blocks() -> None:
-    """亚马逊偶发返回 /age_check/: 换一次请求就正常, 不该直接把整源判失败."""
+    """真正的 /age_check/ 是概率性的: 换一次请求就正常, 不该直接把整源判失败."""
+    gate = '<form name="agecheck" action="/age_check/"><input class="driver-verify"></form>'
     page = (
         'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
         'src="https://m.media-amazon.com/images/I/81ABCDE.jpg">'
     )
-    client = _StubClient([SourceError(FailureReason.AGE_VERIFICATION), page])
+    client = _StubClient([gate, page])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
     query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
@@ -141,6 +142,42 @@ async def test_fetch_retries_when_age_gate_blocks() -> None:
     assert meta is not None
     assert meta.poster_urls
     assert len(client.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_raises_when_age_gate_persists() -> None:
+    gate = '<form name="agecheck" action="/age_check/"></form>'
+    client = _StubClient([gate, gate, gate])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+
+    with pytest.raises(SourceError) as excinfo:
+        await crawler.fetch(query)
+
+    assert excinfo.value.reason is FailureReason.AGE_VERIFICATION
+    assert len(client.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_accepts_page_with_age_verification_modal() -> None:
+    """成人分区结果页每页都带 ``Age Verification`` 弹窗标题, 那不是拦截页 —— 判死就永远搜不到."""
+    page = (
+        '<span class="s-black-curtain-modal-content">'
+        'data-a-modal="{&quot;header&quot;:&quot;Age Verification&quot;}"'
+        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg">'
+    )
+    client = _StubClient([page])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST001"
+    assert len(client.calls) == 1
 
 
 @pytest.mark.asyncio

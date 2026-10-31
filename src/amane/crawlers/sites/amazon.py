@@ -71,6 +71,9 @@ _NOISE_TOKENS = (
 _BRACKET_RE = re.compile(r"【[^】]*】|\[[^\]]*\]|〔[^〕]*〕|（[^）]*）|\([^)]*\)|《[^》]*》|〈[^〉]*〉")
 _SEPARATOR_RE = re.compile(r"[|｜/／]+")
 _CJK_RE = re.compile("[\u3040-\u30ff\u4e00-\u9fff]")
+#: 真正的年龄门: 跳转 ``/age_check/`` 或带 ``driver-verify`` 的表单. 成人分区结果页里那个
+#: ``Age Verification`` 只是 18 禁弹窗 (``black-curtain-popover``) 的标题, 不能当拦截判据.
+_GATE_RE = re.compile(r'driver-verify|/age_check/|name="agecheck"', re.IGNORECASE)
 #: 只靠番号命中时要的碟片标记 / 要排除的周边条目 (同一番号的生写真、ポストカード也占结果位).
 _DISC_RE = re.compile(r"DVD|Blu-?ray|ブルーレイ", re.IGNORECASE)
 _GOODS_RE = re.compile("特典|生写真|ポストカード|クリアファイル|タオル|抱き枕|非売品|カレンダー|フィギュア")
@@ -185,6 +188,8 @@ class AmazonCrawler(Crawler):
     def profile(cls) -> CrawlerProfile:
         # 不自定义 Accept-Language: 实测带 ``ja-JP`` 会被亚马逊判到 /age_check/ 年龄门,
         # 用 curl_cffi 指纹自带的请求头才能拿到真实搜索结果页.
+        # 结果页直接走 get_text (不走渲染 / 通用拦截启发式): 成人分区的每张结果页都带
+        # ``Age Verification`` 弹窗标题, 通用判据会把正常页面当成年龄门.
         return CrawlerProfile(
             name=SiteName.AMAZON,
             base_url=SITE,
@@ -225,17 +230,19 @@ class AmazonCrawler(Crawler):
         html = ""
         for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
             try:
-                html = await self.client.get_html(url, cookies=self.cookies or None)
-                break
-            except SourceError as exc:
-                # 年龄门是概率性的: 同一 URL 换一次请求往往就正常, 前几次判进门就再试;
-                # 用尽次数后照常上报, 不当成"没搜到".
-                if exc.reason is not FailureReason.AGE_VERIFICATION or attempt == _MAX_SEARCH_ATTEMPTS:
-                    raise
-                self.logger.debug("amazon age gate, retry", attempt=attempt, url=url)
+                # 故意用 get_text 而不是 get_html: 通用拦截启发式把结果页里的 "Age Verification"
+                # 弹窗标题当成年龄门 (成人分区每页都有那个 black-curtain 弹窗), 会把正常页面判死.
+                html = await self.client.get_text(url, cookies=self.cookies or None)
             except RequestError as exc:
                 self.logger.debug("amazon search failed", error=str(exc))
                 return None
+            if not _GATE_RE.search(html):
+                break
+            # 真正的年龄门 (/age_check/) 是概率性的: 同一 URL 换一次请求往往就正常,
+            # 用尽次数后照常上报, 不当成"没搜到".
+            if attempt == _MAX_SEARCH_ATTEMPTS:
+                raise SourceError(FailureReason.AGE_VERIFICATION, detail=url)
+            self.logger.debug("amazon age gate, retry", attempt=attempt, url=url)
 
         results = _parse_results(html)
         best: tuple[float, str, str] | None = None
