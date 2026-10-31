@@ -22,7 +22,6 @@ from difflib import SequenceMatcher
 from typing import override
 from urllib.parse import quote
 
-
 from ...enums import SiteName
 from ...plugins.models import SourceTrait
 from ..base import Crawler, CrawlerProfile
