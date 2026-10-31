@@ -1,6 +1,16 @@
-"""Amazon 源里的纯函数: 结果解析 / 标题匹配 / 海报地址."""
+"""Amazon 源里的纯函数: 结果解析 / 标题匹配 / 海报地址, 以及年龄门重试."""
 
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from amane.crawlers.models import SearchQuery
 from amane.crawlers.sites.amazon import AmazonCrawler, _parse_results, _poster_urls, _title_matches
+from amane.enums import ContentType
+from amane.net.errors import FailureReason, SourceError
 
 
 def test_profile_leaves_accept_language_to_fingerprint() -> None:
@@ -47,3 +57,38 @@ def test_poster_urls_prefers_original_then_scaled() -> None:
     urls = _poster_urls("81abc")
     assert urls[0] == "https://m.media-amazon.com/images/I/81abc.jpg"
     assert urls[1] == "https://m.media-amazon.com/images/I/81abc._SL1500_.jpg"
+
+
+class _StubClient:
+    """按顺序应答: 元素为异常时抛出, 否则当页面正文."""
+
+    def __init__(self, items: list[object]) -> None:
+        self._items = list(items)
+        self.calls: list[str] = []
+
+    async def get_html(self, url: str, **kwargs: Any) -> str:
+        del kwargs
+        self.calls.append(url)
+        item = self._items.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return str(item)
+
+
+@pytest.mark.asyncio
+async def test_fetch_retries_when_age_gate_blocks() -> None:
+    """亚马逊偶发返回 /age_check/: 换一次请求就正常, 不该直接把整源判失败."""
+    page = (
+        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/81abc.jpg">'
+    )
+    client = _StubClient([SourceError(FailureReason.AGE_VERIFICATION), page])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.poster_urls
+    assert len(client.calls) == 2

@@ -23,6 +23,7 @@ from typing import override
 from urllib.parse import quote
 
 from ...enums import SiteName
+from ...net.errors import FailureReason, SourceError
 from ...plugins.models import SourceTrait
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
@@ -38,6 +39,8 @@ _ALT_RE = re.compile(r'alt="([^"]{4,200})"')
 _NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
 _MIN_RATIO = 0.6
 _MAX_CANDIDATES = 6
+_MAX_SEARCH_ATTEMPTS = 3
+"""取结果页的尝试次数: 亚马逊的 /age_check/ 年龄门是概率性的, 换一次请求常常就正常."""
 
 
 def _norm(text: str) -> str:
@@ -111,13 +114,21 @@ class AmazonCrawler(Crawler):
         if len(_norm(title)) < 4:
             return None
 
-        try:
-            html = await self.client.get_html(
-                _SEARCH_URL.format(term=quote(title, safe="")), cookies=self.cookies or None
-            )
-        except RequestError as exc:
-            self.logger.debug("amazon search failed", error=str(exc))
-            return None
+        url = _SEARCH_URL.format(term=quote(title, safe=""))
+        html = ""
+        for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
+            try:
+                html = await self.client.get_html(url, cookies=self.cookies or None)
+                break
+            except SourceError as exc:
+                # 年龄门是概率性的: 同一 URL 换一次请求往往就正常, 前几次判进门就再试;
+                # 用尽次数后照常上报, 不当成"没搜到".
+                if exc.reason is not FailureReason.AGE_VERIFICATION or attempt == _MAX_SEARCH_ATTEMPTS:
+                    raise
+                self.logger.debug("amazon age gate, retry", attempt=attempt, url=url)
+            except RequestError as exc:
+                self.logger.debug("amazon search failed", error=str(exc))
+                return None
 
         results = _parse_results(html)
         best: tuple[float, str, str] | None = None
