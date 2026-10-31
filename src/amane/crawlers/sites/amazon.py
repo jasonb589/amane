@@ -83,12 +83,13 @@ class AmazonCrawler(Crawler):
     @classmethod
     @override
     def profile(cls) -> CrawlerProfile:
+        # 不自定义 Accept-Language: 实测带 ``ja-JP`` 会被亚马逊判到 /age_check/ 年龄门,
+        # 用 curl_cffi 指纹自带的请求头才能拿到真实搜索结果页.
         return CrawlerProfile(
             name=SiteName.AMAZON,
             base_url=SITE,
             urls=[SITE],
             traits=frozenset({SourceTrait.NEEDS_PARTIAL}),
-            headers={"Accept-Language": "ja-JP,ja;q=0.9"},
         )
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
@@ -106,7 +107,9 @@ class AmazonCrawler(Crawler):
             return None
 
         try:
-            html = await self.client.get_html(_SEARCH_URL.format(term=quote(title, safe="")), cookies=self.cookies)
+            html = await self.client.get_html(
+                _SEARCH_URL.format(term=quote(title, safe="")), cookies=self.cookies or None
+            )
         except RequestError as exc:
             self.logger.debug("amazon search failed", error=str(exc))
             return None

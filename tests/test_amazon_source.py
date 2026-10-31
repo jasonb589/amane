@@ -1,6 +1,11 @@
 """Amazon 源里的纯函数: 结果解析 / 标题匹配 / 海报地址."""
 
-from amane.crawlers.sites.amazon import _parse_results, _poster_urls, _title_matches
+from amane.crawlers.sites.amazon import AmazonCrawler, _parse_results, _poster_urls, _title_matches
+
+
+def test_profile_leaves_accept_language_to_fingerprint() -> None:
+    """自定义 ``ja-JP`` 会让亚马逊返回 /age_check/ 年龄门, 必须交给 curl_cffi 指纹自带."""
+    assert "Accept-Language" not in AmazonCrawler.profile().headers
 
 
 def test_parse_results_reads_asin_image_and_alt() -> None:
