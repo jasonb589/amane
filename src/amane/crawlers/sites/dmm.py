@@ -194,10 +194,7 @@ class DmmCrawler(Crawler):
     _HREF_DETAIL_RE = re.compile(r'href="(https://www\.dmm\.co\.jp/[^"]*?/-\/detail/=\/cid=[a-z0-9_]+/)')
     #: 通販搜索结果里每个条目都带封面 alt (就是作品名): 抓详情**之前**就能按标题排序,
     #: 不必再按 DMM 的搜索排名一个个试 —— 它会把无关作品排前面, 目标常在第十几位.
-    _HREF_TITLE_RE = re.compile(
-        r'href="(https://www\.dmm\.co\.jp/[^"]*?/-\\/detail/=\\/cid=[a-z0-9_]+/)"'
-        r'[^>]*>\s*<span class="img"><img[^>]*?alt="([^"]*)"'
-    )
+    _HREF_TITLE_RE = re.compile(_HREF_DETAIL_RE.pattern + r'[^>]*>\s*<span class="img"><img[^>]*?alt="([^"]*)"')
     _KEYWORD_NOISE_RE = re.compile(r"[〜～~☆★・･\-–—_/|｜:：,，.。!?！？()\[\]【】「」『』\"'’]+")
 
     @classmethod

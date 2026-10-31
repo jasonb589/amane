@@ -104,7 +104,7 @@ async def test_hentai_search_skips_unrelated_candidates(monkeypatch: pytest.Monk
 
     scraped: list[str] = []
 
-    async def fake_scrape(url: str, options: Any = None) -> MediaMetadata | None:
+    async def fake_scrape(_self: object, url: str, options: Any = None) -> MediaMetadata | None:
         del options
         scraped.append(url)
         if "68jvdw41" in url:
