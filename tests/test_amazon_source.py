@@ -8,7 +8,15 @@ from typing import Any
 import pytest
 
 from amane.crawlers.models import SearchQuery
-from amane.crawlers.sites.amazon import AmazonCrawler, _parse_results, _poster_urls, _title_matches
+from amane.crawlers.sites.amazon import (
+    AmazonCrawler,
+    _clean,
+    _keywords,
+    _match_score,
+    _parse_results,
+    _poster_urls,
+    _title_matches,
+)
 from amane.net.errors import FailureReason, SourceError
 from amane.parsing import ContentType
 
@@ -59,6 +67,34 @@ def test_poster_urls_prefers_original_then_scaled() -> None:
     assert urls[1] == "https://m.media-amazon.com/images/I/81abc._SL1500_.jpg"
 
 
+def test_clean_strips_bracket_notes_and_promo_words() -> None:
+    """DMM 标题里的促销与渠道噪声原样搜亚马逊, 会把正经条目挤出结果页."""
+    raw = "【視聴期限なし】義母 前編|オンラインコード版 アイデアポケット [DVD]"
+    assert _clean(raw) == "義母 前編 アイデアポケット"
+
+
+def test_keywords_fall_back_from_title_to_head_to_number() -> None:
+    terms = _keywords("禁欲の果て 3日間 相沢みなみ アイデアポケット [DVD]", "IPZZ-034")
+    assert terms == ["禁欲の果て 3日間 相沢みなみ アイデアポケット", "禁欲の果て 3日間", "IPZZ-034"]
+
+
+def test_keywords_keep_latin_title_whole() -> None:
+    """纯拉丁标题砍成前半只会搜到别的卷, 只留整标题 + 番号."""
+    assert _keywords("BEAUTY VENUS VIII", "IPZZ-034") == ["BEAUTY VENUS VIII", "IPZZ-034"]
+
+
+def test_match_score_prefers_title_hit_over_number_only() -> None:
+    wanted = "義母 前編"
+    titled = _match_score("JUFD-001", wanted, "義母 前編 アイデアポケット [DVD]")
+    number_only = _match_score("JUFD-001", wanted, "JUFD-001 アイデアポケット [DVD]")
+    assert titled > number_only > 0
+
+
+def test_match_score_rejects_number_hit_on_goods_or_non_disc_listing() -> None:
+    assert _match_score("IPZZ-034", "禁欲の果て", "IPZZ-034 桜空もも 特典生写真") == 0
+    assert _match_score("IPZZ-034", "禁欲の果て", "IPZZ-034 桜空もも") == 0
+
+
 class _StubClient:
     """按顺序应答: 元素为异常时抛出, 否则当页面正文."""
 
@@ -80,7 +116,7 @@ async def test_fetch_retries_when_age_gate_blocks() -> None:
     """亚马逊偶发返回 /age_check/: 换一次请求就正常, 不该直接把整源判失败."""
     page = (
         'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/81abc.jpg">'
+        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg">'
     )
     client = _StubClient([SourceError(FailureReason.AGE_VERIFICATION), page])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
@@ -91,4 +127,25 @@ async def test_fetch_retries_when_age_gate_blocks() -> None:
 
     assert meta is not None
     assert meta.poster_urls
+    assert len(client.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_falls_back_to_next_keyword_when_first_misses() -> None:
+    """标题搜不到时按 主标题 / 番号 继续试, 不能一次没命中就放弃整源."""
+    miss = 'data-asin="B00OTHER01"><img alt="別の作品 [DVD]" src="https://m.media-amazon.com/images/I/71other.jpg">'
+    hit = (
+        'data-asin="B00TEST009"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/81HITJP.jpg">'
+    )
+    client = _StubClient([miss, hit])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="【視聴期限なし】義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST009"
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/81HITJP.jpg"
     assert len(client.calls) == 2

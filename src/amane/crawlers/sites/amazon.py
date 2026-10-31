@@ -12,6 +12,11 @@ Amazon 的图片服务按地址后缀给尺寸: ``<ID>._SL1500_.jpg`` 长边 150
 
 注意: 这条源只对**日文标题**有意义 (有码 / 素人 / 里番的日文原名)。欧美条目在日亚上
 是另一套邦题, 命中率很低 —— 那是 theporndb 的活。
+
+检索词按 ``_keywords()`` 分级回退: **去噪后的整标题 → 主标题 (前两段) → 番号**。
+DMM / FANZA 的商品标题常带促销与渠道噪声 (``【視聴期限なし】`` / ``オンラインコード版`` /
+``特典生写真`` / ``送料無料`` …), 原样丢给亚马逊会把真正的那张封面挤出结果页, 所以先清洗再搜;
+番号只在标题全灭时兜底, 且必须同时命中碟片标记、不能是特典周边条目 —— 否则宁可返回 None。
 """
 
 from __future__ import annotations
@@ -38,9 +43,78 @@ _IMAGE_RE = re.compile(r"m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})")
 _ALT_RE = re.compile(r'alt="([^"]{4,200})"')
 _NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
 _MIN_RATIO = 0.6
-_MAX_CANDIDATES = 6
+_MAX_CANDIDATES = 8
+_MAX_KEYWORDS = 3
+"""检索词最多试几个: 去噪标题 / 主标题 / 番号, 每个词各自带年龄门重试."""
+
+#: DMM / FANZA 商品标题里的促销与渠道噪声: 原样搜亚马逊会把正经条目挤出结果页.
+_NOISE_TOKENS = (
+    "視聴期限なし",
+    "期間限定",
+    "オンラインコード版",
+    "オンラインコード",
+    "ダウンロード版",
+    "レンタル落ち",
+    "特典生写真",
+    "特典映像",
+    "特典",
+    "生写真",
+    "送料無料",
+    "アウトレット",
+    "特別価格",
+    "セール",
+    "中古品",
+    "中古",
+)
+_BRACKET_RE = re.compile(r"【[^】]*】|\[[^\]]*\]|〔[^〕]*〕|（[^）]*）|\([^)]*\)|《[^》]*》|〈[^〉]*〉")
+_SEPARATOR_RE = re.compile(r"[|｜/／]+")
+#: 只靠番号命中时要的碟片标记 / 要排除的周边条目 (同一番号的生写真、ポストカード也占结果位).
+_DISC_RE = re.compile(r"DVD|Blu-?ray|ブルーレイ", re.IGNORECASE)
+_GOODS_RE = re.compile("特典|生写真|ポストカード|クリアファイル|タオル|抱き枕|非売品|カレンダー|フィギュア")
+_NUMBER_ONLY_SCORE = 0.2
+"""番号单独命中的底分: 低于任何标题命中, 用来把「不带标题但确实是本片」的结果排在后面."""
+
 _MAX_SEARCH_ATTEMPTS = 3
-"""取结果页的尝试次数: 亚马逊的 /age_check/ 年龄门是概率性的, 换一次请求常常就正常."""
+"""单个检索词的尝试次数: 亚马逊的 /age_check/ 年龄门是概率性的, 换一次请求常常就正常."""
+
+
+def _clean(title: str) -> str:
+    """去掉标题里的括号备注、促销词与分隔符, 只留可以拿去检索的部分."""
+    text = _BRACKET_RE.sub(" ", title or "")
+    for token in _NOISE_TOKENS:
+        text = text.replace(token, " ")
+    text = _SEPARATOR_RE.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip(" -‐—·・,，.。:：!")
+
+
+def _head(text: str) -> str:
+    """主标题: 前两段 (日站标题常用空格分段: 作品名 女優名 メーカー名).
+
+    只有确实分成三段以上、且前半含日文时才用 —— 纯拉丁标题 (``BEAUTY VENUS VIII``)
+    砍成 ``BEAUTY VENUS`` 只会搜到别的卷.
+    """
+    parts = text.split()
+    if len(parts) <= 2:
+        return ""
+    head = " ".join(parts[:2])
+    return head if re.search("[\u3040-\u30ff\u4e00-\u9fff]", head) else ""
+
+
+def _keywords(title: str, number: str) -> list[str]:
+    """检索词, 由强到弱: 去噪整标题 → 主标题 → 番号; 按比对用的归一化形态去重."""
+    cleaned = _clean(title)
+    candidates = (cleaned, _head(cleaned), (number or "").strip())
+    terms: list[str] = []
+    seen: set[str] = set()
+    for term in candidates:
+        norm = _norm(term)
+        if len(norm) < 4 or norm in seen:
+            continue
+        seen.add(norm)
+        terms.append(term)
+        if len(terms) >= _MAX_KEYWORDS:
+            break
+    return terms
 
 
 def _norm(text: str) -> str:
@@ -60,6 +134,24 @@ def _title_matches(wanted: str, found: str) -> bool:
     if left in right or right in left:
         return True
     return SequenceMatcher(None, left, right).ratio() >= _MIN_RATIO
+
+
+def _match_score(number: str, wanted: str, found: str) -> float:
+    """候选结果的可取分数; ``0`` 表示不能用.
+
+    标题命中按相似度计分; 只剩番号命中时给底分, 并且必须带碟片标记、不是特典周边 ——
+    同一番号在亚马逊上还有一堆生写真 / ポストカード 条目, 取它们的图就是错封面.
+    """
+    number_norm = _norm(number)
+    found_norm = _norm(found)
+    score = 0.0
+    if len(number_norm) >= 4 and number_norm in found_norm:
+        if not _DISC_RE.search(found) or _GOODS_RE.search(found):
+            return 0.0
+        score = _NUMBER_ONLY_SCORE
+    if _title_matches(wanted, found):
+        score += SequenceMatcher(None, _norm(wanted), found_norm).ratio()
+    return score
 
 
 def _parse_results(html: str) -> list[tuple[str, str, str]]:
@@ -114,7 +206,22 @@ class AmazonCrawler(Crawler):
         if len(_norm(title)) < 4:
             return None
 
-        url = _SEARCH_URL.format(term=quote(title, safe=""))
+        for term in _keywords(title, query.number):
+            hit = await self._lookup(term, title, query.number)
+            if hit is None:
+                continue
+            asin, image_id = hit
+            return MediaMetadata(
+                number=query.number,
+                poster_urls=_poster_urls(image_id),
+                source_url=f"{SITE}/dp/{asin}",
+                external_id=asin,
+            )
+        return None
+
+    async def _lookup(self, term: str, title: str, number: str) -> tuple[str, str] | None:
+        """用一个检索词搜一次结果页, 返回 (asin, 图片 ID)."""
+        url = _SEARCH_URL.format(term=quote(term, safe=""))
         html = ""
         for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
             try:
@@ -133,19 +240,13 @@ class AmazonCrawler(Crawler):
         results = _parse_results(html)
         best: tuple[float, str, str] | None = None
         for asin, image_id, found in results:
-            if not _title_matches(title, found):
+            score = _match_score(number, title, found)
+            if score <= 0:
                 continue
-            score = SequenceMatcher(None, _norm(title), _norm(found)).ratio()
             if best is None or score > best[0]:
                 best = (score, asin, image_id)
-        self.logger.debug("amazon search", title=title, candidates=len(results))
+        self.logger.debug("amazon search", term=term, candidates=len(results))
         if best is None:
             return None
-
         _score, asin, image_id = best
-        return MediaMetadata(
-            number=query.number,
-            poster_urls=_poster_urls(image_id),
-            source_url=f"{SITE}/dp/{asin}",
-            external_id=asin,
-        )
+        return asin, image_id
