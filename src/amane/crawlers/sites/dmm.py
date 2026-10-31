@@ -230,6 +230,7 @@ class DmmCrawler(Crawler):
     def _href_urls(cls, text: str) -> list[str]:
         """分类搜索结果里的纯链接详情页 (アニメ目录只给 href, 没有 detailUrl JSON)."""
         return [match[1] for match in cls._HREF_DETAIL_RE.finditer(text)]
+
     @classmethod
     def _href_pairs(cls, text: str) -> list[tuple[str, str]]:
         """搜索结果的 (详情页 URL, 封面 alt 标题) 对; 部分页面没有 alt, 交给 ``_href_urls`` 兜底."""
