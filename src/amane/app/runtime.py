@@ -384,7 +384,6 @@ class AppRuntime:
             log_dir=self.config.cold.log_dir,
         )
 
-
     async def apply_rebuild(self) -> None:
         """串行化 rebuild 与 worker 替换; 旧资源由退役流程在 worker 排空后释放."""
         async with self._rebuild_lock:
