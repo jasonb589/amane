@@ -38,6 +38,11 @@ def test_title_matches_rejects_unrelated() -> None:
     assert not _title_matches("全然ちがう作品名", "別の商品タイトルです")
 
 
+def test_title_matches_folds_compatibility_numerals() -> None:
+    """亚马逊把 VIII 写成兼容字符 Ⅷ; NFKC 折叠后必须判为同一标题."""
+    assert _title_matches("BEAUTY VENUS VIII", "BEAUTY VENUS Ⅷ アイデアポケット [DVD]")
+
+
 def test_poster_urls_prefers_original_then_scaled() -> None:
     urls = _poster_urls("81abc")
     assert urls[0] == "https://m.media-amazon.com/images/I/81abc.jpg"

@@ -17,9 +17,11 @@ Amazon 的图片服务按地址后缀给尺寸: ``<ID>._SL1500_.jpg`` 长边 150
 from __future__ import annotations
 
 import re
+import unicodedata
 from difflib import SequenceMatcher
 from typing import override
 from urllib.parse import quote
+
 
 from ...enums import SiteName
 from ...plugins.models import SourceTrait
@@ -40,8 +42,12 @@ _MAX_CANDIDATES = 6
 
 
 def _norm(text: str) -> str:
-    """只留可读字符, 用于标题比对."""
-    return _NOISE_RE.sub("", (text or "").lower())
+    """只留可读字符, 用于标题比对.
+
+    先做 NFKC: 罗马数字 (Ⅷ → VIII)、全角字母/数字/半角假名都是兼容字符, 不折叠就会被当成噪声删掉,
+    ``BEAUTY VENUS VIII`` 与亚马逊的 ``BEAUTY VENUS Ⅷ`` 会判成两个标题.
+    """
+    return _NOISE_RE.sub("", unicodedata.normalize("NFKC", text or "").lower())
 
 
 def _title_matches(wanted: str, found: str) -> bool:
