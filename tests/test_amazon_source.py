@@ -9,8 +9,8 @@ import pytest
 
 from amane.crawlers.models import SearchQuery
 from amane.crawlers.sites.amazon import AmazonCrawler, _parse_results, _poster_urls, _title_matches
-from amane.enums import ContentType
 from amane.net.errors import FailureReason, SourceError
+from amane.parsing import ContentType
 
 
 def test_profile_leaves_accept_language_to_fingerprint() -> None:
