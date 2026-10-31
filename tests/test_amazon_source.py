@@ -9,9 +9,9 @@ import pytest
 
 from amane.crawlers.models import SearchQuery
 from amane.crawlers.sites.amazon import (
+    _GATE_RE,
     AmazonCrawler,
     _clean,
-    _GATE_RE,
     _keywords,
     _match_score,
     _parse_results,
