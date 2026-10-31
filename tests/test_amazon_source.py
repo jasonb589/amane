@@ -162,7 +162,9 @@ async def test_fetch_raises_when_age_gate_persists() -> None:
 
 def test_age_verification_modal_is_not_a_gate() -> None:
     """成人分区结果页每页都带 ``Age Verification`` 弹窗标题, 那不是拦截页 —— 判死就永远搜不到."""
-    page = '<span class="s-black-curtain-modal-content">data-a-modal="{&quot;header&quot;:&quot;Age Verification&quot;}"'
+    page = (
+        '<span class="s-black-curtain-modal-content">data-a-modal="{&quot;header&quot;:&quot;Age Verification&quot;}"'
+    )
     assert _GATE_RE.search(page) is None
 
 
