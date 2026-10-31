@@ -11,6 +11,7 @@ from amane.crawlers.models import SearchQuery
 from amane.crawlers.sites.amazon import (
     AmazonCrawler,
     _clean,
+    _GATE_RE,
     _keywords,
     _match_score,
     _parse_results,
@@ -159,25 +160,10 @@ async def test_fetch_raises_when_age_gate_persists() -> None:
     assert len(client.calls) == 3
 
 
-@pytest.mark.asyncio
-async def test_fetch_accepts_page_with_age_verification_modal() -> None:
+def test_age_verification_modal_is_not_a_gate() -> None:
     """成人分区结果页每页都带 ``Age Verification`` 弹窗标题, 那不是拦截页 —— 判死就永远搜不到."""
-    page = (
-        '<span class="s-black-curtain-modal-content">'
-        'data-a-modal="{&quot;header&quot;:&quot;Age Verification&quot;}"'
-        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg">'
-    )
-    client = _StubClient([page])
-    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
-    query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
-
-    meta = await crawler.fetch(query)
-
-    assert meta is not None
-    assert meta.external_id == "B00TEST001"
-    assert len(client.calls) == 1
+    page = '<span class="s-black-curtain-modal-content">data-a-modal="{&quot;header&quot;:&quot;Age Verification&quot;}"'
+    assert _GATE_RE.search(page) is None
 
 
 @pytest.mark.asyncio
@@ -199,3 +185,64 @@ async def test_fetch_falls_back_to_next_keyword_when_first_misses() -> None:
     assert meta.external_id == "B00TEST009"
     assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/81HITJP.jpg"
     assert len(client.calls) == 2
+
+
+def test_parse_results_skips_placeholder_images() -> None:
+    """成人卡片未过黑幕前只给 60x40 占位图, 取它就是给错封面."""
+    html = (
+        'data-asin="B00ADULT01"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+        'data-asin="B00OTHER02"><img alt="別の商品 [DVD]" src="https://m.media-amazon.com/images/I/71zzzQQ.jpg">'
+    )
+    assert [row[0] for row in _parse_results(html)] == ["B00OTHER02"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_unlocks_black_curtain_for_adult_covers() -> None:
+    """看到黑幕弹窗就点一次「Yes」, 然后重取: 换来的页面才有真封面."""
+    curtain = (
+        '<span class="s-black-curtain-modal-content">Age Verification</span>'
+        'data-asin="B00CURTAIN"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+    )
+    unlocked = (
+        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/91bhG1CxHUL._AC_UL320_.jpg">'
+    )
+    client = _StubClient([curtain, "<html>ok</html>", unlocked])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST001"
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/91bhG1CxHUL.jpg"
+    assert len(client.calls) == 3
+    assert "/black-curtain/save-eligibility/" in client.calls[1]
+
+
+@pytest.mark.asyncio
+async def test_fetch_unlocks_black_curtain_only_once() -> None:
+    """黑幕只点一次: 后面换检索词时不该每次都去打那个保存接口."""
+    curtain = (
+        '<span class="s-black-curtain">'
+        'data-asin="B00CURTAIN"><img alt="べつの作品 [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+    )
+    hit = (
+        'data-asin="B00TEST077"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/91ZYXW9HUL._AC_UL320_.jpg">'
+    )
+    # 检索词1: 黑幕页 → 解锁 → 还是黑幕页(无命中); 检索词2: 命中
+    client = _StubClient([curtain, "<html>ok</html>", curtain, hit])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST077"
+    assert sum(1 for call in client.calls if "save-eligibility" in call) == 1

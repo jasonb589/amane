@@ -10,6 +10,10 @@ Amazon 的图片服务按地址后缀给尺寸: ``<ID>._SL1500_.jpg`` 长边 150
 命中判据与别处一致: 结果标题必须**包含**聚合标题 (忽略空格与标点), 或相似度达标;
 否则宁可返回 None, 也不给错封面。
 
+成人区的封面被「黑幕」挡着: 没点过「Are you over 18?」的会话, 结果页里的成人卡片只有
+60x40 的占位图. 所以遇到黑幕弹窗就调一次它的保存接口 (会话级 cookie), 再重取同一页 ——
+之后卡片才带真封面. 占位图 ID 在 ``_PLACEHOLDER_IDS`` 里显式跳过.
+
 注意: 这条源只对**日文标题**有意义 (有码 / 素人 / 里番的日文原名)。欧美条目在日亚上
 是另一套邦题, 命中率很低 —— 那是 theporndb 的活。
 
@@ -46,6 +50,9 @@ _ALT_RE = re.compile(r'alt="([^"]{4,200})"')
 _NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
 _MIN_RATIO = 0.6
 _MAX_CANDIDATES = 8
+#: 亚马逊的占位图 ID (60x40 的 loading gif / 1x1 透明图). 成人区卡片在年龄门确认前只有它们,
+#: 取下来就是一张废图 —— 见到就当这个候选没有封面.
+_PLACEHOLDER_IDS = frozenset({"01RmK+J4pJL", "01mI9NDJJTL"})
 _MAX_KEYWORDS = 3
 """检索词最多试几个: 整标题 → 逐段截短, 每个词各自带年龄门重试."""
 
@@ -74,6 +81,10 @@ _CJK_RE = re.compile("[\u3040-\u30ff\u4e00-\u9fff]")
 #: 真正的年龄门: 跳转 ``/age_check/`` 或带 ``driver-verify`` 的表单. 成人分区结果页里那个
 #: ``Age Verification`` 只是 18 禁弹窗 (``black-curtain-popover``) 的标题, 不能当拦截判据.
 _GATE_RE = re.compile(r'driver-verify|/age_check/|name="agecheck"', re.IGNORECASE)
+#: 黑幕弹窗 ("page contains adult material ... Are you over 18?"): 未点「Yes」前成人卡片只给占位图.
+_CURTAIN_RE = re.compile(r"black-curtain-popover|s-black-curtain", re.IGNORECASE)
+#: 点「Yes」走的保存接口; ``returnUrl`` 是点了之后要回跳的页面.
+_ELIGIBILITY_URL = SITE + "/-/en/black-curtain/save-eligibility/black-curtain?returnUrl={}"
 #: 只靠番号命中时要的碟片标记 / 要排除的周边条目 (同一番号的生写真、ポストカード也占结果位).
 _DISC_RE = re.compile(r"DVD|Blu-?ray|ブルーレイ", re.IGNORECASE)
 _GOODS_RE = re.compile("特典|生写真|ポストカード|クリアファイル|タオル|抱き枕|非売品|カレンダー|フィギュア")
@@ -166,7 +177,8 @@ def _parse_results(html: str) -> list[tuple[str, str, str]]:
         asin, block = blocks[index], blocks[index + 1]
         image = _IMAGE_RE.search(block)
         title = _ALT_RE.search(block)
-        if image is None or title is None:
+        if image is None or title is None or image.group(1) in _PLACEHOLDER_IDS:
+            # 成人区的卡片在年龄门未确认前只给占位图 (60x40 的 loading gif), 取它等于给错封面.
             continue
         results.append((asin, image.group(1), title.group(1)))
         if len(results) >= _MAX_CANDIDATES:
@@ -182,6 +194,9 @@ def _poster_urls(image_id: str) -> list[str]:
 
 class AmazonCrawler(Crawler):
     """用日文标题补一张高清 DVD 封面, 不提供其它字段."""
+
+    #: 本实例是否已经点过黑幕弹窗的「Yes」(会话级 cookie, 一次就够).
+    _unlocked = False
 
     @classmethod
     @override
@@ -227,22 +242,17 @@ class AmazonCrawler(Crawler):
     async def _lookup(self, term: str, title: str, number: str) -> tuple[str, str] | None:
         """用一个检索词搜一次结果页, 返回 (asin, 图片 ID)."""
         url = _SEARCH_URL.format(term=quote(term, safe=""))
-        html = ""
-        for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
-            try:
-                # 故意用 get_text 而不是 get_html: 通用拦截启发式把结果页里的 "Age Verification"
-                # 弹窗标题当成年龄门 (成人分区每页都有那个 black-curtain 弹窗), 会把正常页面判死.
-                html = await self.client.get_text(url, cookies=self.cookies or None)
-            except RequestError as exc:
-                self.logger.debug("amazon search failed", error=str(exc))
+        html = await self._fetch_page(url)
+        if html is None:
+            return None
+        if not self._unlocked and _CURTAIN_RE.search(html):
+            # 成人区的卡片在年龄门未确认前只给 60x40 占位图; 走一次「我已成年」的保存接口
+            # (会话级, cookie 落在同一个 session 里), 之后同一会话的页面才带真封面.
+            self._unlocked = True
+            await self._unlock(url)
+            html = await self._fetch_page(url)
+            if html is None:
                 return None
-            if not _GATE_RE.search(html):
-                break
-            # 真正的年龄门 (/age_check/) 是概率性的: 同一 URL 换一次请求往往就正常,
-            # 用尽次数后照常上报, 不当成"没搜到".
-            if attempt == _MAX_SEARCH_ATTEMPTS:
-                raise SourceError(FailureReason.AGE_VERIFICATION, detail=url)
-            self.logger.debug("amazon age gate, retry", attempt=attempt, url=url)
 
         results = _parse_results(html)
         best: tuple[float, str, str] | None = None
@@ -257,3 +267,32 @@ class AmazonCrawler(Crawler):
             return None
         _score, asin, image_id = best
         return asin, image_id
+
+    async def _fetch_page(self, url: str) -> str | None:
+        """取一页正文; 真正的年龄门重试, 其它网络错误当成没搜到."""
+        for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
+            try:
+                # 故意用 get_text 而不是 get_html: 通用拦截启发式把结果页里的 "Age Verification"
+                # 弹窗标题当成年龄门 (成人分区每页都有那个 black-curtain 弹窗), 会把正常页面判死.
+                html = await self.client.get_text(url, cookies=self.cookies or None)
+            except RequestError as exc:
+                self.logger.debug("amazon search failed", error=str(exc))
+                return None
+            if not _GATE_RE.search(html):
+                return html
+            # 真正的年龄门 (/age_check/) 是概率性的: 同一 URL 换一次请求往往就正常,
+            # 用尽次数后照常上报, 不当成"没搜到".
+            if attempt == _MAX_SEARCH_ATTEMPTS:
+                raise SourceError(FailureReason.AGE_VERIFICATION, detail=url)
+            self.logger.debug("amazon age gate, retry", attempt=attempt, url=url)
+        return None
+
+    async def _unlock(self, return_url: str) -> None:
+        """点一次黑幕弹窗的「Yes」: 保存成人内容合格标记 (失败不影响后续检索)."""
+        url = _ELIGIBILITY_URL.format(quote(return_url, safe=""))
+        try:
+            await self.client.get_text(url, cookies=self.cookies or None)
+        except RequestError as exc:
+            self.logger.debug("amazon eligibility failed", error=str(exc))
+            return
+        self.logger.debug("amazon black curtain unlocked", url=return_url)
