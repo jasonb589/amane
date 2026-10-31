@@ -84,7 +84,11 @@ def test_keywords_truncate_from_long_to_short_then_number() -> None:
 
 def test_keywords_drop_trailing_maker_name() -> None:
     """实测: 多带一个厂商名亚马逊就 0 条, 砍掉才有结果."""
-    assert _keywords("義母 前編 アイデアポケット", "JUFD-001") == ["義母 前編 アイデアポケット", "義母 前編", "JUFD-001"]
+    assert _keywords("義母 前編 アイデアポケット", "JUFD-001") == [
+        "義母 前編 アイデアポケット",
+        "義母 前編",
+        "JUFD-001",
+    ]
 
 
 def test_keywords_keep_latin_title_whole() -> None:
