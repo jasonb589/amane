@@ -192,6 +192,12 @@ class DmmCrawler(Crawler):
     _HENTAI_MIN_RATIO = 0.55
     _TITLE_NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
     _HREF_DETAIL_RE = re.compile(r'href="(https://www\.dmm\.co\.jp/[^"]*?/-\/detail/=\/cid=[a-z0-9_]+/)')
+    #: 通販搜索结果里每个条目都带封面 alt (就是作品名): 抓详情**之前**就能按标题排序,
+    #: 不必再按 DMM 的搜索排名一个个试 —— 它会把无关作品排前面, 目标常在第十几位.
+    _HREF_TITLE_RE = re.compile(
+        r'href="(https://www\.dmm\.co\.jp/[^"]*?/-\\/detail/=\\/cid=[a-z0-9_]+/)"'
+        r'[^>]*>\s*<span class="img"><img[^>]*?alt="([^"]*)"'
+    )
     _KEYWORD_NOISE_RE = re.compile(r"[〜～~☆★・･\-–—_/|｜:：,，.。!?！？()\[\]【】「」『』\"'’]+")
 
     @classmethod
@@ -224,6 +230,17 @@ class DmmCrawler(Crawler):
     def _href_urls(cls, text: str) -> list[str]:
         """分类搜索结果里的纯链接详情页 (アニメ目录只给 href, 没有 detailUrl JSON)."""
         return [match[1] for match in cls._HREF_DETAIL_RE.finditer(text)]
+    @classmethod
+    def _href_pairs(cls, text: str) -> list[tuple[str, str]]:
+        """搜索结果的 (详情页 URL, 封面 alt 标题) 对; 部分页面没有 alt, 交给 ``_href_urls`` 兜底."""
+        return [(match[1], match[2]) for match in cls._HREF_TITLE_RE.finditer(text)]
+
+    @classmethod
+    def _rank_hentai(cls, wanted: str, pairs: list[tuple[str, str]]) -> list[str]:
+        """按标题接近度排序候选: 搜索排名靠前的多是同系列 / 同分类的其它作品."""
+        scored = [(cls._title_ratio(wanted, title), index, url) for index, (url, title) in enumerate(pairs)]
+        scored.sort(key=lambda row: (-row[0], _hentai_priority(row[2]), row[1]))
+        return [url for _score, _index, url in scored]
 
     @classmethod
     def _hentai_title_matches(cls, wanted: str, found: str | None) -> bool:
@@ -256,21 +273,26 @@ class DmmCrawler(Crawler):
         return urls
 
     async def _search_hentai(self, number: str) -> str | None:
-        """按标题搜 DMM 动漫, 候选逐个抓取核对标题; 相似度不足宁可返回 None."""
+        """按标题搜 DMM 动漫, 候选先按标题接近度排序再逐个核对; 近似到不了就直接放弃."""
         candidates: list[str] = []
         for keyword in self._hentai_keywords(number):
-            found: list[str] = []
+            pairs: list[tuple[str, str]] = []
+            plain: list[str] = []
             # アニメ目录页与普通搜索都要: 前者才有 アダルトアニメ 条目, 后者覆盖配信/通販其它分类.
             for template in (self._HENTAI_ANIME_SEARCH_URL, self._HENTAI_SEARCH_URL):
                 try:
                     text = await self.client.get_html(template.format(quote(keyword, safe="")), cookies=self.cookies)
                 except RequestError:
                     continue
-                found.extend(self._href_urls(text))
-                found.extend(self._detail_urls(text))
-            # 配信页 (/digital/ = video.dmm.co.jp) 优先: 字段更全, sample 剧照也更多;
-            # 通販 (/mono/) 次之, 其它兜底. 同一档内保持搜索排名顺序 (sorted 稳定).
-            for url in sorted(found, key=_hentai_priority):
+                pairs.extend(self._href_pairs(text))
+                plain.extend(self._href_urls(text))
+                plain.extend(self._detail_urls(text))
+            # 带标题的条目按接近度排前面 (完全不看 DMM 的搜索排名); 没标题的 (配信页等) 排后面,
+            # 同一档内配信 (/digital/) 优先: 字段更全, sample 剧照也更多.
+            for url in self._rank_hentai(number, pairs):
+                if url not in candidates:
+                    candidates.append(url)
+            for url in sorted(plain, key=_hentai_priority):
                 if url not in candidates:
                     candidates.append(url)
             if candidates:

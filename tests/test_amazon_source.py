@@ -265,6 +265,12 @@ def test_search_title_falls_back_to_aggregated_title() -> None:
     assert _search_title(None) == ""
 
 
+def test_search_title_uses_japanese_number_as_title() -> None:
+    """里番没有番号: 文件名里的日文标题就落在 number 上, 所有来源都失手时也拿它检索."""
+    assert _search_title(None, "義母 前編") == "義母 前編"
+    assert _search_title(None, "IPZZ-034") == ""
+
+
 @pytest.mark.asyncio
 async def test_fetch_searches_japanese_title_when_field_is_translated() -> None:
     page = (

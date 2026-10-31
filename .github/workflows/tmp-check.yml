@@ -22,7 +22,9 @@ jobs:
       - name: Lint
         run: |
           uv run ruff check src/amane tests scripts
-          uv run ruff format --check src/amane/crawlers/sites/amazon.py tests/test_amazon_source.py
+          uv run ruff format --check src/amane/crawlers/sites/amazon.py src/amane/crawlers/sites/dmm.py \
+            src/amane/aggregate/models.py src/amane/aggregate/engine.py \
+            tests/test_amazon_source.py tests/test_dmm_hentai_anime.py tests/aggregate/test_engine.py
 
       - name: Tests (amazon)
         run: uv run pytest tests/test_amazon_source.py -q

@@ -177,29 +177,33 @@ def _match_score(number: str, wanted: str, found: str) -> float:
     return score
 
 
-def _search_title(partial: AggregatedMetadata | None) -> str:
-    """检索用的标题: 优先第一段来源里的**日文原题**, 再退到聚合标题.
+def _search_title(partial: AggregatedMetadata | None, number: str = "") -> str:
+    """检索用的标题: 优先第一段来源里的**日文原题**, 再退到聚合标题, 最后退到番号位上的日文标题.
 
     ``field_language.title`` 设成中文时聚合标题是译名 (``义母 前篇``), 拿它搜日亚必然 0 条;
     日亚认的是原文 (``義母 前編`` / ``BEAUTY VENUS VIII``). 所以先看各来源的裸结果.
+    里番没有番号, 文件名里的日文标题就落在 ``query.number`` 上 —— 全部来源都失手时也用它.
     """
-    if partial is None:
-        return ""
-    raw = getattr(partial, "raw", None) or {}
-    for site in _RAW_TITLE_ORDER:
-        entry = raw.get(site)
-        if not isinstance(entry, dict):
-            continue
-        value = entry.get("title")
-        if isinstance(value, str) and len(_norm(value)) >= 4:
-            return value.strip()
-    for site, entry in raw.items():
-        if not site.endswith(":jp") or not isinstance(entry, dict):
-            continue
-        value = entry.get("title")
-        if isinstance(value, str) and len(_norm(value)) >= 4:
-            return value.strip()
-    return (partial.title or "").strip()
+    if partial is not None:
+        raw = getattr(partial, "raw", None) or {}
+        for site in _RAW_TITLE_ORDER:
+            entry = raw.get(site)
+            if not isinstance(entry, dict):
+                continue
+            value = entry.get("title")
+            if isinstance(value, str) and len(_norm(value)) >= 4:
+                return value.strip()
+        for site, entry in raw.items():
+            if not site.endswith(":jp") or not isinstance(entry, dict):
+                continue
+            value = entry.get("title")
+            if isinstance(value, str) and len(_norm(value)) >= 4:
+                return value.strip()
+        title = (partial.title or "").strip()
+        if title:
+            return title
+    candidate = (number or "").strip()
+    return candidate if _CJK_RE.search(candidate) else ""
 
 
 def _parse_results(html: str) -> list[tuple[str, str, str]]:
@@ -255,7 +259,7 @@ class AmazonCrawler(Crawler):
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
-        title = _search_title(query.partial_result)
+        title = _search_title(query.partial_result, query.number)
         if len(_norm(title)) < 4:
             return None
 
