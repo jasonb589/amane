@@ -14,8 +14,9 @@ Amazon 的图片服务按地址后缀给尺寸: ``<ID>._SL1500_.jpg`` 长边 150
 否则宁可返回 None, 也不给错封面。
 
 成人区的封面被「黑幕」挡着: 没点过「Are you over 18?」的会话, 结果页里的成人卡片只有
-60x40 的占位图. 所以遇到黑幕弹窗就调一次它的保存接口 (会话级 cookie), 再重取同一页 ——
-之后卡片才带真封面. 占位图 ID 在 ``_PLACEHOLDER_IDS`` 里显式跳过.
+60x40 的占位图. 所以先在**移动版搜索页**找 (那里不给占位图, 直接是真封面), 移动版没命中
+才回桌面版: 遇到黑幕弹窗就调一次它的保存接口并把**跳回来的正文**直接用掉.
+占位图 ID 在 ``_PLACEHOLDER_IDS`` 里显式跳过.
 
 注意: 这条源只对**日文标题**有意义 (有码 / 素人 / 里番的日文原名)。欧美条目在日亚上
 是另一套邦题, 命中率很低 —— 那是 theporndb 的活。
@@ -48,6 +49,9 @@ if TYPE_CHECKING:
 
 SITE = "https://www.amazon.co.jp"
 _SEARCH_URL = SITE + "/s?k={term}&i=dvd"
+#: 移动版搜索页: 成人条目**不给黑幕占位图**, 直接就是真封面 (实测 18 条全带 I/<id>),
+#: 所以先走它; 桌面版只在移动版没命中时兜底.
+_MOBILE_SEARCH_URL = SITE + "/gp/aw/s?k={term}&i=dvd"
 
 # 结果块以 data-asin 分隔; 块内取第一张图与第一段 alt 文本 (alt 就是商品名).
 _ASIN_SPLIT_RE = re.compile(r'data-asin="([A-Z0-9]{10})"')
@@ -102,6 +106,9 @@ _RAW_TITLE_ORDER = ("r18dev:jp", "dmm", "avbase", "javbus", "official")
 
 _MAX_SEARCH_ATTEMPTS = 3
 """单个检索词的尝试次数: 亚马逊的 /age_check/ 年龄门是概率性的, 换一次请求常常就正常."""
+
+_UNLOCK_LIMIT = 2
+"""一次刮削里最多点几次黑幕弹窗的「Yes」: 每次多一个请求, 两次还没真封面就不再试."""
 
 
 def _clean(title: str) -> str:
@@ -167,12 +174,14 @@ def _match_score(number: str, wanted: str, found: str) -> float:
     """
     number_norm = _norm(number)
     found_norm = _norm(found)
+    titled = _title_matches(wanted, found)
     score = 0.0
     if len(number_norm) >= 4 and number_norm in found_norm:
-        if not _DISC_RE.search(found) or _GOODS_RE.search(found):
+        # 番号也在标题里: 里番/素人的番号位就是作品名, 这时按标题命中算, 不套碟片规则.
+        if not titled and (not _DISC_RE.search(found) or _GOODS_RE.search(found)):
             return 0.0
         score = _NUMBER_ONLY_SCORE
-    if _title_matches(wanted, found):
+    if titled:
         score += SequenceMatcher(None, _norm(wanted), found_norm).ratio()
     return score
 
@@ -233,8 +242,8 @@ def _poster_urls(image_id: str) -> list[str]:
 class AmazonCrawler(Crawler):
     """用日文标题补一张高清 DVD 封面, 不提供其它字段."""
 
-    #: 本实例是否已经点过黑幕弹窗的「Yes」(会话级 cookie, 一次就够).
-    _unlocked = False
+    #: 本实例点过几次黑幕弹窗的「Yes」: 每次多一个请求 (带上跳回来的正文), 试两次就够.
+    _unlock_attempts = 0
 
     @classmethod
     @override
@@ -277,20 +286,34 @@ class AmazonCrawler(Crawler):
         return None
 
     async def _lookup(self, term: str, title: str, number: str) -> tuple[str, str] | None:
-        """用一个检索词搜一次结果页, 返回 (asin, 图片 ID)."""
-        url = _SEARCH_URL.format(term=quote(term, safe=""))
-        html = await self._fetch_page(url)
-        if html is None:
-            return None
-        if not self._unlocked and _CURTAIN_RE.search(html):
-            # 成人区的卡片在年龄门未确认前只给 60x40 占位图; 走一次「我已成年」的保存接口
-            # (会话级, cookie 落在同一个 session 里), 之后同一会话的页面才带真封面.
-            self._unlocked = True
-            await self._unlock(url)
+        """用一个检索词搜一次结果页, 返回 (asin, 图片 ID).
+
+        先走移动版: 成人条目在那里直接给真封面, 没有黑幕占位图. 移动版没命中才回桌面版,
+        桌面版要处理黑幕 (点一次「Yes」并把跳回来的正文直接吃掉).
+        """
+        for mobile in (True, False):
+            url = (_MOBILE_SEARCH_URL if mobile else _SEARCH_URL).format(term=quote(term, safe=""))
             html = await self._fetch_page(url)
             if html is None:
-                return None
+                continue
+            if not mobile and _CURTAIN_RE.search(html) and self._unlock_attempts < _UNLOCK_LIMIT:
+                # 成人区的卡片在年龄门未确认前只给 60x40 占位图. 资格跟着这一次请求链走,
+                # 单靠 cookie 落地再重取并不可靠 (实测重取回来还是占位图), 所以先吃跳回来的正文.
+                self._unlock_attempts += 1
+                unlocked = await self._unlock(url)
+                if unlocked is not None and _parse_results(unlocked):
+                    html = unlocked
+                else:
+                    html = await self._fetch_page(url)
+                    if html is None:
+                        continue
+            hit = self._best(html, term, title, number)
+            if hit is not None:
+                return hit
+        return None
 
+    def _best(self, html: str, term: str, title: str, number: str) -> tuple[str, str] | None:
+        """一页结果里挑最像的那条; 没有可用的返回 None."""
         results = _parse_results(html)
         best: tuple[float, str, str] | None = None
         for asin, image_id, found in results:
@@ -324,12 +347,13 @@ class AmazonCrawler(Crawler):
             self.logger.debug("amazon age gate, retry", attempt=attempt, url=url)
         return None
 
-    async def _unlock(self, return_url: str) -> None:
-        """点一次黑幕弹窗的「Yes」: 保存成人内容合格标记 (失败不影响后续检索)."""
+    async def _unlock(self, return_url: str) -> str | None:
+        """点一次黑幕弹窗的「Yes」, 返回跳回的结果页正文 (失败返回 None)."""
         url = _ELIGIBILITY_URL.format(quote(return_url, safe=""))
         try:
-            await self.client.get_text(url, cookies=self.cookies or None)
+            text = await self.client.get_text(url, cookies=self.cookies or None)
         except RequestError as exc:
             self.logger.debug("amazon eligibility failed", error=str(exc))
-            return
+            return None
         self.logger.debug("amazon black curtain unlocked", url=return_url)
+        return text

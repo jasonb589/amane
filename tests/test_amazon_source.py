@@ -200,9 +200,35 @@ def test_parse_results_skips_placeholder_images() -> None:
     assert [row[0] for row in _parse_results(html)] == ["B00OTHER02"]
 
 
+_MOBILE_MISS = (
+    'data-asin="B00MOBILE1"><img alt="別の作品 [DVD]" src="https://m.media-amazon.com/images/I/71mobile.jpg">'
+)
+"""移动版页里只有一条无关条目: 用来把流程推到桌面版 (黑幕那块)."""
+
+
+@pytest.mark.asyncio
+async def test_fetch_prefers_mobile_search_page() -> None:
+    """移动版结果页直接给真封面 (没有黑幕占位图): 一个请求搞定, 不该再走桌面版."""
+    mobile = (
+        'data-asin="B00MOB0001"><img alt="義母 前編 成咲優美" '
+        'src="https://m.media-amazon.com/images/I/81WvjXYyCrL._AC_UL320_.jpg">'
+    )
+    client = _StubClient([mobile])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("義母 前編", content_type=ContentType.HENTAI)
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00MOB0001"
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/81WvjXYyCrL.jpg"
+    assert "/gp/aw/s?" in client.calls[0]
+    assert len(client.calls) == 1
+
+
 @pytest.mark.asyncio
 async def test_fetch_unlocks_black_curtain_for_adult_covers() -> None:
-    """看到黑幕弹窗就点一次「Yes」, 然后重取: 换来的页面才有真封面."""
+    """移动版没命中时回桌面版: 看到黑幕就点一次「Yes」, 跳回来的正文才有真封面."""
     curtain = (
         '<span class="s-black-curtain-modal-content">Age Verification</span>'
         'data-asin="B00CURTAIN"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
@@ -212,7 +238,7 @@ async def test_fetch_unlocks_black_curtain_for_adult_covers() -> None:
         'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
         'src="https://m.media-amazon.com/images/I/91bhG1CxHUL._AC_UL320_.jpg">'
     )
-    client = _StubClient([curtain, "<html>ok</html>", unlocked])
+    client = _StubClient([_MOBILE_MISS, curtain, "<html>ok</html>", unlocked])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
     query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
@@ -222,13 +248,39 @@ async def test_fetch_unlocks_black_curtain_for_adult_covers() -> None:
     assert meta is not None
     assert meta.external_id == "B00TEST001"
     assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/91bhG1CxHUL.jpg"
+    assert "/gp/aw/s?" in client.calls[0]
+    assert "/black-curtain/save-eligibility/" in client.calls[2]
+    assert len(client.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_fetch_uses_unlock_response_when_it_already_has_covers() -> None:
+    """点「Yes」跳回来的那一页本身就带真封面: 直接吃掉, 不该再多发一次搜索请求."""
+    curtain = (
+        '<span class="s-black-curtain">'
+        'data-asin="B00CURTAIN"><img alt="BEAUTY VENUS Ⅷ [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+    )
+    unlocked = (
+        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/91bhG1CxHUL._AC_UL320_.jpg">'
+    )
+    client = _StubClient([_MOBILE_MISS, curtain, unlocked])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST001"
+    assert "/black-curtain/save-eligibility/" in client.calls[2]
     assert len(client.calls) == 3
-    assert "/black-curtain/save-eligibility/" in client.calls[1]
 
 
 @pytest.mark.asyncio
 async def test_fetch_unlocks_black_curtain_only_once() -> None:
-    """黑幕只点一次: 后面换检索词时不该每次都去打那个保存接口."""
+    """黑幕只点一次: 换检索词时不该每次都去打那个保存接口."""
     curtain = (
         '<span class="s-black-curtain">'
         'data-asin="B00CURTAIN"><img alt="べつの作品 [DVD]" '
@@ -238,8 +290,8 @@ async def test_fetch_unlocks_black_curtain_only_once() -> None:
         'data-asin="B00TEST077"><img alt="義母 前編 アイデアポケット [DVD]" '
         'src="https://m.media-amazon.com/images/I/91ZYXW9HUL._AC_UL320_.jpg">'
     )
-    # 检索词1: 黑幕页 → 解锁 → 还是黑幕页(无命中); 检索词2: 命中
-    client = _StubClient([curtain, "<html>ok</html>", curtain, hit])
+    # 检索词1: 移动版无关 → 桌面版黑幕 → 解锁(正文没命中) → 重取还是黑幕; 检索词2: 移动版命中
+    client = _StubClient([_MOBILE_MISS, curtain, "<html>ok</html>", curtain, hit])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
     query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット")  # type: ignore[assignment]
