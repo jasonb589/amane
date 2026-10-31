@@ -13,10 +13,12 @@ Amazon 的图片服务按地址后缀给尺寸: ``<ID>._SL1500_.jpg`` 长边 150
 注意: 这条源只对**日文标题**有意义 (有码 / 素人 / 里番的日文原名)。欧美条目在日亚上
 是另一套邦题, 命中率很低 —— 那是 theporndb 的活。
 
-检索词按 ``_keywords()`` 分级回退: **去噪后的整标题 → 主标题 (前两段) → 番号**。
+检索词按 ``_keywords()`` 分级回退: **去噪后的整标题 → 逐段砍掉尾部 (厂商 / 女優名) → 番号**。
 DMM / FANZA 的商品标题常带促销与渠道噪声 (``【視聴期限なし】`` / ``オンラインコード版`` /
-``特典生写真`` / ``送料無料`` …), 原样丢给亚马逊会把真正的那张封面挤出结果页, 所以先清洗再搜;
-番号只在标题全灭时兜底, 且必须同时命中碟片标记、不能是特典周边条目 —— 否则宁可返回 None。
+``特典生写真`` / ``送料無料`` …), 原样丢给亚马逊会 0 结果; 而且亚马逊对长检索词几乎按
+"全词都得露脸" 处理, 多一个厂商名同样 0 结果 (实测 ``義母 前編 アイデアポケット`` 0 条,
+``義母 前編`` 13 条), 所以清洗之后还要从长到短逐级截短。番号只在标题全灭时兜底, 且必须同时
+命中碟片标记、不能是特典周边条目 —— 否则宁可返回 None。
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ _NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
 _MIN_RATIO = 0.6
 _MAX_CANDIDATES = 8
 _MAX_KEYWORDS = 3
-"""检索词最多试几个: 去噪标题 / 主标题 / 番号, 每个词各自带年龄门重试."""
+"""检索词最多试几个: 整标题 → 逐段截短, 每个词各自带年龄门重试."""
 
 #: DMM / FANZA 商品标题里的促销与渠道噪声: 原样搜亚马逊会把正经条目挤出结果页.
 _NOISE_TOKENS = (
@@ -68,6 +70,7 @@ _NOISE_TOKENS = (
 )
 _BRACKET_RE = re.compile(r"【[^】]*】|\[[^\]]*\]|〔[^〕]*〕|（[^）]*）|\([^)]*\)|《[^》]*》|〈[^〉]*〉")
 _SEPARATOR_RE = re.compile(r"[|｜/／]+")
+_CJK_RE = re.compile("[\u3040-\u30ff\u4e00-\u9fff]")
 #: 只靠番号命中时要的碟片标记 / 要排除的周边条目 (同一番号的生写真、ポストカード也占结果位).
 _DISC_RE = re.compile(r"DVD|Blu-?ray|ブルーレイ", re.IGNORECASE)
 _GOODS_RE = re.compile("特典|生写真|ポストカード|クリアファイル|タオル|抱き枕|非売品|カレンダー|フィギュア")
@@ -87,33 +90,30 @@ def _clean(title: str) -> str:
     return re.sub(r"\s+", " ", text).strip(" -‐—·・,，.。:：!")
 
 
-def _head(text: str) -> str:
-    """主标题: 前两段 (日站标题常用空格分段: 作品名 女優名 メーカー名).
-
-    只有确实分成三段以上、且前半含日文时才用 —— 纯拉丁标题 (``BEAUTY VENUS VIII``)
-    砍成 ``BEAUTY VENUS`` 只会搜到别的卷.
-    """
-    parts = text.split()
-    if len(parts) <= 2:
-        return ""
-    head = " ".join(parts[:2])
-    return head if re.search("[\u3040-\u30ff\u4e00-\u9fff]", head) else ""
-
-
 def _keywords(title: str, number: str) -> list[str]:
-    """检索词, 由强到弱: 去噪整标题 → 主标题 → 番号; 按比对用的归一化形态去重."""
-    cleaned = _clean(title)
-    candidates = (cleaned, _head(cleaned), (number or "").strip())
+    """检索词, 由强到弱: 整标题 → 逐段砍掉尾部 → 番号; 按比对用的归一化形态去重.
+
+    亚马逊对长检索词接近 "全词都要露脸": ``義母 前編 アイデアポケット`` 是 0 条,
+    ``義母 前編`` 是 13 条 —— 多带一个厂商名就整页空白. 所以从长到短逐级截短, 但砍掉的
+    那一段必须含日文 (纯拉丁标题砍半只会搜到别的卷).
+    """
+    tokens = _clean(title).split()
     terms: list[str] = []
     seen: set[str] = set()
-    for term in candidates:
+    for size in range(len(tokens), 1, -1):
+        if size < len(tokens) and not _CJK_RE.search(" ".join(tokens[size:])):
+            continue
+        term = " ".join(tokens[:size])
         norm = _norm(term)
         if len(norm) < 4 or norm in seen:
             continue
         seen.add(norm)
         terms.append(term)
         if len(terms) >= _MAX_KEYWORDS:
-            break
+            return terms
+    number = (number or "").strip()
+    if len(terms) < _MAX_KEYWORDS and len(_norm(number)) >= 4 and _norm(number) not in seen:
+        terms.append(number)
     return terms
 
 

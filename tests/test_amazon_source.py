@@ -73,9 +73,18 @@ def test_clean_strips_bracket_notes_and_promo_words() -> None:
     assert _clean(raw) == "義母 前編 アイデアポケット"
 
 
-def test_keywords_fall_back_from_title_to_head_to_number() -> None:
+def test_keywords_truncate_from_long_to_short_then_number() -> None:
     terms = _keywords("禁欲の果て 3日間 相沢みなみ アイデアポケット [DVD]", "IPZZ-034")
-    assert terms == ["禁欲の果て 3日間 相沢みなみ アイデアポケット", "禁欲の果て 3日間", "IPZZ-034"]
+    assert terms == [
+        "禁欲の果て 3日間 相沢みなみ アイデアポケット",
+        "禁欲の果て 3日間 相沢みなみ",
+        "禁欲の果て 3日間",
+    ]
+
+
+def test_keywords_drop_trailing_maker_name() -> None:
+    """实测: 多带一个厂商名亚马逊就 0 条, 砍掉才有结果."""
+    assert _keywords("義母 前編 アイデアポケット", "JUFD-001") == ["義母 前編 アイデアポケット", "義母 前編", "JUFD-001"]
 
 
 def test_keywords_keep_latin_title_whole() -> None:
