@@ -49,6 +49,7 @@ class BrowserBackendName(StrEnum):
     OFF = "off"
     PATCHRIGHT = "patchright"
     CAMOUFOX = "camoufox"
+    BSK = "bsk"
     SOLVER = "solver"
 
 

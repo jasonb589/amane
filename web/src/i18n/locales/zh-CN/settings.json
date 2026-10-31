@@ -11,7 +11,8 @@
     "logging": "日志",
     "sr": "图像超分",
     "llm": "LLM 翻译",
-    "watermark": "水印"
+    "watermark": "水印",
+    "semantic": "语义检索"
   },
   "config": {
     "loadError": "加载配置失败"
@@ -356,6 +357,7 @@
               "off": "关闭",
               "patchright": "Patchright",
               "camoufox": "Camoufox",
+              "bsk": "BrowserSkill",
               "solver": "Solver 服务"
             }
           },
@@ -522,12 +524,17 @@
       },
       "browser": {
         "label": "浏览器渲染",
+        "bsk_path": {
+          "label": "BrowserSkill 路径",
+          "description": "留空则从 PATH 查找; 桌面版需要填绝对路径"
+        },
         "backend": {
           "label": "浏览器后端",
           "options": {
             "off": "关闭",
             "patchright": "Patchright",
             "camoufox": "Camoufox",
+            "bsk": "BrowserSkill",
             "solver": "Solver 服务"
           }
         },
@@ -983,6 +990,12 @@
       "config": {
         "label": "插件配置",
         "description": "由插件提供的配置项"
+      }
+    },
+    "semantic": {
+      "auto_maintain": {
+        "label": "自动维护",
+        "description": "图片变化后立即重算该条目的向量; 打开时模型常驻内存"
       }
     }
   }

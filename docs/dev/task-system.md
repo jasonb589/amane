@@ -14,6 +14,8 @@
 | `ORGANIZE` | 范围内已有 Metadata 的 MediaFile 按路径模板落盘, 并删除本次腾空的目录; 缺资源时 `acquire` 可出站 HTTP | 扫描磁盘、运行爬虫、修改 Metadata |
 | `SCAN_INVALID` | 遍历库产出清理清单 (文件黑名单 / 小于最小视频大小 / 残留目录 / 空目录), 写入进程内清单存放 | 一切写操作 |
 | `DELETE` | 按清单标识删除文件与目录, 删对应索引, 按需剪枝 | 整库重新扫描、重新生成清单、写 NFO、回收 Resource |
+| `SEMANTIC_INDEX` | 遍历 Metadata 编码封面与剧照, 对账写 `{data_dir}/embeddings.db`; 首次运行会下载模型 | 不动文件、不写 Metadata |
+| `SEMANTIC_BENCHMARK` | 抽样本地封面与剧照测嵌入吞吐与文本查询延迟, 不写索引 | 不动文件、不写 Metadata / 向量 |
 
 `CLEANUP` / `UPSCALE` 扫描 DB / Resource; `ACTOR_SCRAPE` 刮人物; `R18_IMPORT` 导入 dump. 上述类型均不执行影片落盘.
 
@@ -170,11 +172,11 @@ handler 之间复用的阶段逻辑, 不是一条可跳步的总管线:
 
 **即时** (`POST /tasks`): 接收 `TaskSubmission` (含全部即时 type), 经 `resolve_submission` 得到 `(TaskType, Payload)` 后建 Task. REFRESH / ORGANIZE / SCAN_INVALID 只接受 `library_id`, resolve 时由 library 派生 `path` (submission 可显式覆盖) 与 `recursive` / `patterns`; ORGANIZE 还可带 `media_file_ids`, 与显式 `path` 互斥且不含扫描字段. SCRAPE 采用 number / media_id, 二者可同时提交; **`content_type` 可空**, 为空时仅 media_id 按文件路径解析, 有 number 时按番号推断. 覆盖只作用于这一次 `POST /tasks`. ACTOR_SCRAPE 采用 `actor_id`.
 
-**定时** (`Schedule`): 仅接受 `RoutineSubmission` (`cleanup` / `upscale` / `r18_import` / `rescrape`). 触发时由 `CronScheduler` 用对应 Payload 的 `model_validate` 入队; 编辑只修改 name / cron / enabled, 修改任务类型或 payload 须删除后重建 (见 [api.md](api.md)).
+**定时** (`Schedule`): 仅接受 `RoutineSubmission` (`cleanup` / `upscale` / `r18_import` / `rescrape` / `semantic_index`). 触发时由 `CronScheduler` 用对应 Payload 的 `model_validate` 入队; 编辑只修改 name / cron / enabled, 修改任务类型或 payload 须删除后重建 (见 [api.md](api.md)).
 
 ## ACTOR_SCRAPE
 
-`ActorScrapeHandler` 按 `HotSettings.actor_scraping` 的资料来源 / 头像来源顺序获取 (见 [config.md](config.md)), **先按 `Actor.gender` 与各站 `profile().genders` 过滤** (`unknown` 只请求同时覆盖两性的站; 被裁站不发 HTTP、不消费其 raw 缓存). 站点内按查找名首命中; 聚合是标量填空 (含 `gender`, `unknown` 当空) + 头像优先, 无影片字段 DAG. `use_cache` 与影片同型: 含 `metadata` 时按**已允许**站复用 `Actor.raw` 跳过爬虫 (非法快照降级为重爬), 且只决定是否重新爬取, 不改变写回规则. 写回以本次聚合结果为准, 空位取库内值, 锁定字段保留库内值; 参与且有结果的站点整段覆盖 `Actor.raw`, 未参与站点的快照保留; 别名并入别名行.
+`ActorScrapeHandler` 按 `HotSettings.actor_scraping` 的资料来源 / 头像来源顺序获取 (见 [config.md](config.md)). **站点之间并发, 站内按查找名串行**: 只有「名字未命中」(`not_found` / `no_usable_metadata`) 才换下一个名, 其余 `SourceError` 立即中止本站并记该原因. 裁站按 `Actor.gender` 与各站 `profile().genders`: 性别为 `unknown` 时只先查同时覆盖两性的站, 其余站**暂缓**, 第一段结束后按学到的性别对暂缓站再判一次, 可用则补一段, 未取得性别则不补; 未查站不发 HTTP、不消费其 raw 缓存. 聚合是标量填空 (含 `gender`, `unknown` 当空) + 头像优先, 无影片字段 DAG. `use_cache` 与影片同型: 含 `metadata` 时按**已查**站复用 `Actor.raw` 跳过爬虫 (非法快照降级为重爬), 且只决定是否重新爬取, 不改变写回规则. 写回以本次聚合结果为准, 空位取库内值, 锁定字段保留库内值; 参与且有结果的站点整段覆盖 `Actor.raw`, 未参与站点的快照保留; 别名并入别名行.
 
 **链式自动触发**: `actor_scraping.auto_scrape` 开启 (默认) 时, 影片 SCRAPE 成功后在 `ScrapeHandler` 末尾按清洗解析后的 `meta.actors` 查询 Actor 实体, **`Actor.raw` 非空 (已刮过) 则跳过**, 其余以 **`priority=-1`** 入队 (不抢占影片任务优先级); 同 `actor_id` 已有 queued / running 时复用入队互斥. 链式块内异常只记录 warning, 不阻断刮削主流程.
 

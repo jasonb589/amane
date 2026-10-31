@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Amane API",
-    "version": "0.23.0-custom.1"
+    "version": "0.24.1"
   },
   "paths": {
     "/api/health": {
@@ -126,52 +126,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Get Config Schema"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/config/notify/test": {
-      "post": {
-        "tags": [
-          "config"
-        ],
-        "summary": "Test Notify",
-        "description": "用界面里正在编辑的渠道配置发一条测试通知 (不必先保存).",
-        "operationId": "test_notify",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "title": "Req"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Test Notify"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -987,6 +941,43 @@
             "description": "Sort order"
           },
           {
+            "name": "semantic_query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按画面描述排序; 提供时忽略 sort_by / order",
+              "title": "Semantic Query"
+            },
+            "description": "按画面描述排序; 提供时忽略 sort_by / order"
+          },
+          {
+            "name": "semantic_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "cover",
+                "still"
+              ],
+              "type": "string",
+              "description": "参与语义排序的图片来源",
+              "default": "all",
+              "title": "Semantic Kind"
+            },
+            "description": "参与语义排序的图片来源"
+          },
+          {
             "name": "actor_id",
             "in": "query",
             "required": false,
@@ -1704,6 +1695,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/network/browser": {
+      "get": {
+        "tags": [
+          "network"
+        ],
+        "summary": "Browser Backends",
+        "description": "探测各浏览器后端是否可用于本实例.\n\n结论就是响应体, 端点始终 200; ``selected`` 由当前热配置给出, 界面据此标出「已选但不可用」.",
+        "operationId": "browser_backends",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserBackendReportResponse"
                 }
               }
             }
@@ -5116,6 +5129,12 @@
                   },
                   {
                     "$ref": "#/components/schemas/RescrapeSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SemanticIndexSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SemanticBenchmarkSubmission"
                   }
                 ],
                 "discriminator": {
@@ -5130,7 +5149,9 @@
                     "upscale": "#/components/schemas/UpscaleSubmission",
                     "r18_import": "#/components/schemas/R18ImportSubmission",
                     "actor_scrape": "#/components/schemas/ActorScrapeSubmission",
-                    "rescrape": "#/components/schemas/RescrapeSubmission"
+                    "rescrape": "#/components/schemas/RescrapeSubmission",
+                    "semantic_index": "#/components/schemas/SemanticIndexSubmission",
+                    "semantic_benchmark": "#/components/schemas/SemanticBenchmarkSubmission"
                   }
                 },
                 "title": "Req"
@@ -5849,11 +5870,31 @@
           "webhooks"
         ],
         "summary": "Clouddrive Notify",
-        "description": "CloudDrive file_system_watcher 回调. 鉴权与其它 /api 相同 (Bearer).\n\nCloudDrive2 不保证带 ``Content-Type: application/json``: 缺这个头时 FastAPI 不会把请求体\n交给模型, 整条通道直接 422 (上游 issue #384). 因此这里不看声明类型, 直接把原始 body 当\nJSON 解析, 只有真的解析不出来才回 422.",
+        "description": "CloudDrive file_system_watcher 回调. 鉴权与其它 /api 相同 (Bearer).",
         "operationId": "clouddrive_notify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudDriveNotifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -6532,6 +6573,70 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/semantic/status": {
+      "get": {
+        "tags": [
+          "semantic"
+        ],
+        "summary": "Semantic Status",
+        "operationId": "semantic_status",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SemanticStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/semantic/diagnostics": {
+      "get": {
+        "tags": [
+          "semantic"
+        ],
+        "summary": "Semantic Diagnostics",
+        "operationId": "semantic_diagnostics",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SemanticDiagnosticsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/semantic/release": {
+      "post": {
+        "tags": [
+          "semantic"
+        ],
+        "summary": "Release Semantic",
+        "description": "释放内存里的向量索引与两个塔; 下次检索重新装载. 内存紧张时手动触发, 不影响库内向量.",
+        "operationId": "release_semantic",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SemanticStatusResponse"
                 }
               }
             }
@@ -7678,18 +7783,101 @@
         "type": "object",
         "title": "Body_install_plugin"
       },
+      "BrowserBackendItemResponse": {
+        "properties": {
+          "backend": {
+            "$ref": "#/components/schemas/BrowserBackendName"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "browsers": {
+            "items": {
+              "$ref": "#/components/schemas/BrowserInstanceResponse"
+            },
+            "type": "array",
+            "title": "Browsers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "backend",
+          "available"
+        ],
+        "title": "BrowserBackendItemResponse",
+        "description": "一个后端的可用性.\n\n``detail`` 是环境抛出的原文 (缺模块、缺 CLI、浏览器未连接、solver 应答错误), 界面原样展示;\n``version`` 目前只有 bsk 有 (daemon 版本)."
+      },
       "BrowserBackendName": {
         "type": "string",
         "enum": [
           "off",
           "patchright",
           "camoufox",
+          "bsk",
           "solver"
         ],
         "title": "BrowserBackendName"
       },
+      "BrowserBackendReportResponse": {
+        "properties": {
+          "selected": {
+            "$ref": "#/components/schemas/BrowserBackendName"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BrowserBackendItemResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "selected"
+        ],
+        "title": "BrowserBackendReportResponse",
+        "description": "``selected`` 是当前生效的后端, 供界面标出「已选但不可用」这一种组合."
+      },
       "BrowserConfig": {
         "properties": {
+          "bsk_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bsk Path",
+            "x-path-type": "file",
+            "x-widget": "PathPicker"
+          },
           "backend": {
             "$ref": "#/components/schemas/BrowserBackendName",
             "default": "off"
@@ -7710,6 +7898,42 @@
         },
         "type": "object",
         "title": "BrowserConfig"
+      },
+      "BrowserInstanceResponse": {
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "extension_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension Version"
+          },
+          "unresponsive": {
+            "type": "boolean",
+            "title": "Unresponsive",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "instance_id",
+          "name"
+        ],
+        "title": "BrowserInstanceResponse",
+        "description": "bsk 已连接的浏览器实例; 只用于展示, 选择实例属于后续能力."
       },
       "BrowserMode": {
         "type": "string",
@@ -7770,31 +7994,18 @@
           },
           "files_removed": {
             "type": "integer",
-            "title": "Files Removed",
-            "default": 0
+            "title": "Files Removed"
           },
           "resources_removed": {
             "type": "integer",
-            "title": "Resources Removed",
-            "default": 0
-          },
-          "actors_removed": {
-            "type": "integer",
-            "title": "Actors Removed",
-            "default": 0
-          },
-          "facets_removed": {
-            "type": "integer",
-            "title": "Facets Removed",
-            "default": 0
-          },
-          "dirs_removed": {
-            "type": "integer",
-            "title": "Dirs Removed",
-            "default": 0
+            "title": "Resources Removed"
           }
         },
         "type": "object",
+        "required": [
+          "files_removed",
+          "resources_removed"
+        ],
         "title": "CleanupResult"
       },
       "CleanupSubmission": {
@@ -7811,24 +8022,6 @@
             "description": "删除不被任何 Metadata URL 字段引用的 Resource (含派生裁剪)",
             "default": true
           },
-          "remove_orphan_actors": {
-            "type": "boolean",
-            "title": "Remove Orphan Actors",
-            "description": "删除没有任何影片关联的演员 (0 作品)",
-            "default": true
-          },
-          "remove_empty_facets": {
-            "type": "boolean",
-            "title": "Remove Empty Facets",
-            "description": "删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)",
-            "default": true
-          },
-          "remove_empty_resource_dirs": {
-            "type": "boolean",
-            "title": "Remove Empty Resource Dirs",
-            "description": "删除资源目录下已空的分片目录",
-            "default": true
-          },
           "type": {
             "type": "string",
             "const": "cleanup",
@@ -7840,6 +8033,53 @@
           "type"
         ],
         "title": "CleanupSubmission"
+      },
+      "CloudDriveChangeItem": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "delete",
+              "rename"
+            ],
+            "title": "Action"
+          },
+          "is_dir": {
+            "type": "boolean",
+            "title": "Is Dir"
+          },
+          "source_file": {
+            "type": "string",
+            "title": "Source File"
+          },
+          "destination_file": {
+            "type": "string",
+            "title": "Destination File",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "is_dir",
+          "source_file"
+        ],
+        "title": "CloudDriveChangeItem"
+      },
+      "CloudDriveNotifyRequest": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CloudDriveChangeItem"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "title": "CloudDriveNotifyRequest",
+        "description": "CloudDrive file_system_watcher 模板体. 未知字段忽略."
       },
       "CommentCreateRequest": {
         "properties": {
@@ -8295,6 +8535,14 @@
         ],
         "title": "DownloadableResource",
         "description": "影片附属资源类型: 刮削写入 Resource, 整理时按库配置复制到库路径."
+      },
+      "EmbeddingKind": {
+        "type": "string",
+        "enum": [
+          "cover",
+          "still"
+        ],
+        "title": "EmbeddingKind"
       },
       "ErrorRow": {
         "properties": {
@@ -9353,15 +9601,6 @@
               "crop_poster": true,
               "poster_ratio": 0.7,
               "poster_crop_skip_ratio": 0.9,
-              "poster_crop_mode": {
-                "amateur": "right",
-                "censored": "right",
-                "chinese": "right",
-                "fc2": "right",
-                "hentai": "right",
-                "uncensored": "right",
-                "western": "right"
-              },
               "jpeg_quality": 95,
               "content_routes": {
                 "amateur": [
@@ -9431,18 +9670,6 @@
                   "use_browser": "auto",
                   "use_proxy": true
                 },
-                "amazon": {
-                  "cookie": {},
-                  "languages": [
-                    "zh",
-                    "ja",
-                    "en"
-                  ],
-                  "official_routes": {},
-                  "rate_limit": 2.0,
-                  "use_browser": "auto",
-                  "use_proxy": true
-                },
                 "avbase": {
                   "cookie": {},
                   "languages": [
@@ -9456,18 +9683,6 @@
                   "use_proxy": true
                 },
                 "avsox": {
-                  "cookie": {},
-                  "languages": [
-                    "zh",
-                    "ja",
-                    "en"
-                  ],
-                  "official_routes": {},
-                  "rate_limit": 2.0,
-                  "use_browser": "auto",
-                  "use_proxy": true
-                },
-                "caribbean": {
                   "cookie": {},
                   "languages": [
                     "zh",
@@ -9731,18 +9946,6 @@
                   "use_browser": "auto",
                   "use_proxy": true
                 },
-                "tenhow": {
-                  "cookie": {},
-                  "languages": [
-                    "zh",
-                    "ja",
-                    "en"
-                  ],
-                  "official_routes": {},
-                  "rate_limit": 2.0,
-                  "use_browser": "auto",
-                  "use_proxy": true
-                },
                 "theporndb": {
                   "cookie": {},
                   "languages": [
@@ -9844,6 +10047,12 @@
               "tta": false
             }
           },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticConfig",
+            "default": {
+              "auto_maintain": false
+            }
+          },
           "watermark": {
             "$ref": "#/components/schemas/WatermarkConfig",
             "default": {
@@ -9898,17 +10107,7 @@
                 ".ts",
                 ".iso",
                 ".strm"
-              ],
-              "escape_strings": []
-            }
-          },
-          "notify": {
-            "$ref": "#/components/schemas/NotifyConfig",
-            "default": {
-              "enabled": false,
-              "panel_url": "",
-              "log_tail_lines": 0,
-              "channels": []
+              ]
             }
           },
           "worker": {
@@ -10290,7 +10489,8 @@
           "system_prompt": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -10302,6 +10502,7 @@
           "field_prompts": {
             "additionalProperties": {
               "type": "string",
+              "maxLength": 2000,
               "x-long": true
             },
             "propertyNames": {
@@ -11726,6 +11927,13 @@
           "total": {
             "type": "integer",
             "title": "Total"
+          },
+          "semantic_hits": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticHitInfo"
+            },
+            "type": "array",
+            "title": "Semantic Hits"
           }
         },
         "type": "object",
@@ -12413,229 +12621,6 @@
         "type": "object",
         "title": "NetworkConfig"
       },
-      "NotifyChannelConfig": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "渠道名, 只用于日志与错误提示",
-            "default": ""
-          },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
-          },
-          "url": {
-            "type": "string",
-            "title": "Url",
-            "description": "请求地址, 支持占位变量",
-            "default": ""
-          },
-          "method": {
-            "$ref": "#/components/schemas/NotifyMethod",
-            "default": "post"
-          },
-          "headers": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Headers",
-            "description": "附加请求头 (如 Authorization)"
-          },
-          "test_send": {
-            "type": "boolean",
-            "title": "Test Send",
-            "description": "面板上的测试按钮用它渲染; 值本身没有含义",
-            "default": false,
-            "x-widget": "NotifyTest"
-          },
-          "body": {
-            "type": "string",
-            "title": "Body",
-            "description": "请求体模板; 以花括号开头时字符串按 JSON 转义",
-            "default": ""
-          },
-          "provider": {
-            "$ref": "#/components/schemas/NotifyProvider",
-            "description": "内置服务: telegram / bark / wecom 只需填 token 与正文, 地址与 JSON 由程序生成; custom = 自己写 url/body",
-            "default": "custom"
-          },
-          "token": {
-            "type": "string",
-            "title": "Token",
-            "description": "telegram: 机器人 Token; bark: 设备 Key; wecom: 群机器人 Key",
-            "default": ""
-          },
-          "chat_id": {
-            "type": "string",
-            "title": "Chat Id",
-            "description": "telegram 的频道/群 ID (如 -1001234567890); 其它服务留空",
-            "default": ""
-          },
-          "text": {
-            "type": "string",
-            "title": "Text",
-            "description": "消息正文模板, 支持 {变量}; 留空用内置默认正文",
-            "default": ""
-          },
-          "parse_mode": {
-            "type": "string",
-            "title": "Parse Mode",
-            "description": "telegram 可选: HTML 或 MarkdownV2; 留空按纯文本",
-            "default": ""
-          },
-          "send_photo": {
-            "type": "boolean",
-            "title": "Send Photo",
-            "description": "telegram: 有 poster_url 时改发图片+标题 (sendPhoto)",
-            "default": false
-          },
-          "events": {
-            "items": {
-              "$ref": "#/components/schemas/NotifyEvent"
-            },
-            "type": "array",
-            "title": "Events",
-            "description": "订阅的事件; 空 = 全部"
-          },
-          "task_types": {
-            "items": {
-              "$ref": "#/components/schemas/NotifyTaskType"
-            },
-            "type": "array",
-            "title": "Task Types",
-            "description": "只通知这些任务类型; 空 = 全部"
-          },
-          "content_types": {
-            "items": {
-              "$ref": "#/components/schemas/ContentType"
-            },
-            "type": "array",
-            "title": "Content Types",
-            "description": "只通知这些内容类型; 空 = 全部"
-          },
-          "require": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Require",
-            "description": "这些变量为空时跳过该渠道 (如 photo 类渠道填 poster_url, 避免必然失败的请求)"
-          },
-          "throttle_seconds": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": 0.0,
-            "title": "Throttle Seconds",
-            "description": "静默窗口: 连续事件攒成一条, 静默这么多秒后才发送; 0 = 来一条发一条",
-            "default": 0
-          },
-          "max_wait_seconds": {
-            "type": "integer",
-            "maximum": 86400.0,
-            "minimum": 0.0,
-            "title": "Max Wait Seconds",
-            "description": "合并最长等待秒数, 防止流水线不停时永远不发; 0 = 不设上限",
-            "default": 1800
-          },
-          "timeout": {
-            "type": "number",
-            "maximum": 120.0,
-            "minimum": 1.0,
-            "title": "Timeout",
-            "description": "单次请求超时 (秒)",
-            "default": 10.0
-          }
-        },
-        "type": "object",
-        "title": "NotifyChannelConfig",
-        "description": "一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位."
-      },
-      "NotifyConfig": {
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": false
-          },
-          "panel_url": {
-            "type": "string",
-            "title": "Panel Url",
-            "description": "面板地址, 用于 link 变量; 如 https://amane.example.com",
-            "default": ""
-          },
-          "log_tail_lines": {
-            "type": "integer",
-            "maximum": 200.0,
-            "minimum": 0.0,
-            "title": "Log Tail Lines",
-            "description": "大于 0 时把任务日志最后 N 行放进 log_tail",
-            "default": 0
-          },
-          "channels": {
-            "items": {
-              "$ref": "#/components/schemas/NotifyChannelConfig"
-            },
-            "type": "array",
-            "title": "Channels",
-            "description": "渠道列表, 每个渠道一条通知 (界面里折叠显示, 一次展开一个)",
-            "x-collapsible": true
-          }
-        },
-        "type": "object",
-        "title": "NotifyConfig",
-        "description": "任务完成 / 失败时的出站通知: 一份模板引擎覆盖所有渠道."
-      },
-      "NotifyEvent": {
-        "type": "string",
-        "enum": [
-          "completed",
-          "failed",
-          "file_discovered",
-          "file_removed"
-        ],
-        "title": "NotifyEvent",
-        "description": "可订阅的事件.\n\n取值故意不带点: 前端枚举选项的 i18n key 是 ``options.<取值>``, i18next 把点当层级分隔符,\n``task.completed`` 这样的取值查不到翻译, 于是退回显示原始值. 与 ``EventType`` 的映射在\n``notify/service.py`` 的 ``_EVENT_KEYS`` 里."
-      },
-      "NotifyMethod": {
-        "type": "string",
-        "enum": [
-          "post",
-          "get"
-        ],
-        "title": "NotifyMethod",
-        "description": "通知请求方法."
-      },
-      "NotifyProvider": {
-        "type": "string",
-        "enum": [
-          "custom",
-          "telegram",
-          "bark",
-          "wecom"
-        ],
-        "title": "NotifyProvider",
-        "description": "内置通知服务: 选好后只填 Token / 频道 / 正文, 请求地址与 JSON 由程序生成."
-      },
-      "NotifyTaskType": {
-        "type": "string",
-        "enum": [
-          "scrape",
-          "organize",
-          "refresh",
-          "cleanup",
-          "upscale",
-          "r18_import",
-          "actor_scrape",
-          "rescrape",
-          "scan_invalid",
-          "delete"
-        ],
-        "title": "NotifyTaskType",
-        "description": "可通知的任务类型 (取值与 ``db.models.TaskType`` 一致, 由测试守住不漂移)."
-      },
       "OptionalPathTemplateDefaults": {
         "properties": {
           "thumb_template": {
@@ -13163,17 +13148,6 @@
         ],
         "title": "PluginResponse"
       },
-      "PosterCropMode": {
-        "type": "string",
-        "enum": [
-          "right",
-          "center",
-          "none",
-          "face"
-        ],
-        "title": "PosterCropMode",
-        "description": "海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``)."
-      },
       "R18Config": {
         "properties": {
           "dsn": {
@@ -13648,7 +13622,8 @@
           "cleanup",
           "upscale",
           "r18_import",
-          "rescrape"
+          "rescrape",
+          "semantic_index"
         ],
         "title": "RoutineType"
       },
@@ -14107,6 +14082,9 @@
               },
               {
                 "$ref": "#/components/schemas/RescrapeSubmission"
+              },
+              {
+                "$ref": "#/components/schemas/SemanticIndexSubmission"
               }
             ],
             "title": "Submission",
@@ -14116,6 +14094,7 @@
                 "cleanup": "#/components/schemas/CleanupSubmission",
                 "r18_import": "#/components/schemas/R18ImportSubmission",
                 "rescrape": "#/components/schemas/RescrapeSubmission",
+                "semantic_index": "#/components/schemas/SemanticIndexSubmission",
                 "upscale": "#/components/schemas/UpscaleSubmission"
               }
             }
@@ -14186,6 +14165,9 @@
               },
               {
                 "$ref": "#/components/schemas/RescrapeSubmission"
+              },
+              {
+                "$ref": "#/components/schemas/SemanticIndexSubmission"
               }
             ],
             "title": "Payload",
@@ -14195,6 +14177,7 @@
                 "cleanup": "#/components/schemas/CleanupSubmission",
                 "r18_import": "#/components/schemas/R18ImportSubmission",
                 "rescrape": "#/components/schemas/RescrapeSubmission",
+                "semantic_index": "#/components/schemas/SemanticIndexSubmission",
                 "upscale": "#/components/schemas/UpscaleSubmission"
               }
             }
@@ -14411,18 +14394,6 @@
             "title": "Poster Crop Skip Ratio",
             "default": 0.9
           },
-          "poster_crop_mode": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/PosterCropMode"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ContentType"
-            },
-            "type": "object",
-            "title": "Poster Crop Mode",
-            "description": "按内容类型选择海报裁剪方式: right 取封面右侧 (默认); center 居中裁剪; none 不裁剪 (保留原图); face 人脸识别裁剪 (找不到人脸时回退 right). 仅「裁切海报」打开时生效.",
-            "x-frozen-keys": true
-          },
           "jpeg_quality": {
             "type": "integer",
             "maximum": 100.0,
@@ -14437,10 +14408,8 @@
                 "type": "string",
                 "enum": [
                   "airav",
-                  "amazon",
                   "avbase",
                   "avsox",
-                  "caribbean",
                   "dahlia",
                   "dmm",
                   "faleno",
@@ -14460,7 +14429,6 @@
                   "official",
                   "prestige",
                   "r18dev",
-                  "tenhow",
                   "theporndb",
                   "xcity"
                 ]
@@ -14481,10 +14449,8 @@
                 "type": "string",
                 "enum": [
                   "airav",
-                  "amazon",
                   "avbase",
                   "avsox",
-                  "caribbean",
                   "dahlia",
                   "dmm",
                   "faleno",
@@ -14504,7 +14470,6 @@
                   "official",
                   "prestige",
                   "r18dev",
-                  "tenhow",
                   "theporndb",
                   "xcity"
                 ]
@@ -14525,10 +14490,8 @@
                 "type": "string",
                 "enum": [
                   "airav",
-                  "amazon",
                   "avbase",
                   "avsox",
-                  "caribbean",
                   "dahlia",
                   "dmm",
                   "faleno",
@@ -14548,7 +14511,6 @@
                   "official",
                   "prestige",
                   "r18dev",
-                  "tenhow",
                   "theporndb",
                   "xcity"
                 ]
@@ -14699,6 +14661,383 @@
         "title": "SelectionSummaryResponse",
         "description": "展开结果. 条目自库根展开 (库外产物挂在根下), 面板按分页接口读取."
       },
+      "SemanticBenchmarkResult": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "semantic_benchmark",
+            "title": "Type",
+            "default": "semantic_benchmark"
+          },
+          "backend": {
+            "type": "string",
+            "title": "Backend"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "images_per_second": {
+            "type": "number",
+            "title": "Images Per Second"
+          },
+          "query_ms": {
+            "type": "number",
+            "title": "Query Ms"
+          },
+          "load_ms": {
+            "type": "number",
+            "title": "Load Ms"
+          },
+          "samples": {
+            "type": "integer",
+            "title": "Samples"
+          },
+          "measured_at": {
+            "type": "string",
+            "title": "Measured At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "backend",
+          "model",
+          "images_per_second",
+          "query_ms",
+          "load_ms",
+          "samples",
+          "measured_at"
+        ],
+        "title": "SemanticBenchmarkResult"
+      },
+      "SemanticBenchmarkSubmission": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "semantic_benchmark",
+            "title": "Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "SemanticBenchmarkSubmission"
+      },
+      "SemanticConfig": {
+        "properties": {
+          "auto_maintain": {
+            "type": "boolean",
+            "title": "Auto Maintain",
+            "description": "条目图片变化后立即增量索引; 打开时视觉模型常驻",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "SemanticConfig",
+        "description": "封面与剧照语义检索. 模型身份由 ``semantic/models.py`` 的清单决定, 不随配置变化."
+      },
+      "SemanticDiagnosticsResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "backend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend"
+          },
+          "current_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Model"
+          },
+          "current_model_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Model Label"
+          },
+          "backend_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend Label"
+          },
+          "text_loaded": {
+            "type": "boolean",
+            "title": "Text Loaded",
+            "default": false
+          },
+          "vision_loaded": {
+            "type": "boolean",
+            "title": "Vision Loaded",
+            "default": false
+          },
+          "search_ready": {
+            "type": "boolean",
+            "title": "Search Ready",
+            "default": false
+          },
+          "index_ready": {
+            "type": "boolean",
+            "title": "Index Ready",
+            "default": false
+          },
+          "download_size": {
+            "type": "integer",
+            "title": "Download Size",
+            "default": 0
+          },
+          "vision_size": {
+            "type": "integer",
+            "title": "Vision Size",
+            "default": 0
+          },
+          "text_size": {
+            "type": "integer",
+            "title": "Text Size",
+            "default": 0
+          },
+          "model_path": {
+            "type": "string",
+            "title": "Model Path",
+            "default": ""
+          },
+          "model_bytes": {
+            "type": "integer",
+            "title": "Model Bytes",
+            "default": 0
+          },
+          "embeddings_path": {
+            "type": "string",
+            "title": "Embeddings Path",
+            "default": ""
+          },
+          "embeddings_bytes": {
+            "type": "integer",
+            "title": "Embeddings Bytes",
+            "default": 0
+          },
+          "indexed_metadata": {
+            "type": "integer",
+            "title": "Indexed Metadata",
+            "default": 0
+          },
+          "indexed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed At"
+          },
+          "models": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SemanticModelCounts"
+            },
+            "type": "object",
+            "title": "Models",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "SemanticDiagnosticsResponse",
+        "description": "用户手册的诊断数据: 运行时状态、路径、占用与索引统计; 不触发下载或加载."
+      },
+      "SemanticHitInfo": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EmbeddingKind"
+          },
+          "resource_url": {
+            "type": "string",
+            "title": "Resource Url"
+          },
+          "similarity": {
+            "type": "number",
+            "title": "Similarity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "resource_url",
+          "similarity"
+        ],
+        "title": "SemanticHitInfo",
+        "description": "语义检索的命中图片: 与列表项按 id 对应, 不扩展 ``MetadataResponse`` 本身."
+      },
+      "SemanticIndexResult": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "semantic_index",
+            "title": "Type",
+            "default": "semantic_index"
+          },
+          "scanned": {
+            "type": "integer",
+            "title": "Scanned"
+          },
+          "indexed": {
+            "type": "integer",
+            "title": "Indexed"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          },
+          "missing": {
+            "type": "integer",
+            "title": "Missing"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scanned",
+          "indexed",
+          "skipped",
+          "missing",
+          "failed"
+        ],
+        "title": "SemanticIndexResult"
+      },
+      "SemanticIndexSubmission": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "semantic_index",
+            "title": "Type"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "description": "单次最多处理的条目数; 空表示全库"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "忽略未变化的跳过判据, 全部重算",
+            "default": false
+          },
+          "kinds": {
+            "items": {
+              "$ref": "#/components/schemas/EmbeddingKind"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Kinds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "SemanticIndexSubmission"
+      },
+      "SemanticModelCounts": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "covers": {
+            "type": "integer",
+            "title": "Covers"
+          },
+          "stills": {
+            "type": "integer",
+            "title": "Stills"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "covers",
+          "stills"
+        ],
+        "title": "SemanticModelCounts",
+        "description": "单个模型的向量条数, 按来源拆分."
+      },
+      "SemanticStatusResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available",
+            "default": false
+          },
+          "search_ready": {
+            "type": "boolean",
+            "title": "Search Ready",
+            "default": false
+          },
+          "has_embeddings": {
+            "type": "boolean",
+            "title": "Has Embeddings",
+            "default": false
+          },
+          "download_size": {
+            "type": "integer",
+            "title": "Download Size",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "SemanticStatusResponse",
+        "description": "语义检索的轻量状态: 页面据此决定入口与提示, 不读取存储统计."
+      },
       "SiteConfig": {
         "properties": {
           "base_url": {
@@ -14814,10 +15153,8 @@
         "type": "string",
         "enum": [
           "airav",
-          "amazon",
           "avbase",
           "avsox",
-          "caribbean",
           "dahlia",
           "dmm",
           "faleno",
@@ -14839,7 +15176,6 @@
           "official",
           "prestige",
           "r18dev",
-          "tenhow",
           "theporndb",
           "wikipedia",
           "xcity"
@@ -15227,6 +15563,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/RescrapeSubmission"
+                },
+                {
+                  "$ref": "#/components/schemas/SemanticIndexSubmission"
+                },
+                {
+                  "$ref": "#/components/schemas/SemanticBenchmarkSubmission"
                 }
               ],
               "discriminator": {
@@ -15241,6 +15583,8 @@
                   "rescrape": "#/components/schemas/RescrapeSubmission",
                   "scan_invalid": "#/components/schemas/ScanInvalidSubmission",
                   "scrape": "#/components/schemas/ScrapeSubmission",
+                  "semantic_benchmark": "#/components/schemas/SemanticBenchmarkSubmission",
+                  "semantic_index": "#/components/schemas/SemanticIndexSubmission",
                   "upscale": "#/components/schemas/UpscaleSubmission"
                 }
               }
@@ -15717,6 +16061,12 @@
                   },
                   {
                     "$ref": "#/components/schemas/RescrapeResult"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SemanticIndexResult"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SemanticBenchmarkResult"
                   }
                 ],
                 "discriminator": {
@@ -15731,6 +16081,8 @@
                     "rescrape": "#/components/schemas/RescrapeResult",
                     "scan_invalid": "#/components/schemas/ScanInvalidResult",
                     "scrape": "#/components/schemas/ScrapeResult",
+                    "semantic_benchmark": "#/components/schemas/SemanticBenchmarkResult",
+                    "semantic_index": "#/components/schemas/SemanticIndexResult",
                     "upscale": "#/components/schemas/UpscaleResult"
                   }
                 }
@@ -15785,7 +16137,9 @@
           "actor_scrape",
           "rescrape",
           "scan_invalid",
-          "delete"
+          "delete",
+          "semantic_index",
+          "semantic_benchmark"
         ],
         "title": "TaskType"
       },
@@ -16421,13 +16775,6 @@
             },
             "type": "array",
             "title": "Media Extensions"
-          },
-          "escape_strings": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Escape Strings"
           }
         },
         "type": "object",

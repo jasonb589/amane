@@ -11,7 +11,8 @@
     "logging": "Logging",
     "sr": "Super Resolution",
     "llm": "LLM Translation",
-    "watermark": "Watermark"
+    "watermark": "Watermark",
+    "semantic": "Semantic Search"
   },
   "config": {
     "loadError": "Failed to load configuration"
@@ -356,6 +357,7 @@
               "off": "Off",
               "patchright": "Patchright",
               "camoufox": "Camoufox",
+              "bsk": "BrowserSkill",
               "solver": "Solver"
             }
           },
@@ -522,12 +524,17 @@
       },
       "browser": {
         "label": "Browser Rendering",
+        "bsk_path": {
+          "label": "BrowserSkill Path",
+          "description": "Leave empty to look up PATH; the desktop app needs an absolute path"
+        },
         "backend": {
           "label": "Browser backend",
           "options": {
             "off": "Off",
             "patchright": "Patchright",
             "camoufox": "Camoufox",
+            "bsk": "BrowserSkill",
             "solver": "Solver"
           }
         },
@@ -983,6 +990,12 @@
       "config": {
         "label": "Plugin configuration",
         "description": "Configuration fields provided by the plugin"
+      }
+    },
+    "semantic": {
+      "auto_maintain": {
+        "label": "Auto-maintain",
+        "description": "Recompute an entry's vectors as soon as its images change; keeps the model resident"
       }
     }
   }

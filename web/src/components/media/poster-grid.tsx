@@ -42,6 +42,9 @@ interface PosterGridProps {
   actorBirthday?: string | null;
   /** 打开多选: 卡片左上角出现选择圆点, 网格上方出现批量操作条 (片库海报视图). */
   selectable?: boolean;
+  /** 逐条覆盖卡片图片与宽高比 (语义检索的剧照结果). */
+  imageUrlOf?: (item: MetadataResponse) => string | null | undefined;
+  imageRatioOf?: (item: MetadataResponse) => number | undefined;
 }
 
 /**
@@ -57,6 +60,8 @@ export function PosterGrid({
   emptyMessage,
   actorBirthday,
   selectable = false,
+  imageUrlOf,
+  imageRatioOf,
 }: PosterGridProps) {
   const { t } = useTranslation(["metadata", "common"]);
   const queryClient = useQueryClient();
@@ -228,6 +233,8 @@ export function PosterGrid({
             selected={selected.has(item.id)}
             onToggleSelect={selectable ? toggleOne : undefined}
             selectActive={selectActive}
+            imageUrl={imageUrlOf?.(item)}
+            imageRatio={imageRatioOf?.(item)}
           />
         ))}
       </SimpleGrid>

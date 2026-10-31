@@ -24,6 +24,10 @@ interface PosterCardProps {
   onToggleSelect?: (id: number) => void;
   /** 已有任意选中时圆点常显 (隐式多选: 首次靠悬停露出, 之后全部常显). */
   selectActive?: boolean;
+  /** 覆盖卡片图片 (语义检索命中剧照); 未给则使用条目的海报. */
+  imageUrl?: string | null;
+  /** 图片宽高比; 剧照按 16:9 显示, 默认为海报竖版宽高比. */
+  imageRatio?: number;
 }
 
 /** 加载失败退化为番号占位块. */
@@ -33,13 +37,16 @@ export function PosterCard({
   selected = false,
   onToggleSelect,
   selectActive = false,
+  imageUrl,
+  imageRatio = 0.7,
 }: PosterCardProps) {
   const { t } = useTranslation(["metadata", "common"]);
   const [errored, setErrored] = useState(false);
   const selectable = onToggleSelect != null;
   // 海报缺失时退回竖图/缩略图: theporndb 一类源只给横版背景图, 否则片库海报视图整格空白.
+  // 语义检索命中剧照时由 imageUrl 覆盖.
   const posterUrl = proxyImageUrl(
-    item.poster_url ?? item.poster_urls?.[0] ?? item.thumb_url ?? item.thumb_urls?.[0],
+    imageUrl ?? item.poster_url ?? item.poster_urls?.[0] ?? item.thumb_url ?? item.thumb_urls?.[0],
   );
   const showImage = posterUrl && !errored;
   const actors = item.actors ?? [];
@@ -64,7 +71,7 @@ export function PosterCard({
         style={{ overflow: "hidden" }}
       >
         <Box pos="relative">
-          <AspectRatio ratio={0.7}>
+          <AspectRatio ratio={imageRatio}>
             {showImage ? (
               <ProxyImage
                 src={posterUrl}

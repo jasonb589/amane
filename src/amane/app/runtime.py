@@ -29,6 +29,8 @@ from ..handlers import (
     RescrapeHandler,
     ScanInvalidHandler,
     ScrapeHandler,
+    SemanticBenchmarkHandler,
+    SemanticIndexHandler,
     UpscaleHandler,
 )
 from ..library import InventoryStore
@@ -42,12 +44,14 @@ from ..playback import PlaybackFactory, PlaybackState
 from ..plugins.manager import PluginManager
 from ..plugins.packaging import install_plugin_path, install_plugin_zip, uninstall_plugin_tree
 from ..scheduler.worker import MAIN_LOOP_STOP_TIMEOUT, AsyncWorker
+from ..semantic import SemanticService
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from ..agent import AgentService
     from ..config import BrowserConfig, ConfigManager, HotSettings
+    from ..db.embeddings import EmbeddingStore
     from ..db.repository import Repository
     from ..events import EventBus
     from ..handlers.protocol import TaskHandler
@@ -141,6 +145,7 @@ def build_network_stack(
             proxy=hot.network.proxy,
             web_client=web_client,
             timeout_ms=hot.network.browser.timeout,
+            bsk_path=hot.network.browser.bsk_path,
         )
     else:
         browser.rebind_web_client(web_client)
@@ -229,6 +234,7 @@ class AppRuntime:
     library_locks: LibraryTaskLocks = field(default_factory=LibraryTaskLocks)
     inventory_store: InventoryStore = field(default_factory=InventoryStore)
     notifier: NotificationService = field(default_factory=NotificationService)
+    semantic: SemanticService | None = None
     browser: BrowserPool | None = None
     r18_handle: R18Handle | None = None
 
@@ -246,6 +252,22 @@ class AppRuntime:
         if self.r18_handle is None and self.r18_db is not None:
             self.r18_handle = R18Handle(self.r18_db)
         self._browser_key = self._current_browser_key()
+        if self.semantic is None:
+            self.semantic = SemanticService(
+                self.repo, self.resource_store, self.config.cold.data_dir, self.config.hot.semantic
+            )
+        self.repo.set_media_hook(self.semantic)
+        self._bind_semantic_bridge()
+
+    def _bind_semantic_bridge(self) -> None:
+        """Agent 的语义工具只经 bridge 获取检索能力, 不直接依赖运行时. 热重载替换服务后须重新绑定."""
+        if self.agent_service is not None and self.semantic is not None:
+            self.agent_service.bridge.semantic_search = self.semantic.search
+
+    @property
+    def embeddings(self) -> EmbeddingStore | None:
+        """sidecar 向量库; 生命周期与应用实例一致, 热重载复用同一实例."""
+        return self.repo.embeddings
 
     def _current_browser_key(self) -> tuple[BrowserConfig, str | None]:
         """浏览器池的生命周期键: 任一变化都需要换新引擎 (代理与超时参与启动与单次渲染)."""
@@ -293,6 +315,17 @@ class AppRuntime:
         if self.feed_service is not None:
             self.feed_service.set_web_client(self.web_client)
 
+        # 仅在语义检索配置变化时重建服务; 未变化时保留已加载的模型与索引缓存.
+        if self.semantic is None or self.semantic.config != hot.semantic:
+            previous = self.semantic
+            self.semantic = SemanticService(self.repo, self.resource_store, self.config.cold.data_dir, hot.semantic)
+            if previous is not None:
+                # 配置已变更但模型未变: 交接已装载的索引, 避免下一次检索同步重装整份索引.
+                self.semantic.handoff(previous)
+                previous.close()
+            self.repo.set_media_hook(self.semantic)
+            self._bind_semantic_bridge()
+
         # 使用新处理器与并发数重建 worker
         self.worker = AsyncWorker(
             repo=self.repo,
@@ -309,6 +342,7 @@ class AppRuntime:
                 self.plugin_manager,
                 library_locks=self.library_locks,
                 inventory_store=self.inventory_store,
+                semantic=self.semantic,
             ),
             concurrency=hot.worker.concurrency,
             poll_interval=hot.worker.poll_interval,
@@ -522,6 +556,8 @@ def build_handlers(
     translation_coalescer: TranslationCoalescer | None = None,
     state_dir: Path | None = None,
     plugin_manager: PluginManager | None = None,
+    *,
+    semantic: SemanticService,
     library_locks: LibraryTaskLocks | None = None,
     inventory_store: InventoryStore | None = None,
 ) -> dict[TaskType, TaskHandler[Any, Any]]:
@@ -573,6 +609,8 @@ def build_handlers(
         TaskType.CLEANUP: CleanupHandler(repo=repo, resource_store=resource_store),
         TaskType.UPSCALE: UpscaleHandler(resource_store, hot),
         TaskType.RESCRAPE: RescrapeHandler(repo),
+        TaskType.SEMANTIC_INDEX: SemanticIndexHandler(semantic),
+        TaskType.SEMANTIC_BENCHMARK: SemanticBenchmarkHandler(semantic),
     }
     # state_dir 缺省回退 cwd/data (精简构造场景).
     handlers[TaskType.R18_IMPORT] = R18ImportHandler(

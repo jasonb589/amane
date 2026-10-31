@@ -35,6 +35,7 @@ from ..enums import (
     WatermarkCorner,
     WatermarkKind,
 )
+from ..net.bsk import resolve_bsk_path
 from ..parsing import ContentType
 from ..plugins.models import PluginConfig
 from ..sr import SrPreset
@@ -294,7 +295,7 @@ class SiteConfig(BaseModel):
     @field_validator("browser_backend")
     @classmethod
     def _override_engine_available(cls, v: BrowserBackendName | None) -> BrowserBackendName | None:
-        return None if v is None else _require_browser_engine(v)
+        return None if v is None else _require_browser_engine(v, strict=False)
 
     api_token: str | None = Field(default=None, json_schema_extra={"x-visible-keys": _SITES_WITH_API_TOKEN})
     official_routes: dict[str, Manufacturer] = Field(
@@ -558,8 +559,19 @@ class WatermarkConfig(BaseModel):
         return _complete_frozen_dict(v, dict.fromkeys(WatermarkKind, WatermarkCorner.TOP_LEFT))
 
 
-def _require_browser_engine(backend: BrowserBackendName) -> BrowserBackendName:
+def _require_browser_engine(
+    backend: BrowserBackendName, *, bsk_path: str | None = None, strict: bool = True
+) -> BrowserBackendName:
     """本地引擎不在当前分发时拒绝配置, 不等到启动浏览器才报 ModuleNotFoundError."""
+    if backend is BrowserBackendName.BSK:
+        # 来源级覆盖看不到全局 bsk_path, 只在这一层放行, 运行期再报.
+        if not strict:
+            return backend
+        if resolve_bsk_path(bsk_path) is None:
+            raise ValueError(
+                "浏览器后端 bsk 不可用: 未找到 bsk CLI, 请安装 BrowserSkill 并连接浏览器扩展, 或改用 solver"
+            )
+        return backend
     module = {BrowserBackendName.PATCHRIGHT: "patchright", BrowserBackendName.CAMOUFOX: "camoufox"}.get(backend)
     if module is None:
         return backend
@@ -571,16 +583,21 @@ def _require_browser_engine(backend: BrowserBackendName) -> BrowserBackendName:
 
 
 class BrowserConfig(BaseModel):
+    bsk_path: str | None = Field(
+        default=None,
+        json_schema_extra={"x-widget": "PathPicker", "x-path-type": "file"},
+    )
+    """``bsk`` CLI 的路径; 桌面壳的 PATH 不含登录 shell 条目, 留空时从 PATH / ``AMANE_BSK_PATH`` 查找."""
     backend: BrowserBackendName = BrowserBackendName.OFF
     timeout: int = Field(default=30000, ge=5000, le=120000)
     """页面导航默认超时 (毫秒); 单次渲染可覆盖."""
     solver_url: str = Field(default="http://127.0.0.1:8191", pattern=r"^https?://.+")
     """FlareSolverr 兼容服务地址; 仅 ``solver`` 后端使用. 服务不允许暴露到公网."""
 
-    @field_validator("backend")
-    @classmethod
-    def _engine_available(cls, v: BrowserBackendName) -> BrowserBackendName:
-        return _require_browser_engine(v)
+    @model_validator(mode="after")
+    def _engine_available(self) -> BrowserConfig:
+        _require_browser_engine(self.backend, bsk_path=self.bsk_path)
+        return self
 
 
 class NetworkConfig(BaseModel):
@@ -888,6 +905,12 @@ class ActorScrapingConfig(BaseModel):
         return assert_sites_allowed(v, frozenset(ACTOR_IMAGE_SITES), field="image_sites")
 
 
+class SemanticConfig(BaseModel):
+    """封面与剧照语义检索. 模型身份由 ``semantic/models.py`` 的清单决定, 不随配置变化."""
+
+    auto_maintain: bool = Field(default=False, description="条目图片变化后立即增量索引; 打开时视觉模型常驻")
+
+
 class HotSettings(BaseModel):
     """运行时可更新, 持久化到 TOML. extra=forbid, 未知字段须校验失败."""
 
@@ -940,6 +963,7 @@ class HotSettings(BaseModel):
     agent: AgentConfig = AgentConfig()
     network: NetworkConfig = NetworkConfig()
     sr: SrConfig = SrConfig()
+    semantic: SemanticConfig = SemanticConfig()
     watermark: WatermarkConfig = WatermarkConfig()
     llm: LLMConfig = LLMConfig()
     r18: R18Config = R18Config()
