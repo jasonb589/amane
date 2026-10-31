@@ -1,7 +1,10 @@
 """Amazon.co.jp 高清海报源 (DVD 商品封面, 原生实现).
 
-用**聚合后的日文标题**在 amazon.co.jp 的 DVD 类目检索, 取商品主图并换成大尺寸地址,
+用**日文原题**在 amazon.co.jp 的 DVD 类目检索, 取商品主图并换成大尺寸地址,
 只补充 ``poster_urls`` —— 不返回标题 / 剧情, 因此不会抢其它站点的字段。
+
+"日文原题" 指第一段来源的裸结果 (``_search_title``): 聚合标题可能已经被
+``field_language.title`` 选成 / 译成中文, 拿译文搜日亚是 0 条.
 
 Amazon 的图片服务按地址后缀给尺寸: ``<ID>._SL1500_.jpg`` 长边 1500, 去掉后缀的
 ``<ID>.jpg`` 通常是原图 (DVD 封面常见 1000~1800 宽)。这里两个都给出, 下载端按顺序取
@@ -30,7 +33,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from typing import override
+from typing import TYPE_CHECKING, override
 from urllib.parse import quote
 
 from ...enums import SiteName
@@ -39,6 +42,9 @@ from ...plugins.models import SourceTrait
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
 from ..models import FetchOptions, MediaMetadata, SearchQuery
+
+if TYPE_CHECKING:
+    from ...aggregate.models import AggregatedMetadata
 
 SITE = "https://www.amazon.co.jp"
 _SEARCH_URL = SITE + "/s?k={term}&i=dvd"
@@ -90,6 +96,9 @@ _DISC_RE = re.compile(r"DVD|Blu-?ray|ブルーレイ", re.IGNORECASE)
 _GOODS_RE = re.compile("特典|生写真|ポストカード|クリアファイル|タオル|抱き枕|非売品|カレンダー|フィギュア")
 _NUMBER_ONLY_SCORE = 0.2
 """番号单独命中的底分: 低于任何标题命中, 用来把「不带标题但确实是本片」的结果排在后面."""
+
+#: 取日文原题的来源顺序: 日亚只能按原文检索, 拿译文 (中文/拼音) 搜必然 0 条.
+_RAW_TITLE_ORDER = ("r18dev:jp", "dmm", "avbase", "javbus", "official")
 
 _MAX_SEARCH_ATTEMPTS = 3
 """单个检索词的尝试次数: 亚马逊的 /age_check/ 年龄门是概率性的, 换一次请求常常就正常."""
@@ -168,6 +177,31 @@ def _match_score(number: str, wanted: str, found: str) -> float:
     return score
 
 
+def _search_title(partial: AggregatedMetadata | None) -> str:
+    """检索用的标题: 优先第一段来源里的**日文原题**, 再退到聚合标题.
+
+    ``field_language.title`` 设成中文时聚合标题是译名 (``义母 前篇``), 拿它搜日亚必然 0 条;
+    日亚认的是原文 (``義母 前編`` / ``BEAUTY VENUS VIII``). 所以先看各来源的裸结果.
+    """
+    if partial is None:
+        return ""
+    raw = getattr(partial, "raw", None) or {}
+    for site in _RAW_TITLE_ORDER:
+        entry = raw.get(site)
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("title")
+        if isinstance(value, str) and len(_norm(value)) >= 4:
+            return value.strip()
+    for site, entry in raw.items():
+        if not site.endswith(":jp") or not isinstance(entry, dict):
+            continue
+        value = entry.get("title")
+        if isinstance(value, str) and len(_norm(value)) >= 4:
+            return value.strip()
+    return (partial.title or "").strip()
+
+
 def _parse_results(html: str) -> list[tuple[str, str, str]]:
     """搜索结果页 → [(asin, image_id, title)]; 按出现顺序, 最多 ``_MAX_CANDIDATES`` 条."""
     blocks = _ASIN_SPLIT_RE.split(html)
@@ -221,8 +255,7 @@ class AmazonCrawler(Crawler):
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
-        partial = query.partial_result
-        title = (partial.title or "").strip() if partial is not None else ""
+        title = _search_title(query.partial_result)
         if len(_norm(title)) < 4:
             return None
 

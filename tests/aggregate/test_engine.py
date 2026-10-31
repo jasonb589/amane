@@ -480,6 +480,27 @@ class TestTwoPhaseExecution:
         assert state.sites_queried == [K1, K2, str(OFF)]
 
     @pytest.mark.asyncio
+    async def test_partial_snapshot_carries_first_phase_raw(self):
+        """段间快照带上第一段原始结果: 字段可能是译文, 第二段来源要按原始语言取标题 (日亚)."""
+        fp = defaultdict(lambda: [DB, DMM, OFF], {MetadataField.TITLE: [OFF]})
+        graph = build_graph(fp, {})
+
+        first = RecordingCrawler(_full_metadata(number="X", title="译名", studio="S_DB"))
+        declared = RecordingCrawler(_full_metadata(number="X", title="T_OFF", studio="S_OFF"))
+
+        state = await execute_graph(
+            graph,
+            {K1: first, str(OFF): declared},
+            SearchQuery("X"),
+            deferred_sites=frozenset({OFF}),
+        )
+
+        raw = declared.partials[0].raw
+        assert raw[K1]["title"] == "译名"
+        # 原始结果只挂在快照上, 最终结果不带它.
+        assert state.result.raw == {}
+
+    @pytest.mark.asyncio
     async def test_declared_source_at_route_head_blocks_then_wins(self):
         """路由整体前置声明来源: 段间所有字段被中断, 末次解析按链首取值."""
         fp = defaultdict(lambda: [OFF, DB, DMM])

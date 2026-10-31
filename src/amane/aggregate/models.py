@@ -38,6 +38,10 @@ class AggregatedMetadata:
     source_urls: dict[str, str] = field(default_factory=dict)
     field_sources: dict[str, str] = field(default_factory=dict)
 
+    #: 只读: 第一段各来源的原始结果 (站点 → 裸字段), 只有段间快照里才有值.
+    #: 字段按 ``field_language`` 选完可能已是译文; 第二段要按原始语言检索的来源 (日亚) 靠它取日文标题.
+    raw: dict[str, dict] = field(default_factory=dict)
+
 
 @dataclass
 class AggregateResult:

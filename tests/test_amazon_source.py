@@ -16,6 +16,7 @@ from amane.crawlers.sites.amazon import (
     _match_score,
     _parse_results,
     _poster_urls,
+    _search_title,
     _title_matches,
 )
 from amane.net.errors import FailureReason, SourceError
@@ -248,3 +249,38 @@ async def test_fetch_unlocks_black_curtain_only_once() -> None:
     assert meta is not None
     assert meta.external_id == "B00TEST077"
     assert sum(1 for call in client.calls if "save-eligibility" in call) == 1
+
+
+def test_search_title_prefers_raw_japanese_title() -> None:
+    """字段语言是中文时聚合标题是译名, 检索必须换成来源里的日文原题."""
+    partial = SimpleNamespace(
+        title="义母 前篇",
+        raw={"r18dev:jp": {"title": "義母 前編"}, "dmm": {"title": "義母 前編 [DVD]"}},
+    )
+    assert _search_title(partial) == "義母 前編"
+
+
+def test_search_title_falls_back_to_aggregated_title() -> None:
+    assert _search_title(SimpleNamespace(title="BEAUTY VENUS VIII", raw={})) == "BEAUTY VENUS VIII"
+    assert _search_title(None) == ""
+
+
+@pytest.mark.asyncio
+async def test_fetch_searches_japanese_title_when_field_is_translated() -> None:
+    page = (
+        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg">'
+    )
+    client = _StubClient([page])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(  # type: ignore[assignment]
+        title="美颜维纳斯 第8集",
+        raw={"r18dev:jp": {"title": "BEAUTY VENUS VIII"}},
+    )
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST001"
+    assert "BEAUTY%20VENUS%20VIII" in client.calls[0]

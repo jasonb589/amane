@@ -212,6 +212,9 @@ async def execute_graph(
         partial = copy.deepcopy(state.result)
         # 段间图片地址只装配第一段节点: 第二段贡献尚未取得, 它在链上的位置也无从预知.
         _assemble_url_fields(graph, state.fetched, partial, cache_keys={node.cache_key for node in first})
+        # 第一段的原始结果一并交给第二段: 字段已按 field_language 定值 (可能是译文),
+        # 而日亚之类只能按原始语言检索的来源需要日文原题. 只挂在快照上, 不落最终结果.
+        partial.raw = {key: value.model_dump() for key, value in state.fetched.items() if value is not None}
         await _fetch_phase(state, second, query, crawlers, snapshots, partial)
         _resolve_scalars(graph, state)
         await _report_progress(on_progress, state, second, field_total)
