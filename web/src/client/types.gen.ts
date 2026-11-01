@@ -4299,12 +4299,6 @@ export type ScrapeSubmission = {
      */
     content_type?: ContentType | null;
     /**
-     * Url
-     *
-     * 指定详情页 URL: 非空时跳过检索, 只由负责该域名的来源解析这个页面 (冷门条目用)
-     */
-    url?: string | null;
-    /**
      * Use Cache
      *
      * 启用的缓存种类 (metadata: 复用 DB per-site 快照; trans: 复用译文). 空集 = 全部强制刷新
@@ -4354,19 +4348,19 @@ export type ScrapingConfig = {
      * Content Routes
      */
     content_routes?: {
-        [key in ContentType]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in ContentType]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xcity'>;
     };
     /**
      * Field Priority
      */
     field_priority?: {
-        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xcity'>;
     };
     /**
      * Field Blacklist
      */
     field_blacklist?: {
-        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xcity'>;
     };
     /**
      * Field Language
@@ -4775,7 +4769,7 @@ export type SiteConfig = {
  *
  * 爬虫站点名称 (影片与演员源共用).
  */
-export type SiteName = 'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'wikipedia' | 'xchina' | 'xcity';
+export type SiteName = 'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javbus' | 'javdb' | 'javlibrary' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'wikipedia' | 'xcity';
 
 /**
  * SiteOutcomeKind

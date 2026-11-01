@@ -235,10 +235,6 @@
           "hentai": "动漫"
         }
       },
-      "url": {
-        "label": "详情页链接",
-        "description": "填则跳过检索, 只解析这一页"
-      },
       "use_cache": {
         "label": "使用缓存",
         "description": "勾选则使用对应缓存, 否则重新获取",

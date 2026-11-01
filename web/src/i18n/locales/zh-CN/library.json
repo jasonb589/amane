@@ -34,7 +34,6 @@
   "actions": {
     "scrape": "刮削",
     "scrapeWithNumber": "指定番号刮削",
-    "scrapeWithUrl": "指定链接刮削",
     "batchScrape": "批量刮削",
     "batchOrganize": "批量整理"
   },
@@ -44,30 +43,6 @@
     "numberPlaceholder": "例如 MIDV-123",
     "contentType": "内容类型",
     "contentTypeHint": "留空则根据填写的番号推断",
-    "contentTypeAuto": "自动推断",
-    "submit": "开始刮削",
-    "contentTypes": {
-      "censored": "有码",
-      "uncensored": "无码",
-      "chinese": "国产",
-      "western": "欧美",
-      "fc2": "FC2",
-      "amateur": "素人",
-      "hentai": "动漫"
-    }
-  },
-  "scrapeUrl": {
-    "title": "指定链接刮削",
-    "url": "详情页链接",
-    "urlHint": "填该片在来源站点的详情页地址，刮削时只解析这一页，不再按标题检索",
-    "urlPlaceholder": "例如 https://www.dmm.co.jp/mono/anime/-/detail/=/cid=68jvdw41/",
-    "urlInvalid": "请填写 http:// 或 https:// 开头的完整地址",
-    "number": "番号",
-    "numberHint": "文件名解析不出番号时必填，作为元数据主键",
-    "numberPlaceholder": "例如 MIDV-123",
-    "numberRequired": "请填写番号",
-    "contentType": "内容类型",
-    "contentTypeHint": "留空则根据番号推断",
     "contentTypeAuto": "自动推断",
     "submit": "开始刮削",
     "contentTypes": {

@@ -34,7 +34,6 @@
   "actions": {
     "scrape": "Scrape",
     "scrapeWithNumber": "Scrape with number",
-    "scrapeWithUrl": "Scrape from URL",
     "batchScrape": "Batch Scrape",
     "batchOrganize": "Batch Organize"
   },
@@ -46,30 +45,6 @@
     "contentTypeHint": "Leave empty to infer from the number you enter",
     "contentTypeAuto": "Infer automatically",
     "submit": "Start scrape",
-    "contentTypes": {
-      "censored": "Censored",
-      "uncensored": "Uncensored",
-      "chinese": "Chinese",
-      "western": "Western",
-      "fc2": "FC2",
-      "amateur": "Amateur",
-      "hentai": "Hentai"
-    }
-  },
-  "scrapeUrl": {
-    "title": "Scrape from URL",
-    "url": "Detail page URL",
-    "urlHint": "Paste the item page on the source site; only that page is parsed instead of searching by title",
-    "urlPlaceholder": "e.g. https://www.dmm.co.jp/mono/anime/-/detail/=/cid=68jvdw41/",
-    "urlInvalid": "Enter a full URL starting with http:// or https://",
-    "number": "Number",
-    "numberHint": "Required when the file name yields no number; used as the metadata key",
-    "numberPlaceholder": "e.g. MIDV-123",
-    "numberRequired": "Number is required",
-    "contentType": "Content type",
-    "contentTypeHint": "Leave empty to infer from the number",
-    "contentTypeAuto": "Auto",
-    "submit": "Start scraping",
     "contentTypes": {
       "censored": "Censored",
       "uncensored": "Uncensored",

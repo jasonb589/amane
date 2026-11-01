@@ -129,22 +129,6 @@ class TestSubmitTask:
         assert missing.status_code == 404
         assert (await client.post("tasks", json={"type": "scrape", "number": "   "})).status_code == 422
 
-        # 指定链接刮削: url 进 payload, 与番号一起决定解析哪一页 (不再按标题检索)
-        with_url = await client.post(
-            "tasks",
-            json={
-                "type": "scrape",
-                "media_id": media.id,
-                "number": "MIDV-123",
-                "url": "https://www.dmm.co.jp/mono/anime/-/detail/=/cid=68jvdw41/",
-            },
-        )
-        assert with_url.status_code == 202
-        assert with_url.json()["payload"]["url"] == "https://www.dmm.co.jp/mono/anime/-/detail/=/cid=68jvdw41/"
-        assert with_url.json()["payload"]["number"] == "MIDV-123"
-        bad_url = await client.post("tasks", json={"type": "scrape", "number": "MIDV-123", "url": "ftp://x/y"})
-        assert bad_url.status_code == 422
-
         cleanup = await client.post("tasks", json={"type": "cleanup"})
         assert cleanup.status_code == 202
         assert cleanup.json()["payload"]["remove_missing_files"] is True
