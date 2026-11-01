@@ -143,6 +143,7 @@
       "scrape": "刮削",
       "organize": "整理",
       "cleanup": "清理",
+      "purge": "全部清空",
       "upscale": "超分",
       "refresh": "扫描",
       "r18_import": "R18 导入",
@@ -172,6 +173,44 @@
       "remove_empty_resource_dirs": {
         "label": "移除空资源目录",
         "description": "删除资源目录下已空的分片目录"
+      }
+    },
+    "purge": {
+      "purge_media": {
+        "label": "清空片库",
+        "description": "删除全部影片记录与媒体文件索引"
+      },
+      "delete_files": {
+        "label": "同时删除磁盘文件",
+        "description": "只删媒体库目录内的视频文件; 关闭则只删记录, 下次扫描会重新登记"
+      },
+      "prune_empty_dirs": {
+        "label": "删除腾空的目录",
+        "description": "库根与 .amane_trash 除外"
+      },
+      "run_cleanup": {
+        "label": "清空后接着清理",
+        "description": "与「清理」任务同一套回收逻辑"
+      },
+      "remove_unreferenced_resources": {
+        "label": "移除未引用资源",
+        "description": "删除没有任何影片引用的资源文件"
+      },
+      "remove_orphan_actors": {
+        "label": "移除空演员",
+        "description": "删除没有任何影片关联的演员 (0 作品)"
+      },
+      "remove_empty_facets": {
+        "label": "移除空分类",
+        "description": "删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)"
+      },
+      "remove_empty_resource_dirs": {
+        "label": "移除空资源目录",
+        "description": "删除资源目录下已空的分片目录"
+      },
+      "purge_task_history": {
+        "label": "清空任务历史",
+        "description": "删除已完成 / 失败的任务记录 (本任务自身不受影响)"
       }
     },
     "organize": {

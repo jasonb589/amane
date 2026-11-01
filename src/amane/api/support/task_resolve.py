@@ -8,6 +8,7 @@ from ...handlers import (
     CleanupPayload,
     DeletePayload,
     OrganizePayload,
+    PurgePayload,
     R18ImportPayload,
     RefreshPayload,
     RescrapePayload,
@@ -22,6 +23,7 @@ from ..models import (
     CleanupSubmission,
     DeleteSubmission,
     OrganizeSubmission,
+    PurgeSubmission,
     R18ImportSubmission,
     RefreshSubmission,
     RescrapeSubmission,
@@ -48,6 +50,7 @@ ResolvedPayload = (
     | ActorScrapePayload
     | RescrapePayload
     | SemanticIndexPayload
+    | PurgePayload
     | SemanticBenchmarkPayload
 )
 
@@ -74,6 +77,18 @@ async def resolve_submission(req: TaskSubmission, repo: Repository) -> tuple[Tas
                 remove_orphan_actors=req.remove_orphan_actors,
                 remove_empty_facets=req.remove_empty_facets,
                 remove_empty_resource_dirs=req.remove_empty_resource_dirs,
+            )
+        case PurgeSubmission():
+            return TaskType.PURGE, PurgePayload(
+                purge_media=req.purge_media,
+                delete_files=req.delete_files,
+                prune_empty_dirs=req.prune_empty_dirs,
+                run_cleanup=req.run_cleanup,
+                remove_unreferenced_resources=req.remove_unreferenced_resources,
+                remove_orphan_actors=req.remove_orphan_actors,
+                remove_empty_facets=req.remove_empty_facets,
+                remove_empty_resource_dirs=req.remove_empty_resource_dirs,
+                purge_task_history=req.purge_task_history,
             )
         case UpscaleSubmission():
             return TaskType.UPSCALE, UpscalePayload(

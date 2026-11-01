@@ -4,6 +4,7 @@ from .delete import *
 from .file import *
 from .models import *
 from .protocol import FollowupTask, ProgressCallback, TaskHandler, TaskResult
+from .purge import *
 from .r18_import import *
 from .refresh import *
 from .rescrape import *

@@ -196,6 +196,7 @@ async def start_app(config: ConfigManager | None = None) -> AppSession:
         library_locks=library_locks,
         inventory_store=inventory_store,
         semantic=semantic_service,
+        log_dir=cold.log_dir,
     )
 
     worker = AsyncWorker(

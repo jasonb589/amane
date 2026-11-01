@@ -96,6 +96,7 @@ export const TASK_TYPES = exhaustiveTuple<TaskType>()(
   "delete",
   "semantic_index",
   "semantic_benchmark",
+  "purge",
 );
 
 export const DOWNLOADABLE_RESOURCES = exhaustiveTuple<DownloadableResource>()(
@@ -187,6 +188,7 @@ export const MANUAL_TASK_TYPES = exhaustiveTuple<ManualTaskType>()(
   "organize",
   "scan_invalid",
   "cleanup",
+  "purge",
   "upscale",
   "r18_import",
   "actor_scrape",

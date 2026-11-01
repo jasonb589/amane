@@ -411,3 +411,41 @@ class RescrapeResult(BaseModel):
     submitted: int
     metadata: int = 0
     actors: int = 0
+
+
+# --- PURGE ---
+
+
+class PurgePayload(BaseModel):
+    """一键重置: 清空片库 → 清理孤儿数据 → 清空任务历史. 三个阶段各自可关, 缺省全开."""
+
+    purge_media: bool = Field(default=True, description="删除片库的全部影片与媒体文件索引")
+    delete_files: bool = Field(
+        default=True,
+        description="同时删除磁盘上的视频文件 (仅媒体库目录内); 关闭则只删记录, 下次扫描会重新登记",
+    )
+    prune_empty_dirs: bool = Field(default=True, description="删除本次腾空的目录 (库根与 .amane_trash 除外)")
+    run_cleanup: bool = Field(default=True, description="清空后接着跑一遍清理")
+    remove_unreferenced_resources: bool = Field(default=True, description="清理阶段: 删除没有任何影片引用的资源文件")
+    remove_orphan_actors: bool = Field(default=True, description="清理阶段: 删除没有任何影片关联的演员 (0 作品)")
+    remove_empty_facets: bool = Field(
+        default=True, description="清理阶段: 删除空分类 (标签 / 导演 / 制作商 / 发行商 / 系列)"
+    )
+    remove_empty_resource_dirs: bool = Field(default=True, description="清理阶段: 删除资源目录下已空的分片目录")
+    purge_task_history: bool = Field(default=True, description="最后删除已完成 / 失败的任务记录 (本任务自身不受影响)")
+
+
+class PurgeResult(BaseModel):
+    type: Literal[TaskType.PURGE] = TaskType.PURGE
+    metadata_removed: int = 0
+    """删除的影片 (Metadata) 条数."""
+    media_removed: int = 0
+    """删除的媒体文件索引条数."""
+    files_removed: int = 0
+    files_failed: int = 0
+    pruned_dirs: int = 0
+    resources_removed: int = 0
+    actors_removed: int = 0
+    facets_removed: int = 0
+    resource_dirs_removed: int = 0
+    tasks_removed: int = 0

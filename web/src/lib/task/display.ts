@@ -1,6 +1,7 @@
 import {
   type Icon,
   IconArrowsDiagonal,
+  IconBomb,
   IconDatabase,
   IconEraser,
   IconFolder,
@@ -30,6 +31,7 @@ export const TASK_ICONS: Record<TaskType, Icon> = exhaustiveRecord<TaskType>()({
   refresh: IconRefresh,
   organize: IconFolder,
   cleanup: IconEraser,
+  purge: IconBomb,
   scrape: IconSearch,
   upscale: IconArrowsDiagonal,
   r18_import: IconDatabase,

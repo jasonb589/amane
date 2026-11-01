@@ -24,6 +24,7 @@ from ..handlers import (
     DeleteHandler,
     LibraryTaskLocks,
     OrganizeHandler,
+    PurgeHandler,
     R18ImportHandler,
     RefreshHandler,
     RescrapeHandler,
@@ -343,6 +344,7 @@ class AppRuntime:
                 library_locks=self.library_locks,
                 inventory_store=self.inventory_store,
                 semantic=self.semantic,
+                log_dir=self.config.cold.log_dir,
             ),
             concurrency=hot.worker.concurrency,
             poll_interval=hot.worker.poll_interval,
@@ -559,6 +561,7 @@ def build_handlers(
     semantic: SemanticService,
     library_locks: LibraryTaskLocks | None = None,
     inventory_store: InventoryStore | None = None,
+    log_dir: Path | None = None,
 ) -> dict[TaskType, TaskHandler[Any, Any]]:
     # 未启用/缺密钥时 translator 为 None, ScrapeHandler 跳过翻译.
     # 经 _rebuild() 热重载; 代理沿用 network.proxy.
@@ -606,6 +609,7 @@ def build_handlers(
         TaskType.SCAN_INVALID: ScanInvalidHandler(repo, hot, inventory_store),
         TaskType.DELETE: DeleteHandler(repo, inventory_store, hot, library_locks=library_locks),
         TaskType.CLEANUP: CleanupHandler(repo=repo, resource_store=resource_store),
+        TaskType.PURGE: PurgeHandler(repo=repo, resource_store=resource_store, log_dir=log_dir),
         TaskType.UPSCALE: UpscaleHandler(resource_store, hot),
         TaskType.RESCRAPE: RescrapeHandler(repo),
         TaskType.SEMANTIC_INDEX: SemanticIndexHandler(semantic),

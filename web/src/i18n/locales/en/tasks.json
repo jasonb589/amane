@@ -175,6 +175,7 @@
       "scrape": "Scrape",
       "organize": "Organize",
       "cleanup": "Cleanup",
+      "purge": "Purge everything",
       "upscale": "Upscale",
       "refresh": "Refresh",
       "r18_import": "R18 Import",
@@ -204,6 +205,44 @@
       "remove_empty_resource_dirs": {
         "label": "Remove empty resource dirs",
         "description": "Delete empty shard directories under the resource store"
+      }
+    },
+    "purge": {
+      "purge_media": {
+        "label": "Purge library",
+        "description": "Delete every film record and media file index"
+      },
+      "delete_files": {
+        "label": "Also delete files on disk",
+        "description": "Only video files inside library folders; turn off to keep files and only drop records"
+      },
+      "prune_empty_dirs": {
+        "label": "Remove emptied folders",
+        "description": "Library root and .amane_trash are kept"
+      },
+      "run_cleanup": {
+        "label": "Run cleanup afterwards",
+        "description": "Same collection logic as the Cleanup task"
+      },
+      "remove_unreferenced_resources": {
+        "label": "Remove unreferenced resources",
+        "description": "Delete resource files that no film references"
+      },
+      "remove_orphan_actors": {
+        "label": "Remove orphan actors",
+        "description": "Delete actors that no movie links to"
+      },
+      "remove_empty_facets": {
+        "label": "Remove empty facets",
+        "description": "Delete tags / directors / studios / publishers / series that no movie links to"
+      },
+      "remove_empty_resource_dirs": {
+        "label": "Remove empty resource dirs",
+        "description": "Delete empty shard directories under the resource store"
+      },
+      "purge_task_history": {
+        "label": "Clear task history",
+        "description": "Delete completed / failed task records (this task itself is kept)"
       }
     },
     "organize": {

@@ -85,6 +85,7 @@ function resultBranch(result: TaskResult, failed: boolean): ReactNode {
     case "r18_import":
     case "rescrape":
     case "scan_invalid":
+    case "purge":
     case "delete":
       return <EmptyHint visible={!failed} />;
     default:

@@ -16,6 +16,8 @@ from ...handlers import (
     DeleteResult,
     OrganizePayload,
     OrganizeResult,
+    PurgePayload,
+    PurgeResult,
     R18ImportPayload,
     R18ImportResult,
     RefreshPayload,
@@ -55,7 +57,8 @@ TaskResultPayload = Annotated[
     | ActorScrapeResult
     | RescrapeResult
     | SemanticIndexResult
-    | SemanticBenchmarkResult,
+    | SemanticBenchmarkResult
+    | PurgeResult,
     Field(discriminator="type"),
 ]
 """任务结果按任务类型判别; 各成员自带 `type` 字面量, 前端据此收窄."""
@@ -239,6 +242,10 @@ class CleanupSubmission(CleanupPayload):
     type: Literal["cleanup"]
 
 
+class PurgeSubmission(PurgePayload):
+    type: Literal["purge"]
+
+
 class UpscaleSubmission(UpscalePayload):
     type: Literal["upscale"]
 
@@ -286,7 +293,8 @@ TaskSubmission = Annotated[
     | ActorScrapeSubmission
     | RescrapeSubmission
     | SemanticIndexSubmission
-    | SemanticBenchmarkSubmission,
+    | SemanticBenchmarkSubmission
+    | PurgeSubmission,
     Field(discriminator="type"),
 ]
 

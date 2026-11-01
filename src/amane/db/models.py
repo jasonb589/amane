@@ -44,6 +44,7 @@ class TaskType(StrEnum):
     DELETE = "delete"
     SEMANTIC_INDEX = "semantic_index"
     SEMANTIC_BENCHMARK = "semantic_benchmark"
+    PURGE = "purge"
 
 
 class RoutineType(StrEnum):
