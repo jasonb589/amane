@@ -1,0 +1,48 @@
+name: tmp-gen
+
+on:
+  push:
+    tags: ["gen-*"]
+
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up UV
+        uses: astral-sh/setup-uv@v9.0.0
+
+      - name: Sync deps
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Export OpenAPI
+        run: uv run python scripts/export_openapi.py
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "11"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web deps
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate client
+        working-directory: web
+        run: pnpm gen-client
+
+      - name: Upload generated
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated
+          path: |
+            web/openapi.json
+            web/src/client
