@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Amane API",
-    "version": "0.24.1-custom.10"
+    "version": "0.24.1-custom.11"
   },
   "paths": {
     "/api/health": {
@@ -10025,6 +10025,18 @@
                   "use_browser": "auto",
                   "use_proxy": true
                 },
+                "xchina": {
+                  "cookie": {},
+                  "languages": [
+                    "zh",
+                    "ja",
+                    "en"
+                  ],
+                  "official_routes": {},
+                  "rate_limit": 2.0,
+                  "use_browser": "auto",
+                  "use_proxy": true
+                },
                 "xcity": {
                   "cookie": {},
                   "languages": [
@@ -14754,6 +14766,7 @@
                   "r18dev",
                   "tenhow",
                   "theporndb",
+                  "xchina",
                   "xcity"
                 ]
               },
@@ -14798,6 +14811,7 @@
                   "r18dev",
                   "tenhow",
                   "theporndb",
+                  "xchina",
                   "xcity"
                 ]
               },
@@ -14842,6 +14856,7 @@
                   "r18dev",
                   "tenhow",
                   "theporndb",
+                  "xchina",
                   "xcity"
                 ]
               },
@@ -15511,6 +15526,7 @@
           "tenhow",
           "theporndb",
           "wikipedia",
+          "xchina",
           "xcity"
         ],
         "title": "SiteName",
