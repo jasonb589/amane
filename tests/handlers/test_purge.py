@@ -87,9 +87,7 @@ async def test_purge_keeps_files_when_disabled(purge_env):
     metadata_id, media_id, target = await _seed_library(repo, tmp_path, "ABC-002")
 
     handler = PurgeHandler(repo, store)
-    outcome = await handler.handle(
-        PurgePayload(delete_files=False, run_cleanup=False, purge_task_history=False)
-    )
+    outcome = await handler.handle(PurgePayload(delete_files=False, run_cleanup=False, purge_task_history=False))
 
     assert outcome.result is not None
     assert outcome.result.files_removed == 0
@@ -112,9 +110,7 @@ async def test_purge_clears_task_history_but_keeps_unfinished(purge_env):
     await repo.fail_task(failed.id, error="boom")
 
     handler = PurgeHandler(repo, store)
-    outcome = await handler.handle(
-        PurgePayload(purge_media=False, run_cleanup=False, purge_task_history=True)
-    )
+    outcome = await handler.handle(PurgePayload(purge_media=False, run_cleanup=False, purge_task_history=True))
 
     assert outcome.result is not None
     assert outcome.result.tasks_removed == 2
