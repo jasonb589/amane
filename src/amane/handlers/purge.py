@@ -6,9 +6,10 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import structlog
 
 from ..db.models import TaskStatus
 from ..library import prune_empty_dirs
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from ..db.repository import Repository
     from ..media import ResourceStore
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 _PAGE = 500
 """逐页读取媒体文件, 避免一次性把整个索引读进内存."""

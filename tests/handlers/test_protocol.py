@@ -18,6 +18,7 @@ from amane.handlers.models import (
     CleanupResult,
     DeleteResult,
     OrganizeResult,
+    PurgeResult,
     R18ImportResult,
     RefreshResult,
     RescrapeResult,
@@ -124,6 +125,10 @@ RESULT_CASES = [
             measured_at="2026-10-30T02:55:00+08:00",
         ),
         id="semantic_benchmark",
+    ),
+    pytest.param(
+        PurgeResult(metadata_removed=2, media_removed=3, files_removed=3, pruned_dirs=1, tasks_removed=5),
+        id="purge",
     ),
 ]
 
