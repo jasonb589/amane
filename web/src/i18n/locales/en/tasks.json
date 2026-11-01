@@ -72,6 +72,7 @@
     "scrape": "Scrape",
     "organize": "Organize",
     "cleanup": "Cleanup",
+    "purge": "Purge everything",
     "upscale": "Upscale",
     "refresh": "Refresh",
     "r18_import": "R18 Import",
