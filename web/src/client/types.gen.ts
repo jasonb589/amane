@@ -3571,6 +3571,120 @@ export type PluginResponse = {
 export type PosterCropMode = 'right' | 'center' | 'none' | 'face';
 
 /**
+ * PurgeResult
+ */
+export type PurgeResult = {
+    /**
+     * Type
+     */
+    type?: 'purge';
+    /**
+     * Metadata Removed
+     */
+    metadata_removed?: number;
+    /**
+     * Media Removed
+     */
+    media_removed?: number;
+    /**
+     * Files Removed
+     */
+    files_removed?: number;
+    /**
+     * Files Failed
+     */
+    files_failed?: number;
+    /**
+     * Pruned Dirs
+     */
+    pruned_dirs?: number;
+    /**
+     * Resources Removed
+     */
+    resources_removed?: number;
+    /**
+     * Actors Removed
+     */
+    actors_removed?: number;
+    /**
+     * Facets Removed
+     */
+    facets_removed?: number;
+    /**
+     * Resource Dirs Removed
+     */
+    resource_dirs_removed?: number;
+    /**
+     * Tasks Removed
+     */
+    tasks_removed?: number;
+};
+
+/**
+ * PurgeSubmission
+ */
+export type PurgeSubmission = {
+    /**
+     * Purge Media
+     *
+     * 删除片库的全部影片与媒体文件索引
+     */
+    purge_media?: boolean;
+    /**
+     * Delete Files
+     *
+     * 同时删除磁盘上的视频文件 (仅媒体库目录内); 关闭则只删记录, 下次扫描会重新登记
+     */
+    delete_files?: boolean;
+    /**
+     * Prune Empty Dirs
+     *
+     * 删除本次腾空的目录 (库根与 .amane_trash 除外)
+     */
+    prune_empty_dirs?: boolean;
+    /**
+     * Run Cleanup
+     *
+     * 清空后接着跑一遍清理
+     */
+    run_cleanup?: boolean;
+    /**
+     * Remove Unreferenced Resources
+     *
+     * 清理阶段: 删除没有任何影片引用的资源文件
+     */
+    remove_unreferenced_resources?: boolean;
+    /**
+     * Remove Orphan Actors
+     *
+     * 清理阶段: 删除没有任何影片关联的演员 (0 作品)
+     */
+    remove_orphan_actors?: boolean;
+    /**
+     * Remove Empty Facets
+     *
+     * 清理阶段: 删除空分类 (标签 / 导演 / 制作商 / 发行商 / 系列)
+     */
+    remove_empty_facets?: boolean;
+    /**
+     * Remove Empty Resource Dirs
+     *
+     * 清理阶段: 删除资源目录下已空的分片目录
+     */
+    remove_empty_resource_dirs?: boolean;
+    /**
+     * Purge Task History
+     *
+     * 最后删除已完成 / 失败的任务记录 (本任务自身不受影响)
+     */
+    purge_task_history?: boolean;
+    /**
+     * Type
+     */
+    type: 'purge';
+};
+
+/**
  * R18Config
  *
  * 放 Hot: 修改 dsn 经 AppRuntime.apply_rebuild() 重建只读引擎. 未配置 dsn 时整个数据源禁用.
@@ -4971,7 +5085,7 @@ export type TaskBatchSubmitRequest = {
     /**
      * Submissions
      */
-    submissions: Array<RefreshSubmission | OrganizeSubmission | ScanInvalidSubmission | DeleteSubmission | ScrapeSubmission | CleanupSubmission | UpscaleSubmission | R18ImportSubmission | ActorScrapeSubmission | RescrapeSubmission | SemanticIndexSubmission | SemanticBenchmarkSubmission>;
+    submissions: Array<RefreshSubmission | OrganizeSubmission | ScanInvalidSubmission | DeleteSubmission | ScrapeSubmission | CleanupSubmission | UpscaleSubmission | R18ImportSubmission | ActorScrapeSubmission | RescrapeSubmission | SemanticIndexSubmission | SemanticBenchmarkSubmission | PurgeSubmission>;
 };
 
 /**
@@ -5234,7 +5348,9 @@ export type TaskResponse = {
         type: 'semantic_index';
     } & SemanticIndexResult) | ({
         type: 'semantic_benchmark';
-    } & SemanticBenchmarkResult) | null;
+    } & SemanticBenchmarkResult) | ({
+        type: 'purge';
+    } & PurgeResult) | null;
 };
 
 /**
@@ -5250,7 +5366,7 @@ export type TaskStatus = 'queued' | 'running' | 'done' | 'failed';
 /**
  * TaskType
  */
-export type TaskType = 'scrape' | 'organize' | 'refresh' | 'cleanup' | 'upscale' | 'r18_import' | 'actor_scrape' | 'rescrape' | 'scan_invalid' | 'delete' | 'semantic_index' | 'semantic_benchmark';
+export type TaskType = 'scrape' | 'organize' | 'refresh' | 'cleanup' | 'upscale' | 'r18_import' | 'actor_scrape' | 'rescrape' | 'scan_invalid' | 'delete' | 'semantic_index' | 'semantic_benchmark' | 'purge';
 
 /**
  * TaskWorkerResponse
@@ -8687,7 +8803,9 @@ export type SubmitTaskData = {
         type: 'semantic_index';
     } & SemanticIndexSubmission) | ({
         type: 'semantic_benchmark';
-    } & SemanticBenchmarkSubmission);
+    } & SemanticBenchmarkSubmission) | ({
+        type: 'purge';
+    } & PurgeSubmission);
     path?: never;
     query?: never;
     url: '/api/tasks';

@@ -6923,6 +6923,138 @@ export const PosterCropModeSchema = {
     description: '海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``).'
 } as const;
 
+export const PurgeResultSchema = {
+    properties: {
+        type: {
+            type: 'string',
+            const: 'purge',
+            title: 'Type',
+            default: 'purge'
+        },
+        metadata_removed: {
+            type: 'integer',
+            title: 'Metadata Removed',
+            default: 0
+        },
+        media_removed: {
+            type: 'integer',
+            title: 'Media Removed',
+            default: 0
+        },
+        files_removed: {
+            type: 'integer',
+            title: 'Files Removed',
+            default: 0
+        },
+        files_failed: {
+            type: 'integer',
+            title: 'Files Failed',
+            default: 0
+        },
+        pruned_dirs: {
+            type: 'integer',
+            title: 'Pruned Dirs',
+            default: 0
+        },
+        resources_removed: {
+            type: 'integer',
+            title: 'Resources Removed',
+            default: 0
+        },
+        actors_removed: {
+            type: 'integer',
+            title: 'Actors Removed',
+            default: 0
+        },
+        facets_removed: {
+            type: 'integer',
+            title: 'Facets Removed',
+            default: 0
+        },
+        resource_dirs_removed: {
+            type: 'integer',
+            title: 'Resource Dirs Removed',
+            default: 0
+        },
+        tasks_removed: {
+            type: 'integer',
+            title: 'Tasks Removed',
+            default: 0
+        }
+    },
+    type: 'object',
+    title: 'PurgeResult'
+} as const;
+
+export const PurgeSubmissionSchema = {
+    properties: {
+        purge_media: {
+            type: 'boolean',
+            title: 'Purge Media',
+            description: '删除片库的全部影片与媒体文件索引',
+            default: true
+        },
+        delete_files: {
+            type: 'boolean',
+            title: 'Delete Files',
+            description: '同时删除磁盘上的视频文件 (仅媒体库目录内); 关闭则只删记录, 下次扫描会重新登记',
+            default: true
+        },
+        prune_empty_dirs: {
+            type: 'boolean',
+            title: 'Prune Empty Dirs',
+            description: '删除本次腾空的目录 (库根与 .amane_trash 除外)',
+            default: true
+        },
+        run_cleanup: {
+            type: 'boolean',
+            title: 'Run Cleanup',
+            description: '清空后接着跑一遍清理',
+            default: true
+        },
+        remove_unreferenced_resources: {
+            type: 'boolean',
+            title: 'Remove Unreferenced Resources',
+            description: '清理阶段: 删除没有任何影片引用的资源文件',
+            default: true
+        },
+        remove_orphan_actors: {
+            type: 'boolean',
+            title: 'Remove Orphan Actors',
+            description: '清理阶段: 删除没有任何影片关联的演员 (0 作品)',
+            default: true
+        },
+        remove_empty_facets: {
+            type: 'boolean',
+            title: 'Remove Empty Facets',
+            description: '清理阶段: 删除空分类 (标签 / 导演 / 制作商 / 发行商 / 系列)',
+            default: true
+        },
+        remove_empty_resource_dirs: {
+            type: 'boolean',
+            title: 'Remove Empty Resource Dirs',
+            description: '清理阶段: 删除资源目录下已空的分片目录',
+            default: true
+        },
+        purge_task_history: {
+            type: 'boolean',
+            title: 'Purge Task History',
+            description: '最后删除已完成 / 失败的任务记录 (本任务自身不受影响)',
+            default: true
+        },
+        type: {
+            type: 'string',
+            const: 'purge',
+            title: 'Type'
+        }
+    },
+    type: 'object',
+    required: [
+        'type'
+    ],
+    title: 'PurgeSubmission'
+} as const;
+
 export const R18ConfigSchema = {
     properties: {
         dsn: {
@@ -9426,6 +9558,9 @@ export const TaskBatchSubmitRequestSchema = {
                     },
                     {
                         $ref: '#/components/schemas/SemanticBenchmarkSubmission'
+                    },
+                    {
+                        $ref: '#/components/schemas/PurgeSubmission'
                     }
                 ],
                 discriminator: {
@@ -9435,6 +9570,7 @@ export const TaskBatchSubmitRequestSchema = {
                         cleanup: '#/components/schemas/CleanupSubmission',
                         delete: '#/components/schemas/DeleteSubmission',
                         organize: '#/components/schemas/OrganizeSubmission',
+                        purge: '#/components/schemas/PurgeSubmission',
                         r18_import: '#/components/schemas/R18ImportSubmission',
                         refresh: '#/components/schemas/RefreshSubmission',
                         rescrape: '#/components/schemas/RescrapeSubmission',
@@ -9931,6 +10067,9 @@ export const TaskResponseSchema = {
                         },
                         {
                             $ref: '#/components/schemas/SemanticBenchmarkResult'
+                        },
+                        {
+                            $ref: '#/components/schemas/PurgeResult'
                         }
                     ],
                     discriminator: {
@@ -9940,6 +10079,7 @@ export const TaskResponseSchema = {
                             cleanup: '#/components/schemas/CleanupResult',
                             delete: '#/components/schemas/DeleteResult',
                             organize: '#/components/schemas/OrganizeResult',
+                            purge: '#/components/schemas/PurgeResult',
                             r18_import: '#/components/schemas/R18ImportResult',
                             refresh: '#/components/schemas/RefreshResult',
                             rescrape: '#/components/schemas/RescrapeResult',
@@ -10006,7 +10146,8 @@ export const TaskTypeSchema = {
         'scan_invalid',
         'delete',
         'semantic_index',
-        'semantic_benchmark'
+        'semantic_benchmark',
+        'purge'
     ],
     title: 'TaskType'
 } as const;
