@@ -4299,6 +4299,12 @@ export type ScrapeSubmission = {
      */
     content_type?: ContentType | null;
     /**
+     * Url
+     *
+     * 指定详情页 URL: 非空时跳过检索, 只由负责该域名的来源解析这个页面 (冷门条目用)
+     */
+    url?: string | null;
+    /**
      * Use Cache
      *
      * 启用的缓存种类 (metadata: 复用 DB per-site 快照; trans: 复用译文). 空集 = 全部强制刷新
