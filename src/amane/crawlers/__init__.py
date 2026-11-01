@@ -41,8 +41,8 @@ from .sites import (
     R18DevCrawler,
     TenhowCrawler,
     ThePornDBCrawler,
-    XCityCrawler,
     XchinaCrawler,
+    XCityCrawler,
 )
 
 registry.register(JavDBCrawler)

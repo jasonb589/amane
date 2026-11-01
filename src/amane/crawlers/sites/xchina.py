@@ -180,7 +180,7 @@ class XchinaCrawler(Crawler):
         host = urlparse(url).netloc.lower()
         if not host or host.endswith("xchina.download"):
             return False
-        return host == "xchina.co" or host.endswith(".xchina.co") or host == "xchina.tv" or host.endswith(".xchina.tv")
+        return host == "xchina.co" or host == "xchina.tv" or host.endswith((".xchina.co", ".xchina.tv"))
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
         # 站点按自己的 ID 组织, 番号检索没有意义; 只支持「指定链接刮削」.
