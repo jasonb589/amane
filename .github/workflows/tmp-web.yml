@@ -29,7 +29,10 @@ jobs:
 
       - name: Check
         working-directory: web
-        run: pnpm check
+        run: |
+          pnpm exec oxlint .
+          pnpm exec tsc -b --noEmit
+          pnpm i18n:ci
 
       - name: Build
         working-directory: web
