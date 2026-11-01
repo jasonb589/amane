@@ -109,6 +109,7 @@ def compile_priority(
 class CrawlerLike(Protocol):
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None: ...
 
+
 async def aggregate(
     query: SearchQuery,
     crawlers: Mapping[str, CrawlerLike],
