@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from ..config import HotSettings
 from ..events import EventType
 from ..handlers.protocol import TaskResult
-from ..observability import Recorder
+from ..observability import Recorder, remove_task_dir
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -353,6 +353,8 @@ class AsyncWorker:
                             EventType.TASK_COMPLETED,
                             {"task_id": task_id, "type": task_type_str},
                         )
+                    if result.drop_when_done:
+                        await self._drop_task(task_id)
                 else:
                     duration_s = round(time.monotonic() - start_time, 2)
                     err = result.error or "Unknown error"
@@ -370,3 +372,13 @@ class AsyncWorker:
                 if rec is not None:
                     self._active_recorders.pop(task_id, None)
                     rec.close()
+
+    async def _drop_task(self, task_id: int) -> None:
+        """handler 要求「完成后自删」: 删掉这条已完成记录与其日志目录 (「全部清空」收尾用)."""
+        try:
+            deleted = await self._repo.delete_task(task_id)
+        except Exception:
+            logger.exception("drop finished task failed", task_id=task_id)
+            return
+        if deleted and self._log_dir is not None:
+            remove_task_dir(self._log_dir, task_id)

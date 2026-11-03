@@ -27,6 +27,8 @@ class TaskResult[R: BaseModel | dict]:
     result: R | None = None
     error: str | None = None
     followups: list[FollowupTask] = field(default_factory=list)
+    drop_when_done: bool = False
+    """成功后连自己的任务记录一起删除; 「全部清空」用它收尾, 不留一条已完成记录."""
 
     def as_dict(self) -> dict | None:
         """结果载荷的唯一落库形状: 以 JSON 模式 dump, 由 `tasks.result` 列的 `json.dumps` 直接写出.

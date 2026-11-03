@@ -637,3 +637,25 @@ async def test_worker_no_followups_on_failure(repo: Repository) -> None:
 
     assert await repo.list_task_links(parent_task_id=t.id) == []
     assert await repo.list_tasks_by_root(t.id) == []
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_worker_drops_task_when_handler_asks(repo: Repository) -> None:
+    """drop_when_done: 完成后连自己的记录一起消失 (「全部清空」收尾)."""
+
+    class SelfDroppingHandler(TaskHandler):
+        def __init__(self):
+            super().__init__(payload_t=dict, result_t=dict)
+
+        async def handle(self, payload: dict):
+            return TaskResult(success=True, result={}, drop_when_done=True)
+
+    worker = AsyncWorker(repo=repo, handlers={TaskType.SCRAPE: SelfDroppingHandler()}, poll_interval=0.05)
+    t = await repo.create_task(TaskType.SCRAPE, payload={"number": "DROP-001"})
+    assert t.id is not None
+
+    worker.start()
+    await recv(worker, 1)
+    await stop_worker(worker)
+
+    assert await repo.get_task(t.id) is None

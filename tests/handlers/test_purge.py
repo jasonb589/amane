@@ -92,6 +92,7 @@ async def test_purge_keeps_files_when_disabled(purge_env):
     assert outcome.result is not None
     assert outcome.result.files_removed == 0
     assert outcome.result.pruned_dirs == 0
+    assert outcome.drop_when_done is False
     assert target.exists()
     assert target.parent.exists()
     assert await repo.get_media_file(media_id) is None
@@ -114,6 +115,8 @@ async def test_purge_clears_task_history_but_keeps_unfinished(purge_env):
 
     assert outcome.result is not None
     assert outcome.result.tasks_removed == 2
+    # 收尾自删: 连这条已完成记录一起消失, 用户不用再点「清除已完成」.
+    assert outcome.drop_when_done is True
     assert await repo.get_task(done.id) is None
     assert await repo.get_task(failed.id) is None
     assert await repo.get_task(queued.id) is not None

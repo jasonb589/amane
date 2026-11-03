@@ -90,7 +90,8 @@ class PurgeHandler(TaskHandler[PurgePayload, PurgeResult]):
             tasks_removed=tasks_removed,
         )
         logger.info("purge completed", **result.model_dump(mode="json", exclude={"type"}))
-        return TaskResult(True, result=result)
+        # 清任务历史时连自己这条已完成记录也删掉: 用户点一次就什么都不剩.
+        return TaskResult(True, result=result, drop_when_done=payload.purge_task_history)
 
     # --- 阶段一: 片库 ---
 
