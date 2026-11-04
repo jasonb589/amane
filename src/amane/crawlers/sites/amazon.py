@@ -59,7 +59,9 @@ _IMAGE_RE = re.compile(r"m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})")
 #: 详情页的真封面: 原图优先, 再退到主图 JSON 里的第一张.
 _OLD_HIRES_RE = re.compile(r'data-old-hires="https://m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})')
 _DYNAMIC_IMAGE_RE = re.compile(r'data-a-dynamic-image="([^"]{0,4000})')
-_LANDING_IMAGE_RE = re.compile(r'id="landingImage"[^>]*?src="https://m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})')
+_LANDING_IMAGE_RE = re.compile(
+    r'id="landingImage"[^>]*?src="https://m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})'
+)
 _ALT_RE = re.compile(r'alt="([^"]{4,200})"')
 _NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
 _MIN_RATIO = 0.6
