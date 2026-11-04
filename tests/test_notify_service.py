@@ -22,7 +22,6 @@ from amane.notify.service import (
     _batch_item,
     _batch_line,
     _local_time,
-    _multipart_body,
     build_request,
 )
 
@@ -259,11 +258,21 @@ def test_build_request_telegram_photo() -> None:
     assert json.loads(body2)["text"] == "ABC-1"
 
 
-def test_build_request_skips_internal_poster() -> None:
-    """面板内部资源 (/api/resources/...) 需要 token, Telegram 取不到 → 换缩略图或纯文本.
+def test_build_request_photo_uses_image_token_for_internal_poster() -> None:
+    """内部海报用只读图片 token 拼成公网地址: Telegram 能直接抓, 不需要上传文件."""
+    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
+    url, _, body = build_request(
+        channel,
+        {"number": "ABC-1", "poster_url": "/api/resources/abc"},
+        panel_url="https://panel.example/",
+        image_token="IMGTOKEN",
+    )
+    assert url.endswith("/sendPhoto")
+    assert json.loads(body)["photo"] == "https://panel.example/api/resources/abc?token=IMGTOKEN"
 
-    回归: 以前把内部地址原样交给 sendPhoto, Telegram 回 400, 整条刮削通知就此丢掉.
-    """
+
+def test_build_request_photo_falls_back_to_thumb() -> None:
+    """没有图片 token 时退到公网缩略图; 两个都不行就不带图 (不能把整条消息搭进去)."""
     channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
     url, _, body = build_request(
         channel, {"number": "ABC-1", "poster_url": "/api/resources/abc", "thumb_url": "https://img/thumb.jpg"}
@@ -274,31 +283,6 @@ def test_build_request_skips_internal_poster() -> None:
     url2, _, body2 = build_request(channel, {"number": "ABC-1", "poster_url": "/api/resources/abc"})
     assert url2.endswith("/sendMessage")
     assert json.loads(body2)["text"] == "ABC-1"
-
-
-def test_multipart_body_shape() -> None:
-    """Telegram 上传图片用的 multipart: 文本字段在前, 文件字段最后, 结尾有结束边界."""
-    body = _multipart_body(
-        {"chat_id": "-1001", "caption": "cap"},
-        field="photo",
-        filename="poster.jpg",
-        content=b"\xff\xd8jpeg",
-        boundary="BOUND",
-    )
-    assert body.startswith(b"--BOUND\r\n")
-    assert b'name="chat_id"\r\n\r\n-1001\r\n' in body
-    assert b'name="photo"; filename="poster.jpg"' in body
-    assert b"Content-Type: image/jpeg" in body
-    assert body.endswith(b"\r\n--BOUND--\r\n")
-
-
-@pytest.mark.asyncio
-async def test_telegram_upload_needs_resource_store() -> None:
-    """没有资源库就退回 URL/纯文本, 不能在这里炸."""
-    service = NotificationService()
-    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
-    assert await service._telegram_upload(channel, {"poster_url": "/api/resources/abc"}) is None
-
 
 def test_build_request_bark_and_wecom() -> None:
     """Bark 用第一行当标题; 企业微信发 text 消息."""

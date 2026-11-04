@@ -13,7 +13,6 @@ import asyncio
 import json
 import re
 import time
-import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,7 +29,6 @@ from .templates import render
 if TYPE_CHECKING:
     from ..db.models import Task
     from ..db.repository import Repository
-    from ..media.resource_store import ResourceStore
     from ..net.http import WebClient
 
 logger = structlog.get_logger()
@@ -328,42 +326,30 @@ def _render_text(channel: NotifyChannelConfig, variables: dict[str, Any]) -> str
     return _squash_lines(render(channel.text or _DEFAULT_TEXT, variables, html_mode=html_mode))
 
 
-def _multipart_body(fields: dict[str, str], *, field: str, filename: str, content: bytes, boundary: str) -> bytes:
-    """拼 multipart/form-data: 文本字段在前, 文件字段最后."""
-    chunks: list[bytes] = []
-    for name, value in fields.items():
-        chunks.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
-    content_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
-    chunks.append(
-        (
-            f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
-            f"Content-Type: {content_type}\r\n\r\n"
-        ).encode()
-    )
-    chunks.append(content)
-    chunks.append(f"\r\n--{boundary}--\r\n".encode())
-    return b"".join(chunks)
+def _photo_url(variables: dict[str, Any], panel_url: str, image_token: str | None) -> str:
+    """挑一个 Telegram 能直接抓的海报 URL.
 
-
-async def _local_image(url: str, store: ResourceStore, web: WebClient) -> Path | None:
-    """图片 URL → 本地文件: 内部资源查存储, 外部地址先落缓存."""
-    if url.startswith(_RESOURCE_URL_PREFIX):
-        found = await store.get_by_url_hash(url[len(_RESOURCE_URL_PREFIX) :].split("?", 1)[0])
-        return found[1] if found is not None else None
-    return await store.acquire(url, web)
-
-
-def _public_image(value: object) -> str:
-    """只放行公网图片 URL.
-
-    ``/api/resources/...`` 这类内部地址需要面板 token 才能取, 交给 Telegram 只会得到 400,
-    而 ``_send`` 对 4xx 不重试 —— 整条消息会静默丢掉 (实测: 刮削卡片因此消失).
+    内部资源 (``/api/resources/...``) 需要面板 token, 用只读图片 token 拼成公网地址
+    (``?token=...``, 只能读资源, 不等于 API token); 拼不出来就退到缩略图, 再不行就不带图.
     """
-    text = str(value or "").strip()
-    return text if text.startswith(("http://", "https://")) else ""
+    for key in ("poster_url", "thumb_url"):
+        raw = str(variables.get(key) or "").strip()
+        if not raw:
+            continue
+        if raw.startswith(("http://", "https://")):
+            return raw
+        if raw.startswith(_RESOURCE_URL_PREFIX) and panel_url and image_token:
+            return f"{panel_url.rstrip('/')}{raw}?token={image_token}"
+    return ""
 
 
-def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[str, dict[str, str], str]:
+def build_request(
+    channel: NotifyChannelConfig,
+    variables: dict[str, Any],
+    *,
+    panel_url: str = "",
+    image_token: str | None = None,
+) -> tuple[str, dict[str, str], str]:
     """生成请求 (url, headers, body).
 
     ``provider = custom`` 用配置里的 url/body 原样渲染; 内置服务由程序拼 URL 与 JSON,
@@ -375,10 +361,7 @@ def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tu
         headers["Content-Type"] = "application/json"
         if channel.provider is NotifyProvider.TELEGRAM:
             chat_id = channel.chat_id.strip()
-            photo = _public_image(variables.get("poster_url")) if channel.send_photo else ""
-            if not photo and channel.send_photo:
-                # 海报是面板内部资源时退到缩略图; 两个都不可公开取用就发纯文本, 别让整条消息被拒.
-                photo = _public_image(variables.get("thumb_url"))
+            photo = _photo_url(variables, panel_url, image_token) if channel.send_photo else ""
             if photo:
                 method = "sendPhoto"
                 payload: dict[str, Any] = {
@@ -434,7 +417,7 @@ class NotificationService:
         self._web: WebClient | None = None
         self._repo: Repository | None = None
         self._log_dir: Path | None = None
-        self._resources: ResourceStore | None = None
+        self._image_token: str | None = None
         self._pending: dict[tuple[int, bool], _Pending] = {}
         self._sending: set[asyncio.Task[Any]] = set()
 
@@ -445,14 +428,14 @@ class NotificationService:
         web_client: WebClient | None,
         repo: Repository | None,
         log_dir: Path | None,
-        resource_store: ResourceStore | None = None,
+        image_token: str | None = None,
     ) -> None:
         """热配置变更时调用 (同步; rebuild 不能 await): 只换引用, 在途发送继续跑完."""
         self._config = config.model_copy(deep=True)
         self._web = web_client
         self._repo = repo
         self._log_dir = log_dir
-        self._resources = resource_store
+        self._image_token = image_token
 
     @property
     def enabled(self) -> bool:
@@ -584,27 +567,25 @@ class NotificationService:
             if channel.provider is NotifyProvider.TELEGRAM and not channel.chat_id.strip():
                 logger.warning("notify channel skipped: chat_id missing", channel=label)
                 return False, "缺少频道 / 群 ID"
-        upload = None
-        if channel.provider is NotifyProvider.TELEGRAM and channel.send_photo:
-            upload = await self._telegram_upload(channel, variables)
-        url, headers, body = upload if upload is not None else build_request(channel, variables)
-        if (
-            not isinstance(body, bytes)
-            and body.lstrip().startswith("{")
-            and not any(key.lower() == "content-type" for key in headers)
-        ):
+        panel = (self._config.panel_url if self._config is not None else "").strip()
+        url, headers, body = build_request(channel, variables, panel_url=panel, image_token=self._image_token)
+        used_photo = url.endswith("/sendPhoto")
+        if body.startswith("{") and not any(key.lower() == "content-type" for key in headers):
             # 不带 Content-Type 时对方会按表单解析 body, Telegram 会直接回
             # "Bad Request: message text is empty" (实测 400).
             headers["Content-Type"] = "application/json"
         response, last_error = await self._post(channel, url, headers, body)
-        if upload is not None and (response is None or response.status_code >= 400):
-            # 图片被拒 (尺寸 / 格式 / 群组限制) 时退回纯文本: 卡片本身总要发出去.
+        if used_photo and (response is None or response.status_code >= 400):
+            # 图被拒 (Telegram 抓不到图 / 尺寸 / 群组限制) 时退回纯文本: 卡片本身总要发出去.
             logger.warning(
                 "notify photo rejected, retry as text",
                 channel=label,
                 status=response.status_code if response is not None else None,
             )
-            url, headers, body = build_request(channel, variables)
+            text_channel = channel.model_copy(update={"send_photo": False})
+            url, headers, body = build_request(
+                text_channel, variables, panel_url=panel, image_token=self._image_token
+            )
             response, last_error = await self._post(channel, url, headers, body)
         if response is None:
             return False, last_error or "请求失败"
@@ -647,55 +628,6 @@ class NotificationService:
             if attempt == 1:
                 await asyncio.sleep(_RETRY_DELAY_S)
         return response, last_error
-
-    async def _telegram_upload(
-        self, channel: NotifyChannelConfig, variables: dict[str, Any]
-    ) -> tuple[str, dict[str, str], bytes] | None:
-        """把海报作为文件直接上传给 Telegram.
-
-        传 URL 时 Telegram 必须自己抓得到图; 面板内部资源 (``/api/resources/...``) 需要面板 token,
-        实测会 400 并把整条消息一起丢掉. 有本地图就上传字节, 不依赖 URL 可达性.
-        """
-        store = self._resources
-        web = self._web
-        if store is None or web is None:
-            return None
-        path: Path | None = None
-        for key in ("poster_url", "thumb_url"):
-            raw = str(variables.get(key) or "").strip()
-            if not raw:
-                continue
-            try:
-                path = await _local_image(raw, store, web)
-            except Exception:
-                logger.warning("notify image resolve failed", url=raw, exc_info=True)
-                path = None
-            if path is not None:
-                break
-        if path is None:
-            return None
-        try:
-            content = path.read_bytes()
-        except OSError:
-            logger.warning("notify image read failed", path=str(path))
-            return None
-        boundary = f"----amane{uuid.uuid4().hex}"
-        fields = {
-            "chat_id": channel.chat_id.strip(),
-            "caption": _clip(_render_text(channel, variables), _MAX_CAPTION),
-        }
-        if channel.parse_mode:
-            fields["parse_mode"] = channel.parse_mode
-        body = _multipart_body(
-            fields,
-            field="photo",
-            filename=f"poster{path.suffix or '.jpg'}",
-            content=content,
-            boundary=boundary,
-        )
-        headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
-        token = channel.token.strip()
-        return f"https://api.telegram.org/bot{token}/sendPhoto", headers, body
 
     async def send_test(self, channel: NotifyChannelConfig) -> tuple[bool, str]:
         """用示例数据真实发送一次并返回结果, 供面板上的"测试"按钮调用."""
