@@ -12,6 +12,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from amane.config.manager import NotifyChannelConfig, NotifyConfig
 from amane.db.models import Task, TaskType
 from amane.events import Event, EventType
