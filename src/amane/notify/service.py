@@ -328,9 +328,7 @@ def _render_text(channel: NotifyChannelConfig, variables: dict[str, Any]) -> str
     return _squash_lines(render(channel.text or _DEFAULT_TEXT, variables, html_mode=html_mode))
 
 
-def _multipart_body(
-    fields: dict[str, str], *, field: str, filename: str, content: bytes, boundary: str
-) -> bytes:
+def _multipart_body(fields: dict[str, str], *, field: str, filename: str, content: bytes, boundary: str) -> bytes:
     """拼 multipart/form-data: 文本字段在前, 文件字段最后."""
     chunks: list[bytes] = []
     for name, value in fields.items():
