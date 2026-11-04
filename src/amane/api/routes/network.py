@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from ...crawlers.connectivity import ConnectivityChecker, SourceCheck
 from ...net.backends import BackendProbe, probe_backends
-from ..deps import RuntimeDep
+from ..deps import RepoDep, RuntimeDep
 from ..models import (
     BrowserBackendItemResponse,
     BrowserBackendReportResponse,
@@ -14,7 +14,9 @@ from ..models import (
     ConnectivityCheckRequest,
     ConnectivityItemResponse,
     ConnectivityReportResponse,
+    SiteStatsResponse,
 )
+from ..support.site_stats import collect_site_stats
 
 router = APIRouter(prefix="/network", tags=["network"])
 
@@ -80,3 +82,9 @@ async def check_connectivity(
     checker = ConnectivityChecker(runtime.factory, runtime.config.hot, runtime.plugin_manager)
     checks = await checker.check(req.source_ids if req is not None else None)
     return ConnectivityReportResponse(items=[_item(check) for check in checks])
+
+
+@router.get("/site-stats", response_model=SiteStatsResponse)
+async def site_stats(repo: RepoDep, limit: int = Query(default=500, ge=1, le=5000)) -> SiteStatsResponse:
+    """最近 ``limit`` 条已完成刮削任务的逐来源结果分布; 与连通性探测无关, 是历史成功率."""
+    return await collect_site_stats(repo, limit=limit)

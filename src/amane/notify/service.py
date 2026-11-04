@@ -27,6 +27,7 @@ from ..parsing import infer_content_type, parse_file_info
 from .templates import render
 
 if TYPE_CHECKING:
+    from ..db.models import Task
     from ..db.repository import Repository
     from ..net.http import WebClient
 
@@ -54,6 +55,29 @@ _TYPE_LABELS: dict[str, str] = {
     "rescrape": "重新刮削",
     "scan_invalid": "扫描无效文件",
     "delete": "删除",
+}
+
+
+#: 失败原因 → 通知里的中文说明 (``FailureReason`` 的取值).
+_REASON_LABELS: dict[str, str] = {
+    "no_usable_metadata": "没有匹配到条目",
+    "not_found": "找不到条目",
+    "http_error": "HTTP 错误",
+    "api_error": "接口报错",
+    "rate_limited": "被限流",
+    "server_error": "服务端 5xx",
+    "timeout": "超时",
+    "network": "网络错误",
+    "cloudflare_challenge": "Cloudflare 挑战",
+    "cloudflare_blocked": "Cloudflare 拒绝",
+    "ip_banned": "IP 被封",
+    "geo_restricted": "地区限制",
+    "age_verification": "年龄验证拦截",
+    "login_required": "需要登录",
+    "empty_response": "空响应",
+    "parse_error": "解析失败",
+    "crawler_unavailable": "来源不可用",
+    "unexpected": "意外错误",
 }
 
 
@@ -233,6 +257,38 @@ def _split_title(text: str) -> tuple[str, str]:
     """Bark 这类需要标题+正文的服务: 第一行当标题, 其余当正文."""
     head, _, rest = text.partition("\n")
     return head.strip() or "Amane", rest.strip()
+
+
+def _site_outcomes(task: Task | None) -> tuple[list[str], list[str], str]:
+    """任务结果里的逐站点结果 → (失败站点, 失败明细行, amazon 状态).
+
+    面板只把明细放在任务详情里; 通知要让「哪里坏了」一眼可见, 所以这里整理成每站一行.
+    """
+    result = task.result if task is not None else None
+    if not isinstance(result, dict):
+        return [], [], ""
+    outcomes = result.get("outcomes")
+    if not isinstance(outcomes, list):
+        return [], [], ""
+    failed: list[str] = []
+    lines: list[str] = []
+    amazon = ""
+    for item in outcomes:
+        if not isinstance(item, dict):
+            continue
+        site = str(item.get("site") or "")
+        kind = str(item.get("outcome") or "")
+        if site == "amazon" or site.startswith("amazon:"):
+            amazon = "failed" if kind == "failed" else "ok"
+        if kind != "failed":
+            continue
+        failed.append(site)
+        reason = str(item.get("reason") or "")
+        status = item.get("http_status")
+        detail = str(item.get("detail") or "")
+        extra = " / ".join(part for part in (f"HTTP {status}" if status else "", _ellipsis(detail, 80)) if part)
+        lines.append(f"{site}: {_REASON_LABELS.get(reason, reason) or '失败'}" + (f" ({extra})" if extra else ""))
+    return failed, lines, amazon
 
 
 def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[str, dict[str, str], str]:
@@ -567,6 +623,7 @@ class NotificationService:
             finished_local = _local_time(task.finished_at)
         panel = config.panel_url.rstrip("/")
         link = f"{panel}/tasks" if panel else ""
+        failed_sites, site_failure_lines, amazon_state = _site_outcomes(task)
         return {
             "task_id": raw_id if isinstance(raw_id, int) else "",
             "type": task_type,
@@ -577,6 +634,12 @@ class NotificationService:
             "error": error,
             # 失败卡片只放摘要: 完整堆栈留给日志页, 群里一条消息刷屏没人看.
             "error_short": _error_short(error),
+            # 逐站点明细: 让「哪里坏了」在通知里直接可见, 不用翻任务详情.
+            "failed_sites": "、".join(failed_sites),
+            "site_failures": "\n".join(site_failure_lines),
+            "amazon_state": amazon_state,
+            # 渠道用 `require: [amazon_failed]` 过滤: amazon 成功时为空, 该渠道保持静默.
+            "amazon_failed": "1" if amazon_state == "failed" else "",
             "duration": _format_duration(task.started_at, task.finished_at) if task is not None else "",
             "number": number,
             "title": title,
@@ -687,6 +750,10 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "time_short": "01-01 20:00",
     "status_icon": "✅",
     "error_short": "",
+    "failed_sites": "",
+    "site_failures": "",
+    "amazon_state": "",
+    "amazon_failed": "",
     "count": 1,
     "task_count": 1,
     "movie_count": 1,

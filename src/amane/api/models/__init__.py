@@ -80,6 +80,9 @@ from .network import (
     ConnectivityCheckRequest,
     ConnectivityItemResponse,
     ConnectivityReportResponse,
+    SiteStatItem,
+    SiteStatReason,
+    SiteStatsResponse,
 )
 from .playback import (
     PlaybackSourceListResponse,
@@ -220,6 +223,9 @@ __all__ = [
     "SemanticIndexSubmission",
     "SemanticModelCounts",
     "SemanticStatusResponse",
+    "SiteStatItem",
+    "SiteStatReason",
+    "SiteStatsResponse",
     "TaskBatchAction",
     "TaskBatchRequest",
     "TaskBatchResponse",
