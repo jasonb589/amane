@@ -158,6 +158,103 @@ export const ActorLocksRequestSchema = {
     description: '整体替换锁定字段集合.'
 } as const;
 
+export const ActorPushResultSchema = {
+    properties: {
+        type: {
+            type: 'string',
+            const: 'actor_push',
+            title: 'Type',
+            default: 'actor_push'
+        },
+        requested: {
+            type: 'integer',
+            title: 'Requested'
+        },
+        matched: {
+            type: 'integer',
+            title: 'Matched'
+        },
+        updated: {
+            type: 'integer',
+            title: 'Updated'
+        },
+        images: {
+            type: 'integer',
+            title: 'Images'
+        },
+        skipped: {
+            type: 'integer',
+            title: 'Skipped'
+        },
+        not_found: {
+            type: 'integer',
+            title: 'Not Found'
+        },
+        no_image: {
+            type: 'integer',
+            title: 'No Image'
+        },
+        missing: {
+            type: 'integer',
+            title: 'Missing'
+        },
+        failed: {
+            type: 'integer',
+            title: 'Failed'
+        },
+        failures: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Failures'
+        }
+    },
+    type: 'object',
+    required: [
+        'requested',
+        'matched',
+        'updated',
+        'images',
+        'skipped',
+        'not_found',
+        'no_image',
+        'missing',
+        'failed',
+        'failures'
+    ],
+    title: 'ActorPushResult'
+} as const;
+
+export const ActorPushSubmissionSchema = {
+    properties: {
+        actor_ids: {
+            items: {
+                type: 'integer'
+            },
+            type: 'array',
+            title: 'Actor Ids',
+            description: '要推送的演员 ID; 空表示全部演员'
+        },
+        force: {
+            type: 'boolean',
+            title: 'Force',
+            description: '覆盖媒体服务器上已有的头像与人物字段',
+            default: false
+        },
+        type: {
+            type: 'string',
+            const: 'actor_push',
+            title: 'Type'
+        }
+    },
+    type: 'object',
+    required: [
+        'type'
+    ],
+    title: 'ActorPushSubmission'
+} as const;
+
 export const ActorResponseSchema = {
     properties: {
         id: {
@@ -491,6 +588,12 @@ export const ActorScrapingConfigSchema = {
             type: 'boolean',
             title: 'Auto Scrape',
             default: true
+        },
+        auto_push: {
+            type: 'boolean',
+            title: 'Auto Push',
+            description: '演员刮削成功后自动将该演员推送到媒体服务器',
+            default: false
         },
         gfriends_repo: {
             type: 'string',
@@ -1251,6 +1354,10 @@ export const BrowserBackendReportResponseSchema = {
 
 export const BrowserConfigSchema = {
     properties: {
+        backend: {
+            $ref: '#/components/schemas/BrowserBackendName',
+            default: 'off'
+        },
         bsk_path: {
             anyOf: [
                 {
@@ -1263,10 +1370,6 @@ export const BrowserConfigSchema = {
             title: 'Bsk Path',
             'x-path-type': 'file',
             'x-widget': 'PathPicker'
-        },
-        backend: {
-            $ref: '#/components/schemas/BrowserBackendName',
-            default: 'off'
         },
         timeout: {
             type: 'integer',
@@ -1385,31 +1488,18 @@ export const CleanupResultSchema = {
         },
         files_removed: {
             type: 'integer',
-            title: 'Files Removed',
-            default: 0
+            title: 'Files Removed'
         },
         resources_removed: {
             type: 'integer',
-            title: 'Resources Removed',
-            default: 0
-        },
-        actors_removed: {
-            type: 'integer',
-            title: 'Actors Removed',
-            default: 0
-        },
-        facets_removed: {
-            type: 'integer',
-            title: 'Facets Removed',
-            default: 0
-        },
-        dirs_removed: {
-            type: 'integer',
-            title: 'Dirs Removed',
-            default: 0
+            title: 'Resources Removed'
         }
     },
     type: 'object',
+    required: [
+        'files_removed',
+        'resources_removed'
+    ],
     title: 'CleanupResult'
 } as const;
 
@@ -1427,24 +1517,6 @@ export const CleanupSubmissionSchema = {
             description: '删除不被任何 Metadata URL 字段引用的 Resource (含派生裁剪)',
             default: true
         },
-        remove_orphan_actors: {
-            type: 'boolean',
-            title: 'Remove Orphan Actors',
-            description: '删除没有任何影片关联的演员 (0 作品)',
-            default: true
-        },
-        remove_empty_facets: {
-            type: 'boolean',
-            title: 'Remove Empty Facets',
-            description: '删除没有任何影片关联的分类 (标签 / 导演 / 制作商 / 发行商 / 系列)',
-            default: true
-        },
-        remove_empty_resource_dirs: {
-            type: 'boolean',
-            title: 'Remove Empty Resource Dirs',
-            description: '删除资源目录下已空的分片目录',
-            default: true
-        },
         type: {
             type: 'string',
             const: 'cleanup',
@@ -1456,6 +1528,55 @@ export const CleanupSubmissionSchema = {
         'type'
     ],
     title: 'CleanupSubmission'
+} as const;
+
+export const CloudDriveChangeItemSchema = {
+    properties: {
+        action: {
+            type: 'string',
+            enum: [
+                'create',
+                'delete',
+                'rename'
+            ],
+            title: 'Action'
+        },
+        is_dir: {
+            type: 'boolean',
+            title: 'Is Dir'
+        },
+        source_file: {
+            type: 'string',
+            title: 'Source File'
+        },
+        destination_file: {
+            type: 'string',
+            title: 'Destination File',
+            default: ''
+        }
+    },
+    type: 'object',
+    required: [
+        'action',
+        'is_dir',
+        'source_file'
+    ],
+    title: 'CloudDriveChangeItem'
+} as const;
+
+export const CloudDriveNotifyRequestSchema = {
+    properties: {
+        data: {
+            items: {
+                $ref: '#/components/schemas/CloudDriveChangeItem'
+            },
+            type: 'array',
+            title: 'Data'
+        }
+    },
+    type: 'object',
+    title: 'CloudDriveNotifyRequest',
+    description: 'CloudDrive file_system_watcher 模板体. 未知字段忽略.'
 } as const;
 
 export const CommentCreateRequestSchema = {
@@ -3023,15 +3144,6 @@ export const HotSettingsSchema = {
                 crop_poster: true,
                 poster_ratio: 0.7,
                 poster_crop_skip_ratio: 0.9,
-                poster_crop_mode: {
-                    amateur: 'right',
-                    censored: 'right',
-                    chinese: 'right',
-                    fc2: 'right',
-                    hentai: 'right',
-                    uncensored: 'right',
-                    western: 'right'
-                },
                 jpeg_quality: 95,
                 content_routes: {
                     amateur: [
@@ -3101,18 +3213,6 @@ export const HotSettingsSchema = {
                         use_browser: 'auto',
                         use_proxy: true
                     },
-                    amazon: {
-                        cookie: {},
-                        languages: [
-                            'zh',
-                            'ja',
-                            'en'
-                        ],
-                        official_routes: {},
-                        rate_limit: 2,
-                        use_browser: 'auto',
-                        use_proxy: true
-                    },
                     avbase: {
                         cookie: {},
                         languages: [
@@ -3126,18 +3226,6 @@ export const HotSettingsSchema = {
                         use_proxy: true
                     },
                     avsox: {
-                        cookie: {},
-                        languages: [
-                            'zh',
-                            'ja',
-                            'en'
-                        ],
-                        official_routes: {},
-                        rate_limit: 2,
-                        use_browser: 'auto',
-                        use_proxy: true
-                    },
-                    caribbean: {
                         cookie: {},
                         languages: [
                             'zh',
@@ -3401,18 +3489,6 @@ export const HotSettingsSchema = {
                         use_browser: 'auto',
                         use_proxy: true
                     },
-                    tenhow: {
-                        cookie: {},
-                        languages: [
-                            'zh',
-                            'ja',
-                            'en'
-                        ],
-                        official_routes: {},
-                        rate_limit: 2,
-                        use_browser: 'auto',
-                        use_proxy: true
-                    },
                     theporndb: {
                         cookie: {},
                         languages: [
@@ -3452,6 +3528,13 @@ export const HotSettingsSchema = {
                 }
             }
         },
+        media_server: {
+            $ref: '#/components/schemas/MediaServerConfig',
+            default: {
+                kind: 'jellyfin',
+                verify_tls: true
+            }
+        },
         actor_scraping: {
             $ref: '#/components/schemas/ActorScrapingConfig',
             default: {
@@ -3467,6 +3550,7 @@ export const HotSettingsSchema = {
                 ],
                 download_images: true,
                 auto_scrape: true,
+                auto_push: false,
                 gfriends_repo: 'https://github.com/gfriends/gfriends'
             }
         },
@@ -3574,17 +3658,7 @@ export const HotSettingsSchema = {
                     '.ts',
                     '.iso',
                     '.strm'
-                ],
-                escape_strings: []
-            }
-        },
-        notify: {
-            $ref: '#/components/schemas/NotifyConfig',
-            default: {
-                enabled: false,
-                panel_url: '',
-                log_tail_lines: 0,
-                channels: []
+                ]
             }
         },
         worker: {
@@ -3974,7 +4048,8 @@ export const LLMConfigSchema = {
         system_prompt: {
             anyOf: [
                 {
-                    type: 'string'
+                    type: 'string',
+                    maxLength: 2000
                 },
                 {
                     type: 'null'
@@ -3986,6 +4061,7 @@ export const LLMConfigSchema = {
         field_prompts: {
             additionalProperties: {
                 type: 'string',
+                maxLength: 2000,
                 'x-long': true
             },
             propertyNames: {
@@ -5159,6 +5235,54 @@ export const MediaListResponseSchema = {
     title: 'MediaListResponse'
 } as const;
 
+export const MediaServerConfigSchema = {
+    properties: {
+        kind: {
+            type: 'string',
+            enum: [
+                'emby',
+                'jellyfin'
+            ],
+            title: 'Kind',
+            description: '媒体服务器类型',
+            default: 'jellyfin'
+        },
+        url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Url',
+            description: '服务器地址, 含协议、端口与可选子路径'
+        },
+        api_key: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Api Key',
+            description: '管理员 API Key'
+        },
+        verify_tls: {
+            type: 'boolean',
+            title: 'Verify Tls',
+            description: '校验 HTTPS 证书; 自签名证书可关闭',
+            default: true
+        }
+    },
+    type: 'object',
+    title: 'MediaServerConfig',
+    description: 'Emby / Jellyfin 人物推送; url 与 api_key 齐备才启用.'
+} as const;
+
 export const MediaSortFieldSchema = {
     type: 'string',
     enum: [
@@ -5466,6 +5590,31 @@ export const MetadataLocksRequestSchema = {
     type: 'object',
     title: 'MetadataLocksRequest',
     description: '整体替换锁定字段集合.'
+} as const;
+
+export const MetadataMergeEntriesRequestSchema = {
+    properties: {
+        target_id: {
+            type: 'integer',
+            title: 'Target Id',
+            description: '合并目标 Metadata ID; 其字段与已有站点快照保持不变'
+        },
+        source_ids: {
+            items: {
+                type: 'integer'
+            },
+            type: 'array',
+            minItems: 1,
+            title: 'Source Ids',
+            description: '待合并的 Metadata ID 列表; 按顺序补入 raw 快照'
+        }
+    },
+    type: 'object',
+    required: [
+        'target_id',
+        'source_ids'
+    ],
+    title: 'MetadataMergeEntriesRequest'
 } as const;
 
 export const MetadataPartialSchema = {
@@ -6138,235 +6287,6 @@ export const NetworkConfigSchema = {
     title: 'NetworkConfig'
 } as const;
 
-export const NotifyChannelConfigSchema = {
-    properties: {
-        name: {
-            type: 'string',
-            title: 'Name',
-            description: '渠道名, 只用于日志与错误提示',
-            default: ''
-        },
-        enabled: {
-            type: 'boolean',
-            title: 'Enabled',
-            default: true
-        },
-        url: {
-            type: 'string',
-            title: 'Url',
-            description: '请求地址, 支持占位变量',
-            default: ''
-        },
-        method: {
-            $ref: '#/components/schemas/NotifyMethod',
-            default: 'post'
-        },
-        headers: {
-            additionalProperties: {
-                type: 'string'
-            },
-            type: 'object',
-            title: 'Headers',
-            description: '附加请求头 (如 Authorization)'
-        },
-        test_send: {
-            type: 'boolean',
-            title: 'Test Send',
-            description: '面板上的测试按钮用它渲染; 值本身没有含义',
-            default: false,
-            'x-widget': 'NotifyTest'
-        },
-        body: {
-            type: 'string',
-            title: 'Body',
-            description: '请求体模板; 以花括号开头时字符串按 JSON 转义',
-            default: ''
-        },
-        provider: {
-            $ref: '#/components/schemas/NotifyProvider',
-            description: '内置服务: telegram / bark / wecom 只需填 token 与正文, 地址与 JSON 由程序生成; custom = 自己写 url/body',
-            default: 'custom'
-        },
-        token: {
-            type: 'string',
-            title: 'Token',
-            description: 'telegram: 机器人 Token; bark: 设备 Key; wecom: 群机器人 Key',
-            default: ''
-        },
-        chat_id: {
-            type: 'string',
-            title: 'Chat Id',
-            description: 'telegram 的频道/群 ID (如 -1001234567890); 其它服务留空',
-            default: ''
-        },
-        text: {
-            type: 'string',
-            title: 'Text',
-            description: '消息正文模板, 支持 {变量}; 留空用内置默认正文',
-            default: ''
-        },
-        parse_mode: {
-            type: 'string',
-            title: 'Parse Mode',
-            description: 'telegram 可选: HTML 或 MarkdownV2; 留空按纯文本',
-            default: ''
-        },
-        send_photo: {
-            type: 'boolean',
-            title: 'Send Photo',
-            description: 'telegram: 有 poster_url 时改发图片+标题 (sendPhoto)',
-            default: false
-        },
-        events: {
-            items: {
-                $ref: '#/components/schemas/NotifyEvent'
-            },
-            type: 'array',
-            title: 'Events',
-            description: '订阅的事件; 空 = 全部'
-        },
-        task_types: {
-            items: {
-                $ref: '#/components/schemas/NotifyTaskType'
-            },
-            type: 'array',
-            title: 'Task Types',
-            description: '只通知这些任务类型; 空 = 全部'
-        },
-        content_types: {
-            items: {
-                $ref: '#/components/schemas/ContentType'
-            },
-            type: 'array',
-            title: 'Content Types',
-            description: '只通知这些内容类型; 空 = 全部'
-        },
-        require: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Require',
-            description: '这些变量为空时跳过该渠道 (如 photo 类渠道填 poster_url, 避免必然失败的请求)'
-        },
-        throttle_seconds: {
-            type: 'integer',
-            maximum: 3600,
-            minimum: 0,
-            title: 'Throttle Seconds',
-            description: '静默窗口: 连续事件攒成一条, 静默这么多秒后才发送; 0 = 来一条发一条',
-            default: 0
-        },
-        max_wait_seconds: {
-            type: 'integer',
-            maximum: 86400,
-            minimum: 0,
-            title: 'Max Wait Seconds',
-            description: '合并最长等待秒数, 防止流水线不停时永远不发; 0 = 不设上限',
-            default: 1800
-        },
-        timeout: {
-            type: 'number',
-            maximum: 120,
-            minimum: 1,
-            title: 'Timeout',
-            description: '单次请求超时 (秒)',
-            default: 10
-        }
-    },
-    type: 'object',
-    title: 'NotifyChannelConfig',
-    description: '一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位.'
-} as const;
-
-export const NotifyConfigSchema = {
-    properties: {
-        enabled: {
-            type: 'boolean',
-            title: 'Enabled',
-            default: false
-        },
-        panel_url: {
-            type: 'string',
-            title: 'Panel Url',
-            description: '面板地址, 用于 link 变量; 如 https://amane.example.com',
-            default: ''
-        },
-        log_tail_lines: {
-            type: 'integer',
-            maximum: 200,
-            minimum: 0,
-            title: 'Log Tail Lines',
-            description: '大于 0 时把任务日志最后 N 行放进 log_tail',
-            default: 0
-        },
-        channels: {
-            items: {
-                $ref: '#/components/schemas/NotifyChannelConfig'
-            },
-            type: 'array',
-            title: 'Channels',
-            description: '渠道列表, 每个渠道一条通知 (界面里折叠显示, 一次展开一个)',
-            'x-collapsible': true
-        }
-    },
-    type: 'object',
-    title: 'NotifyConfig',
-    description: '任务完成 / 失败时的出站通知: 一份模板引擎覆盖所有渠道.'
-} as const;
-
-export const NotifyEventSchema = {
-    type: 'string',
-    enum: [
-        'completed',
-        'failed',
-        'file_discovered',
-        'file_removed'
-    ],
-    title: 'NotifyEvent',
-    description: '可订阅的事件.\n\n取值故意不带点: 前端枚举选项的 i18n key 是 ``options.<取值>``, i18next 把点当层级分隔符,\n``task.completed`` 这样的取值查不到翻译, 于是退回显示原始值. 与 ``EventType`` 的映射在\n``notify/service.py`` 的 ``_EVENT_KEYS`` 里.'
-} as const;
-
-export const NotifyMethodSchema = {
-    type: 'string',
-    enum: [
-        'post',
-        'get'
-    ],
-    title: 'NotifyMethod',
-    description: '通知请求方法.'
-} as const;
-
-export const NotifyProviderSchema = {
-    type: 'string',
-    enum: [
-        'custom',
-        'telegram',
-        'bark',
-        'wecom'
-    ],
-    title: 'NotifyProvider',
-    description: '内置通知服务: 选好后只填 Token / 频道 / 正文, 请求地址与 JSON 由程序生成.'
-} as const;
-
-export const NotifyTaskTypeSchema = {
-    type: 'string',
-    enum: [
-        'scrape',
-        'organize',
-        'refresh',
-        'cleanup',
-        'upscale',
-        'r18_import',
-        'actor_scrape',
-        'rescrape',
-        'scan_invalid',
-        'delete'
-    ],
-    title: 'NotifyTaskType',
-    description: '可通知的任务类型 (取值与 ``db.models.TaskType`` 一致, 由测试守住不漂移).'
-} as const;
-
 export const OptionalPathTemplateDefaultsSchema = {
     properties: {
         thumb_template: {
@@ -6909,150 +6829,6 @@ export const PluginResponseSchema = {
         'config_schema'
     ],
     title: 'PluginResponse'
-} as const;
-
-export const PosterCropModeSchema = {
-    type: 'string',
-    enum: [
-        'right',
-        'center',
-        'none',
-        'face'
-    ],
-    title: 'PosterCropMode',
-    description: '海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``).'
-} as const;
-
-export const PurgeResultSchema = {
-    properties: {
-        type: {
-            type: 'string',
-            const: 'purge',
-            title: 'Type',
-            default: 'purge'
-        },
-        metadata_removed: {
-            type: 'integer',
-            title: 'Metadata Removed',
-            default: 0
-        },
-        media_removed: {
-            type: 'integer',
-            title: 'Media Removed',
-            default: 0
-        },
-        files_removed: {
-            type: 'integer',
-            title: 'Files Removed',
-            default: 0
-        },
-        files_failed: {
-            type: 'integer',
-            title: 'Files Failed',
-            default: 0
-        },
-        pruned_dirs: {
-            type: 'integer',
-            title: 'Pruned Dirs',
-            default: 0
-        },
-        resources_removed: {
-            type: 'integer',
-            title: 'Resources Removed',
-            default: 0
-        },
-        actors_removed: {
-            type: 'integer',
-            title: 'Actors Removed',
-            default: 0
-        },
-        facets_removed: {
-            type: 'integer',
-            title: 'Facets Removed',
-            default: 0
-        },
-        resource_dirs_removed: {
-            type: 'integer',
-            title: 'Resource Dirs Removed',
-            default: 0
-        },
-        tasks_removed: {
-            type: 'integer',
-            title: 'Tasks Removed',
-            default: 0
-        }
-    },
-    type: 'object',
-    title: 'PurgeResult'
-} as const;
-
-export const PurgeSubmissionSchema = {
-    properties: {
-        purge_media: {
-            type: 'boolean',
-            title: 'Purge Media',
-            description: '删除片库的全部影片与媒体文件索引',
-            default: true
-        },
-        delete_files: {
-            type: 'boolean',
-            title: 'Delete Files',
-            description: '同时删除磁盘上的视频文件 (仅媒体库目录内); 关闭则只删记录, 下次扫描会重新登记',
-            default: true
-        },
-        prune_empty_dirs: {
-            type: 'boolean',
-            title: 'Prune Empty Dirs',
-            description: '删除本次腾空的目录 (库根与 .amane_trash 除外)',
-            default: true
-        },
-        run_cleanup: {
-            type: 'boolean',
-            title: 'Run Cleanup',
-            description: '清空后接着跑一遍清理',
-            default: true
-        },
-        remove_unreferenced_resources: {
-            type: 'boolean',
-            title: 'Remove Unreferenced Resources',
-            description: '清理阶段: 删除没有任何影片引用的资源文件',
-            default: true
-        },
-        remove_orphan_actors: {
-            type: 'boolean',
-            title: 'Remove Orphan Actors',
-            description: '清理阶段: 删除没有任何影片关联的演员 (0 作品)',
-            default: true
-        },
-        remove_empty_facets: {
-            type: 'boolean',
-            title: 'Remove Empty Facets',
-            description: '清理阶段: 删除空分类 (标签 / 导演 / 制作商 / 发行商 / 系列)',
-            default: true
-        },
-        remove_empty_resource_dirs: {
-            type: 'boolean',
-            title: 'Remove Empty Resource Dirs',
-            description: '清理阶段: 删除资源目录下已空的分片目录',
-            default: true
-        },
-        purge_task_history: {
-            type: 'boolean',
-            title: 'Purge Task History',
-            description: '最后删除已完成 / 失败的任务记录 (本任务自身不受影响)',
-            default: true
-        },
-        type: {
-            type: 'string',
-            const: 'purge',
-            title: 'Type'
-        }
-    },
-    type: 'object',
-    required: [
-        'type'
-    ],
-    title: 'PurgeSubmission'
 } as const;
 
 export const R18ConfigSchema = {
@@ -8333,18 +8109,6 @@ export const ScrapingConfigSchema = {
             title: 'Poster Crop Skip Ratio',
             default: 0.9
         },
-        poster_crop_mode: {
-            additionalProperties: {
-                $ref: '#/components/schemas/PosterCropMode'
-            },
-            propertyNames: {
-                $ref: '#/components/schemas/ContentType'
-            },
-            type: 'object',
-            title: 'Poster Crop Mode',
-            description: '按内容类型选择海报裁剪方式: right 取封面右侧 (默认); center 居中裁剪; none 不裁剪 (保留原图); face 人脸识别裁剪 (找不到人脸时回退 right). 仅「裁切海报」打开时生效.',
-            'x-frozen-keys': true
-        },
         jpeg_quality: {
             type: 'integer',
             maximum: 100,
@@ -8359,10 +8123,8 @@ export const ScrapingConfigSchema = {
                     type: 'string',
                     enum: [
                         'airav',
-                        'amazon',
                         'avbase',
                         'avsox',
-                        'caribbean',
                         'dahlia',
                         'dmm',
                         'faleno',
@@ -8382,7 +8144,6 @@ export const ScrapingConfigSchema = {
                         'official',
                         'prestige',
                         'r18dev',
-                        'tenhow',
                         'theporndb',
                         'xcity'
                     ]
@@ -8403,10 +8164,8 @@ export const ScrapingConfigSchema = {
                     type: 'string',
                     enum: [
                         'airav',
-                        'amazon',
                         'avbase',
                         'avsox',
-                        'caribbean',
                         'dahlia',
                         'dmm',
                         'faleno',
@@ -8426,7 +8185,6 @@ export const ScrapingConfigSchema = {
                         'official',
                         'prestige',
                         'r18dev',
-                        'tenhow',
                         'theporndb',
                         'xcity'
                     ]
@@ -8447,10 +8205,8 @@ export const ScrapingConfigSchema = {
                     type: 'string',
                     enum: [
                         'airav',
-                        'amazon',
                         'avbase',
                         'avsox',
-                        'caribbean',
                         'dahlia',
                         'dmm',
                         'faleno',
@@ -8470,7 +8226,6 @@ export const ScrapingConfigSchema = {
                         'official',
                         'prestige',
                         'r18dev',
-                        'tenhow',
                         'theporndb',
                         'xcity'
                     ]
@@ -9127,10 +8882,8 @@ export const SiteNameSchema = {
     type: 'string',
     enum: [
         'airav',
-        'amazon',
         'avbase',
         'avsox',
-        'caribbean',
         'dahlia',
         'dmm',
         'faleno',
@@ -9152,7 +8905,6 @@ export const SiteNameSchema = {
         'official',
         'prestige',
         'r18dev',
-        'tenhow',
         'theporndb',
         'wikipedia',
         'xcity'
@@ -9551,6 +9303,9 @@ export const TaskBatchSubmitRequestSchema = {
                         $ref: '#/components/schemas/ActorScrapeSubmission'
                     },
                     {
+                        $ref: '#/components/schemas/ActorPushSubmission'
+                    },
+                    {
                         $ref: '#/components/schemas/RescrapeSubmission'
                     },
                     {
@@ -9558,19 +9313,16 @@ export const TaskBatchSubmitRequestSchema = {
                     },
                     {
                         $ref: '#/components/schemas/SemanticBenchmarkSubmission'
-                    },
-                    {
-                        $ref: '#/components/schemas/PurgeSubmission'
                     }
                 ],
                 discriminator: {
                     propertyName: 'type',
                     mapping: {
+                        actor_push: '#/components/schemas/ActorPushSubmission',
                         actor_scrape: '#/components/schemas/ActorScrapeSubmission',
                         cleanup: '#/components/schemas/CleanupSubmission',
                         delete: '#/components/schemas/DeleteSubmission',
                         organize: '#/components/schemas/OrganizeSubmission',
-                        purge: '#/components/schemas/PurgeSubmission',
                         r18_import: '#/components/schemas/R18ImportSubmission',
                         refresh: '#/components/schemas/RefreshSubmission',
                         rescrape: '#/components/schemas/RescrapeSubmission',
@@ -10060,6 +9812,9 @@ export const TaskResponseSchema = {
                             $ref: '#/components/schemas/ActorScrapeResult'
                         },
                         {
+                            $ref: '#/components/schemas/ActorPushResult'
+                        },
+                        {
                             $ref: '#/components/schemas/RescrapeResult'
                         },
                         {
@@ -10067,19 +9822,16 @@ export const TaskResponseSchema = {
                         },
                         {
                             $ref: '#/components/schemas/SemanticBenchmarkResult'
-                        },
-                        {
-                            $ref: '#/components/schemas/PurgeResult'
                         }
                     ],
                     discriminator: {
                         propertyName: 'type',
                         mapping: {
+                            actor_push: '#/components/schemas/ActorPushResult',
                             actor_scrape: '#/components/schemas/ActorScrapeResult',
                             cleanup: '#/components/schemas/CleanupResult',
                             delete: '#/components/schemas/DeleteResult',
                             organize: '#/components/schemas/OrganizeResult',
-                            purge: '#/components/schemas/PurgeResult',
                             r18_import: '#/components/schemas/R18ImportResult',
                             refresh: '#/components/schemas/RefreshResult',
                             rescrape: '#/components/schemas/RescrapeResult',
@@ -10147,7 +9899,7 @@ export const TaskTypeSchema = {
         'delete',
         'semantic_index',
         'semantic_benchmark',
-        'purge'
+        'actor_push'
     ],
     title: 'TaskType'
 } as const;
@@ -10803,13 +10555,6 @@ export const WatcherConfigSchema = {
             },
             type: 'array',
             title: 'Media Extensions'
-        },
-        escape_strings: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Escape Strings'
         }
     },
     type: 'object',

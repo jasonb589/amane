@@ -68,6 +68,7 @@ from .metadata import (
     MetadataDetailResponse,
     MetadataListResponse,
     MetadataLocksRequest,
+    MetadataMergeEntriesRequest,
     MetadataResponse,
     MetadataUserTagsRequest,
     PartialMetadata,
@@ -96,6 +97,7 @@ from .schedules import ScheduleCreateRequest, ScheduleListResponse, ScheduleResp
 from .semantic import SemanticDiagnosticsResponse, SemanticModelCounts, SemanticStatusResponse
 from .system import DesktopResponse, ReleaseResponse
 from .tasks import (
+    ActorPushSubmission,
     ActorScrapeSubmission,
     CleanupSubmission,
     DeleteSubmission,
@@ -134,6 +136,7 @@ __all__ = [
     "ActorGenderBatchResponse",
     "ActorListResponse",
     "ActorLocksRequest",
+    "ActorPushSubmission",
     "ActorResponse",
     "ActorScrapeRequest",
     "ActorScrapeSubmission",

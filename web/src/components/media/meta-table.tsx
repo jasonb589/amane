@@ -14,7 +14,7 @@ import {
   type MantineBreakpoint,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconDots, IconRefresh, IconTag, IconTrash } from "@tabler/icons-react";
+import { IconArrowMerge, IconDots, IconRefresh, IconTag, IconTrash } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -24,15 +24,18 @@ import {
   batchMetadataUserTagsMutation,
   batchScrapeMetadataMutation,
   deleteMetadataMutation,
+  getMetadataQueryKey,
   listFacetsOptions,
   listMetadataQueryKey,
+  mergeMetadataEntriesMutation,
   submitTaskMutation,
 } from "@/client/@tanstack/react-query.gen";
-import type { MetadataResponse, MetadataSortField, SortOrder } from "@/client/types.gen";
+import type { CacheKind, MetadataResponse, MetadataSortField, SortOrder } from "@/client/types.gen";
 import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 import { ListToolbar } from "@/components/common/list-toolbar";
 import { SortableTh } from "@/components/common/sortable-th";
 import { SelectionBar } from "@/components/common/selection-bar";
+import { MergeNotice } from "@/components/media/merge-notice";
 import { useIdSelection } from "@/hooks/use-id-selection";
 import { useResizableColumns } from "@/hooks/use-resizable-columns";
 import { extractErrorMessage } from "@/lib/api-error";
@@ -117,6 +120,30 @@ function cellValue(item: MetadataResponse, field: SortableColumn): string {
     case "file_count":
       return String(item.file_count ?? 0);
   }
+}
+
+const SCRAPE_CACHE_DEFAULT: CacheKind[] = ["metadata", "trans"];
+const SCRAPE_CACHE_FORCE: CacheKind[] = [];
+
+/** 列表内的单条与批量重新刮削共用这组选项, 语义与元数据详情页的刮削菜单一致. */
+function ScrapeMenuItems({ onScrape }: { onScrape: (useCache: CacheKind[]) => void }) {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <Menu.Item onClick={() => onScrape(SCRAPE_CACHE_DEFAULT)}>
+        <Text size="sm">{t("actions.scrapeNormal")}</Text>
+        <Text size="xs" c="dimmed">
+          {t("actions.scrapeNormalDesc")}
+        </Text>
+      </Menu.Item>
+      <Menu.Item onClick={() => onScrape(SCRAPE_CACHE_FORCE)}>
+        <Text size="sm">{t("actions.scrapeForce")}</Text>
+        <Text size="xs" c="dimmed">
+          {t("actions.scrapeForceDesc")}
+        </Text>
+      </Menu.Item>
+    </>
+  );
 }
 
 export function MetaTable({
@@ -240,7 +267,58 @@ export function MetaTable({
       }),
   });
 
-  const busy = batchScrape.isPending || batchDelete.isPending || batchTags.isPending;
+  const mergeEntries = useMutation({
+    ...mergeMetadataEntriesMutation(),
+    onSuccess: (res) => {
+      notifications.show({
+        message: t("common:toast.metadataUpdated"),
+        color: "blue",
+      });
+      clear();
+      void queryClient.invalidateQueries({ queryKey: listMetadataQueryKey() });
+      void queryClient.invalidateQueries({
+        queryKey: getMetadataQueryKey({ path: { metadata_id: res.id } }),
+      });
+    },
+    onError: (err) =>
+      notifications.show({
+        message: extractErrorMessage(err, t("common:toast.operationFailed")),
+        color: "red",
+      }),
+  });
+
+  const busy =
+    batchScrape.isPending || batchDelete.isPending || batchTags.isPending || mergeEntries.isPending;
+
+  async function handleMergeEntries(target: MetadataResponse) {
+    const sourceIds = selectedIds.filter((id) => id !== target.id);
+    if (sourceIds.length === 0) {
+      notifications.show({
+        message: t("manage.mergeNeedSources"),
+        color: "yellow",
+      });
+      return;
+    }
+    const ok = await confirm({
+      title: t("manage.mergeConfirm"),
+      message: (
+        <MergeNotice
+          lead={t("manage.mergeEntriesLead", { count: sourceIds.length, number: target.number })}
+          items={[
+            t("manage.mergeEntriesKeep"),
+            t("manage.mergeEntriesRaw"),
+            t("manage.mergeEntriesLinks"),
+            t("manage.mergeEntriesDelete"),
+          ]}
+        />
+      ),
+      confirmLabel: t("common:actions.confirm"),
+      danger: false,
+      confirmColor: "orange",
+    });
+    if (!ok) return;
+    mergeEntries.mutate({ body: { target_id: target.id, source_ids: sourceIds } });
+  }
 
   const tagOptions = useMemo(
     () => (userTags?.items ?? []).map((tag) => ({ value: String(tag.id), label: tag.name })),
@@ -264,17 +342,27 @@ export function MetaTable({
         page={page}
         onChange={handlePageChange}
         header={
-          <SelectionBar count={selected.size}>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconRefresh size={14} />}
-              loading={busy}
-              disabled={selected.size === 0}
-              onClick={() => batchScrape.mutate({ body: { ids: selectedIds } })}
-            >
-              {t("actions.batchScrape")}
-            </Button>
+          <SelectionBar count={selected.size} hint={t("manage.mergeGuide")}>
+            <Menu shadow="md" position="bottom-start">
+              <Menu.Target>
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconRefresh size={14} />}
+                  loading={busy}
+                  disabled={selected.size === 0}
+                >
+                  {t("actions.batchScrape")}
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <ScrapeMenuItems
+                  onScrape={(useCache) =>
+                    batchScrape.mutate({ body: { ids: selectedIds, use_cache: useCache } })
+                  }
+                />
+              </Menu.Dropdown>
+            </Menu>
             <Button
               size="xs"
               variant="light"
@@ -393,16 +481,31 @@ export function MetaTable({
                   )}
                 </Table.Td>
                 <Table.Td>
-                  {/* 窄屏动作列只容得下一个按钮, 两个动作移入菜单. */}
+                  {/* 窄屏动作列只容得下一个按钮, 全部动作移入菜单. */}
                   <Group gap={4} justify="flex-end" wrap="nowrap" visibleFrom="sm">
+                    <Menu shadow="md" position="bottom-start">
+                      <Menu.Target>
+                        <HintedActionIcon variant="subtle" label={t("actions.scrape")}>
+                          <IconRefresh size={16} />
+                        </HintedActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <ScrapeMenuItems
+                          onScrape={(useCache) =>
+                            scrapeOne.mutate({
+                              body: { type: "scrape", number: item.number, use_cache: useCache },
+                            })
+                          }
+                        />
+                      </Menu.Dropdown>
+                    </Menu>
                     <HintedActionIcon
                       variant="subtle"
-                      label={t("actions.scrape")}
-                      onClick={() =>
-                        scrapeOne.mutate({ body: { type: "scrape", number: item.number } })
-                      }
+                      label={t("manage.merge")}
+                      disabled={mergeEntries.isPending}
+                      onClick={() => void handleMergeEntries(item)}
                     >
-                      <IconRefresh size={16} />
+                      <IconArrowMerge size={16} />
                     </HintedActionIcon>
                     <HintedActionIcon
                       variant="subtle"
@@ -422,13 +525,32 @@ export function MetaTable({
                         </ActionIcon>
                       </Menu.Target>
                       <Menu.Dropdown>
+                        <Menu.Sub>
+                          <Menu.Sub.Target>
+                            <Menu.Sub.Item leftSection={<IconRefresh size={14} />}>
+                              {t("actions.scrape")}
+                            </Menu.Sub.Item>
+                          </Menu.Sub.Target>
+                          <Menu.Sub.Dropdown>
+                            <ScrapeMenuItems
+                              onScrape={(useCache) =>
+                                scrapeOne.mutate({
+                                  body: {
+                                    type: "scrape",
+                                    number: item.number,
+                                    use_cache: useCache,
+                                  },
+                                })
+                              }
+                            />
+                          </Menu.Sub.Dropdown>
+                        </Menu.Sub>
                         <Menu.Item
-                          leftSection={<IconRefresh size={14} />}
-                          onClick={() =>
-                            scrapeOne.mutate({ body: { type: "scrape", number: item.number } })
-                          }
+                          leftSection={<IconArrowMerge size={14} />}
+                          disabled={mergeEntries.isPending}
+                          onClick={() => void handleMergeEntries(item)}
                         >
-                          {t("actions.scrape")}
+                          {t("manage.merge")}
                         </Menu.Item>
                         <Menu.Item
                           color="red"

@@ -2,6 +2,7 @@
   "title": "Settings",
   "tabs": {
     "scraping": "Movie Scraping",
+    "media_server": "Media server",
     "actor_scraping": "Actor Scraping",
     "agent": "Agent",
     "network": "Network",
@@ -505,6 +506,28 @@
         }
       }
     },
+    "media_server": {
+      "label": "Media server",
+      "kind": {
+        "label": "Type",
+        "options": {
+          "emby": "Emby",
+          "jellyfin": "Jellyfin"
+        }
+      },
+      "url": {
+        "label": "URL",
+        "description": "Server address including scheme, port and optional subpath"
+      },
+      "api_key": {
+        "label": "API key",
+        "description": "Administrator API key"
+      },
+      "verify_tls": {
+        "label": "Verify certificate",
+        "description": "Verify HTTPS certificates; disable for self-signed"
+      }
+    },
     "network": {
       "proxy": {
         "label": "Proxy",
@@ -525,8 +548,8 @@
       "browser": {
         "label": "Browser Rendering",
         "bsk_path": {
-          "label": "BrowserSkill Path",
-          "description": "Leave empty to look up PATH; the desktop app needs an absolute path"
+          "label": "bsk Path",
+          "description": "BrowserSkill CLI; leave empty to look up PATH; the desktop app needs an absolute path"
         },
         "backend": {
           "label": "Browser backend",
@@ -980,6 +1003,10 @@
       "gfriends_repo": {
         "label": "gFriends Repository",
         "description": "gFriends GitHub repository URL"
+      },
+      "auto_push": {
+        "label": "Auto-push",
+        "description": "Push each actor to the media server after a successful scrape"
       }
     },
     "plugins": {

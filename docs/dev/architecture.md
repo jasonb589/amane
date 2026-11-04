@@ -17,6 +17,7 @@
 | `aggregate/` | 多源优先级 → `AggregatedMetadata` / `AggregatedActor` | 影片按获取图两段并发执行; 演员为档案填空 + 头像优先; 不写 DB |
 | `handlers/` | DB Task → 副作用 (写 metadata / 移动文件 / 排队) | 编排层, 不实现解析 / 爬取 / IO 细节 |
 | `media/` `organize/` | 元数据 + 路径模板 → 磁盘文件 | 调用方传配置, 自身不读 `HotSettings` 全局 |
+| `media_server.py` | Emby / Jellyfin 人物读取与写回 | 调用方传配置; 不读 `HotSettings`, 不负责匹配演员 |
 | `llm/` | 大模型接入 + 翻译协议 + 译文缓存与并发合并 | 管线只依赖 `Translator` 协议; provider 映射与 `agent/` 共用, 配置分离 |
 | `agent/` | 助理 Agent + Saved Query + 会话 trace | 读为只读 SQL, 写只经封装工具; 与 `llm/` 配置分离, 见 [agent.md](agent.md) |
 | `sr/` | 超分二进制封装 | 就地覆盖本地资源文件 |
@@ -27,7 +28,7 @@
 | `observability/` | 进程级日志管线 + 单任务 Recorder | 叙事经 structlog; 任务产物落 `{log_dir}/tasks/task-{id}/` |
 | `app/` | 进程组合根 (`AppRuntime` / `build_*` / `start_app`) | HTTP 与 CLI / 回放共用; 不依赖 FastAPI; 拥有启停顺序 |
 | `api/` | FastAPI 适配 (路由 / WS / `create_app`) | 不持有业务状态与生命周期编排; lifespan 把 `AppSession` 写入 `app.state.runtime`; 约定见 [api.md](api.md) |
-| `net/` | curl_cffi WebClient + 按 host 的限速器 | 限速器必须先于 WebClient 构造; HTTP 录制经 `net.recording` 可选绑定 |
+| `net/` | curl_cffi WebClient + 按 host 限速器 + 出站策略 | 限速器必须先于 WebClient 构造; HTTP 录制经 `net.recording` 可选绑定 |
 | `enums.py` | 跨包枚举 (站点名 / 字段名 / 语言) | 必须留在顶层; 拆进子包会形成循环依赖 |
 
 **导入约定:** 包内模块使用相对导入, 最多三点 (`...`), 再深则改用 `from amane...`. 迁移脚本必须使用绝对导入 — Alembic 按文件路径加载, 无法识别相对导入. 包外 (测试、第三方插件、独立脚本) 从顶层包导入已导出的稳定符号. 插件与主机的导入边界见 [plugins.md](plugins.md).

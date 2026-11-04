@@ -45,6 +45,7 @@ class TaskType(StrEnum):
     SEMANTIC_INDEX = "semantic_index"
     SEMANTIC_BENCHMARK = "semantic_benchmark"
     PURGE = "purge"
+    ACTOR_PUSH = "actor_push"
 
 
 class RoutineType(StrEnum):

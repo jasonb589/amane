@@ -2,6 +2,7 @@ import {
   type Icon,
   IconArrowsDiagonal,
   IconBomb,
+  IconCloudUpload,
   IconDatabase,
   IconEraser,
   IconFolder,
@@ -41,6 +42,7 @@ export const TASK_ICONS: Record<TaskType, Icon> = exhaustiveRecord<TaskType>()({
   delete: IconTrashX,
   semantic_index: IconSparkles,
   semantic_benchmark: IconGauge,
+  actor_push: IconCloudUpload,
 });
 
 const EMPTY_CHILD_STATUS: Required<TaskChildStatusCounts> = {
