@@ -18,7 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TypedDict
 
-from ..utils.language import has_cjk
+from ..utils.language import has_han
 
 # ---------------------------------------------------------------------------
 # Types
@@ -620,7 +620,7 @@ _ASCII_ALNUM = re.compile(r"[0-9A-Za-z]")
 
 def _is_cjk_title(text: str) -> bool:
     """含中日文且不含任何字母数字: 「无番号、也不像欧美片名」的兜底判定依据."""
-    return has_cjk(text) and _ASCII_ALNUM.search(text) is None
+    return has_han(text) and _ASCII_ALNUM.search(text) is None
 
 
 def _fallback(stem: str, escape: list[str]) -> tuple[str, ContentType]:
