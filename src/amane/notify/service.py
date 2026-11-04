@@ -583,9 +583,7 @@ class NotificationService:
                 status=response.status_code if response is not None else None,
             )
             text_channel = channel.model_copy(update={"send_photo": False})
-            url, headers, body = build_request(
-                text_channel, variables, panel_url=panel, image_token=self._image_token
-            )
+            url, headers, body = build_request(text_channel, variables, panel_url=panel, image_token=self._image_token)
             response, last_error = await self._post(channel, url, headers, body)
         if response is None:
             return False, last_error or "请求失败"

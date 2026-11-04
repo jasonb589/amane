@@ -282,6 +282,7 @@ def test_build_request_photo_falls_back_to_thumb() -> None:
     assert url2.endswith("/sendMessage")
     assert json.loads(body2)["text"] == "ABC-1"
 
+
 def test_build_request_bark_and_wecom() -> None:
     """Bark 用第一行当标题; 企业微信发 text 消息."""
     bark = NotifyChannelConfig(provider="bark", token="key1", text="标题行\n正文行")
