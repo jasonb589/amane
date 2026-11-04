@@ -15,7 +15,14 @@ from typing import Any
 from amane.config.manager import NotifyChannelConfig, NotifyConfig
 from amane.db.models import Task, TaskType
 from amane.events import Event, EventType
-from amane.notify.service import NotificationService, _batch_item, _batch_line, _local_time, build_request
+from amane.notify.service import (
+    NotificationService,
+    _batch_item,
+    _batch_line,
+    _local_time,
+    _multipart_body,
+    build_request,
+)
 
 _STARTED = datetime(2026, 10, 16, 9, 0, 0, tzinfo=UTC)
 
@@ -265,6 +272,30 @@ def test_build_request_skips_internal_poster() -> None:
     url2, _, body2 = build_request(channel, {"number": "ABC-1", "poster_url": "/api/resources/abc"})
     assert url2.endswith("/sendMessage")
     assert json.loads(body2)["text"] == "ABC-1"
+
+
+def test_multipart_body_shape() -> None:
+    """Telegram 上传图片用的 multipart: 文本字段在前, 文件字段最后, 结尾有结束边界."""
+    body = _multipart_body(
+        {"chat_id": "-1001", "caption": "cap"},
+        field="photo",
+        filename="poster.jpg",
+        content=b"\xff\xd8jpeg",
+        boundary="BOUND",
+    )
+    assert body.startswith(b"--BOUND\r\n")
+    assert b'name="chat_id"\r\n\r\n-1001\r\n' in body
+    assert b'name="photo"; filename="poster.jpg"' in body
+    assert b"Content-Type: image/jpeg" in body
+    assert body.endswith(b"\r\n--BOUND--\r\n")
+
+
+@pytest.mark.asyncio
+async def test_telegram_upload_needs_resource_store() -> None:
+    """没有资源库就退回 URL/纯文本, 不能在这里炸."""
+    service = NotificationService()
+    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
+    assert await service._telegram_upload(channel, {"poster_url": "/api/resources/abc"}) is None
 
 
 def test_build_request_bark_and_wecom() -> None:

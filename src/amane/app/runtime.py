@@ -390,6 +390,7 @@ class AppRuntime:
             web_client=self.web_client,
             repo=self.repo,
             log_dir=self.config.cold.log_dir,
+            resource_store=self.resource_store,
         )
 
     async def apply_rebuild(self) -> None:
