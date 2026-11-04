@@ -306,6 +306,8 @@ def test_matches_accepts_preset_channel_without_url() -> None:
     assert service._matches(ok, event, {"type": "scrape", "category": "censored"}) is True
     # 预设渠道缺 token: 根本发不出去, 不该匹配
     assert service._matches(NotifyChannelConfig(provider="telegram"), event, {"type": "scrape"}) is False
+    # 自定义 HTTP 仍然要求 url
+    assert service._matches(NotifyChannelConfig(), event, {"type": "scrape"}) is False
 
 
 def test_batch_item_line() -> None:
@@ -322,5 +324,3 @@ def test_batch_item_line() -> None:
     assert line == "⚠️ <b>MIDA-278</b> · 刮削 · 缺 amazon、tenhow · 1m03s"
     # 没有番号时不留空, 也不该出现连续分隔符
     assert _batch_item({"status_icon": "✅", "type_label": "整理"}) == "✅ <b>—</b> · 整理"
-    # 自定义 HTTP 仍然要求 url
-    assert service._matches(NotifyChannelConfig(), event, {"type": "scrape"}) is False

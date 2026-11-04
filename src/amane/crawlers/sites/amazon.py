@@ -101,6 +101,9 @@ _GATE_RE = re.compile(r'driver-verify|/age_check/|name="agecheck"', re.IGNORECAS
 _CURTAIN_RE = re.compile(r"black-curtain-popover|s-black-curtain", re.IGNORECASE)
 #: 点「Yes」走的保存接口; ``returnUrl`` 是点了之后要回跳的页面.
 _ELIGIBILITY_URL = SITE + "/-/en/black-curtain/save-eligibility/black-curtain?returnUrl={}"
+
+#: 详情页的几个入口: 同一 ASIN 这几条 URL 的响应不总是等价, 空壳时换下一条再来.
+_DETAIL_PATHS = ("/dp/{asin}", "/dp/{asin}?th=1&psc=1", "/-/en/dp/{asin}")
 #: 只靠番号命中时要的碟片标记 / 要排除的周边条目 (同一番号的生写真、ポストカード也占结果位).
 _DISC_RE = re.compile(r"DVD|Blu-?ray|ブルーレイ", re.IGNORECASE)
 _GOODS_RE = re.compile("特典|生写真|ポストカード|クリアファイル|タオル|抱き枕|非売品|カレンダー|フィギュア")
@@ -383,18 +386,30 @@ class AmazonCrawler(Crawler):
         return [f"{base}/{asin}.jpg", f"{base}/{asin}.01._SCLZZZZZZZ_.jpg"]
 
     async def _detail_image(self, asin: str) -> str | None:
-        """详情页取真封面 ID: ``data-old-hires`` → 主图 JSON → ``landingImage`` 的 src."""
-        html = await self._fetch_page(f"{SITE}/dp/{asin}")
-        if html is None:
-            return None
-        for pattern in (_OLD_HIRES_RE, _LANDING_IMAGE_RE):
-            match = pattern.search(html)
-            if match is not None:
-                return match.group(1)
-        dynamic = _DYNAMIC_IMAGE_RE.search(html)
-        if dynamic is not None:
-            for match in _IMAGE_RE.finditer(dynamic.group(1)):
-                if match.group(1) not in _PLACEHOLDER_IDS:
-                    return match.group(1)
+        """详情页取真封面 ID: ``data-old-hires`` → 主图 JSON → ``landingImage`` 的 src.
+
+        详情页有时回 200 的 JS 空壳 (一个图像字段都没有): 换入口再试, 全空才放弃.
+        """
+        for path in _DETAIL_PATHS:
+            html = await self._fetch_page(f"{SITE}{path.format(asin=asin)}")
+            if html is None:
+                continue
+            image_id = _image_from_detail(html)
+            if image_id:
+                return image_id
         self.logger.debug("amazon detail page has no cover", asin=asin)
         return None
+
+
+def _image_from_detail(html: str) -> str | None:
+    """详情页里的封面 ID; 没有返回 None."""
+    for pattern in (_OLD_HIRES_RE, _LANDING_IMAGE_RE):
+        match = pattern.search(html)
+        if match is not None:
+            return match.group(1)
+    dynamic = _DYNAMIC_IMAGE_RE.search(html)
+    if dynamic is not None:
+        for match in _IMAGE_RE.finditer(dynamic.group(1)):
+            if match.group(1) not in _PLACEHOLDER_IDS:
+                return match.group(1)
+    return None

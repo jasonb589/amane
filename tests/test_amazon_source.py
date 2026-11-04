@@ -245,6 +245,28 @@ async def test_fetch_falls_back_to_asin_main_image() -> None:
     assert meta.poster_urls[0] == "https://m.media-amazon.com/images/P/B00ADULT10.jpg"
 
 
+@pytest.mark.asyncio
+async def test_fetch_retries_other_detail_entries_when_page_is_shell() -> None:
+    """详情页回 JS 空壳时换入口重试, 命中原图就不该退到 351x500 的小图."""
+    search = (
+        'data-asin="B00ADULT11"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+    )
+    shell = "<html><body>no product image</body></html>"
+    full = '<img id="landingImage" data-old-hires="https://m.media-amazon.com/images/I/816fsRcEijL._AC_SL1500_.jpg">'
+    client = _StubClient([search, shell, full])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/816fsRcEijL.jpg"
+    assert client.calls[1] == "https://www.amazon.co.jp/dp/B00ADULT11"
+    assert client.calls[2] == "https://www.amazon.co.jp/dp/B00ADULT11?th=1&psc=1"
+
+
 _MOBILE_MISS = (
     'data-asin="B00MOBILE1"><img alt="別の作品 [DVD]" src="https://m.media-amazon.com/images/I/71mobile.jpg">'
 )
