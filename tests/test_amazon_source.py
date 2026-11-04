@@ -190,14 +190,39 @@ async def test_fetch_falls_back_to_next_keyword_when_first_misses() -> None:
     assert len(client.calls) == 2
 
 
-def test_parse_results_skips_placeholder_images() -> None:
-    """成人卡片未过黑幕前只给 60x40 占位图, 取它就是给错封面."""
+def test_parse_results_keeps_placeholder_candidate_without_image() -> None:
+    """成人卡片未加载时只给 60x40 占位图: 候选要留着 (靠标题命中), 图片留给详情页补."""
     html = (
         'data-asin="B00ADULT01"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
         'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
         'data-asin="B00OTHER02"><img alt="別の商品 [DVD]" src="https://m.media-amazon.com/images/I/71zzzQQ.jpg">'
     )
-    assert [row[0] for row in _parse_results(html)] == ["B00OTHER02"]
+    out = _parse_results(html)
+    assert [(row[0], row[1]) for row in out] == [("B00ADULT01", ""), ("B00OTHER02", "71zzzQQ")]
+
+
+@pytest.mark.asyncio
+async def test_fetch_reads_cover_from_detail_page_when_search_shows_placeholder() -> None:
+    """结果页只给占位图时, 用 ASIN 去详情页拿 data-old-hires 的真封面."""
+    search = (
+        'data-asin="B00ADULT09"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+    )
+    detail = (
+        '<img id="landingImage" src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif" '
+        'data-old-hires="https://m.media-amazon.com/images/I/816fsRcEijL._AC_SL1500_.jpg">'
+    )
+    client = _StubClient([search, detail])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00ADULT09"
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/816fsRcEijL.jpg"
+    assert client.calls[1] == "https://www.amazon.co.jp/dp/B00ADULT09"
 
 
 _MOBILE_MISS = (

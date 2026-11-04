@@ -56,6 +56,10 @@ _MOBILE_SEARCH_URL = SITE + "/gp/aw/s?k={term}&i=dvd"
 # 结果块以 data-asin 分隔; 块内取第一张图与第一段 alt 文本 (alt 就是商品名).
 _ASIN_SPLIT_RE = re.compile(r'data-asin="([A-Z0-9]{10})"')
 _IMAGE_RE = re.compile(r"m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})")
+#: 详情页的真封面: 原图优先, 再退到主图 JSON 里的第一张.
+_OLD_HIRES_RE = re.compile(r'data-old-hires="https://m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})')
+_DYNAMIC_IMAGE_RE = re.compile(r'data-a-dynamic-image="([^"]{0,4000})')
+_LANDING_IMAGE_RE = re.compile(r'id="landingImage"[^>]*?src="https://m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})')
 _ALT_RE = re.compile(r'alt="([^"]{4,200})"')
 _NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
 _MIN_RATIO = 0.6
@@ -216,18 +220,22 @@ def _search_title(partial: AggregatedMetadata | None, number: str = "") -> str:
 
 
 def _parse_results(html: str) -> list[tuple[str, str, str]]:
-    """搜索结果页 → [(asin, image_id, title)]; 按出现顺序, 最多 ``_MAX_CANDIDATES`` 条."""
+    """搜索结果页 → [(asin, image_id, title)]; 按出现顺序, 最多 ``_MAX_CANDIDATES`` 条.
+
+    成人卡片的缩略图现在是懒加载: 未加载时给的是 60x40 占位 gif. 这类候选不丢弃, 只是把
+    ``image_id`` 记成空串 —— 命中之后再从详情页取真封面.
+    """
     blocks = _ASIN_SPLIT_RE.split(html)
     results: list[tuple[str, str, str]] = []
     # split 后结构: [前缀, asin1, 块1, asin2, 块2, ...]
     for index in range(1, len(blocks) - 1, 2):
         asin, block = blocks[index], blocks[index + 1]
-        image = _IMAGE_RE.search(block)
         title = _ALT_RE.search(block)
-        if image is None or title is None or image.group(1) in _PLACEHOLDER_IDS:
-            # 成人区的卡片在年龄门未确认前只给占位图 (60x40 的 loading gif), 取它等于给错封面.
+        if title is None:
             continue
-        results.append((asin, image.group(1), title.group(1)))
+        image = _IMAGE_RE.search(block)
+        image_id = "" if image is None or image.group(1) in _PLACEHOLDER_IDS else image.group(1)
+        results.append((asin, image_id, title.group(1)))
         if len(results) >= _MAX_CANDIDATES:
             break
     return results
@@ -277,6 +285,11 @@ class AmazonCrawler(Crawler):
             if hit is None:
                 continue
             asin, image_id = hit
+            if not image_id:
+                # 结果页的成人卡片给的是懒加载占位 gif; 真封面只在详情页的 data-old-hires 里.
+                image_id = await self._detail_image(asin)
+                if not image_id:
+                    continue
             return MediaMetadata(
                 number=query.number,
                 poster_urls=_poster_urls(image_id),
@@ -357,3 +370,20 @@ class AmazonCrawler(Crawler):
             return None
         self.logger.debug("amazon black curtain unlocked", url=return_url)
         return text
+
+    async def _detail_image(self, asin: str) -> str | None:
+        """详情页取真封面 ID: ``data-old-hires`` → 主图 JSON → ``landingImage`` 的 src."""
+        html = await self._fetch_page(f"{SITE}/dp/{asin}")
+        if html is None:
+            return None
+        for pattern in (_OLD_HIRES_RE, _LANDING_IMAGE_RE):
+            match = pattern.search(html)
+            if match is not None:
+                return match.group(1)
+        dynamic = _DYNAMIC_IMAGE_RE.search(html)
+        if dynamic is not None:
+            for match in _IMAGE_RE.finditer(dynamic.group(1)):
+                if match.group(1) not in _PLACEHOLDER_IDS:
+                    return match.group(1)
+        self.logger.debug("amazon detail page has no cover", asin=asin)
+        return None
