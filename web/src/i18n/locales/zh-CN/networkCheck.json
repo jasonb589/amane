@@ -68,7 +68,7 @@
   "stats": {
     "title": "来源成功率",
     "hint": "取最近若干次刮削任务里每个来源的结果; 能连上不等于刮到内容.",
-    "samples": "样本: {{count}} 次刮削",
+    "samples": "样本: {{value}} 次刮削",
     "loading": "统计中…",
     "empty": "还没有刮削记录",
     "columns": {

@@ -24,7 +24,7 @@ export function SiteStatsPanel() {
       <Group justify="space-between" mb="xs" align="baseline">
         <Title order={5}>{t("stats.title")}</Title>
         <Text size="xs" c="dimmed">
-          {t("stats.samples", { count: tasks })}
+          {t("stats.samples", { value: tasks })}
         </Text>
       </Group>
       <Text size="xs" c="dimmed" mb="sm">

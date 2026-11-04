@@ -68,7 +68,7 @@
   "stats": {
     "title": "Source success rate",
     "hint": "Per-source results from the most recent scrape tasks; reachable does not mean a match was found.",
-    "samples": "Sample: {{count}} scrapes",
+    "samples": "Sample: {{value}} scrapes",
     "loading": "Collecting…",
     "empty": "No scrape history yet",
     "columns": {
