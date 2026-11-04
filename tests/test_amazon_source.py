@@ -225,6 +225,26 @@ async def test_fetch_reads_cover_from_detail_page_when_search_shows_placeholder(
     assert client.calls[1] == "https://www.amazon.co.jp/dp/B00ADULT09"
 
 
+@pytest.mark.asyncio
+async def test_fetch_falls_back_to_asin_main_image() -> None:
+    """详情页回 JS 空壳 (200 但无原图) 时, 退到 /images/P/<ASIN>.jpg —— 实测 351x500 总是有货."""
+    search = (
+        'data-asin="B00ADULT10"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+    )
+    shell = "<html><body><script>var hiRes=1</script>no product image</body></html>"
+    client = _StubClient([search, shell])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
+    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00ADULT10"
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/P/B00ADULT10.jpg"
+
+
 _MOBILE_MISS = (
     'data-asin="B00MOBILE1"><img alt="別の作品 [DVD]" src="https://m.media-amazon.com/images/I/71mobile.jpg">'
 )

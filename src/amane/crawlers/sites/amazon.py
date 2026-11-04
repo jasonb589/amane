@@ -287,14 +287,13 @@ class AmazonCrawler(Crawler):
             if hit is None:
                 continue
             asin, image_id = hit
-            if not image_id:
-                # 结果页的成人卡片给的是懒加载占位 gif; 真封面只在详情页的 data-old-hires 里.
-                image_id = await self._detail_image(asin)
-                if not image_id:
-                    continue
+            # 结果页的成人卡片是懒加载占位图; 真封面从详情页或 ASIN 主图接口补.
+            poster_urls = _poster_urls(image_id) if image_id else await self._cover_urls(asin)
+            if not poster_urls:
+                continue
             return MediaMetadata(
                 number=query.number,
-                poster_urls=_poster_urls(image_id),
+                poster_urls=poster_urls,
                 source_url=f"{SITE}/dp/{asin}",
                 external_id=asin,
             )
@@ -372,6 +371,16 @@ class AmazonCrawler(Crawler):
             return None
         self.logger.debug("amazon black curtain unlocked", url=return_url)
         return text
+
+    async def _cover_urls(self, asin: str) -> list[str]:
+        """结果页只有占位图时的候选封面: 详情页原图优先, 退到按 ASIN 直取主图."""
+        image_id = await self._detail_image(asin)
+        if image_id:
+            return _poster_urls(image_id)
+        # 详情页现在常回 JS 空壳 (200 但无 data-old-hires); 按 ASIN 取主图这条总是有货,
+        # 实测 351x500 / 45 KB —— 比没有封面强, 也比 60x40 的占位 gif 强.
+        base = "https://m.media-amazon.com/images/P"
+        return [f"{base}/{asin}.jpg", f"{base}/{asin}.01._SCLZZZZZZZ_.jpg"]
 
     async def _detail_image(self, asin: str) -> str | None:
         """详情页取真封面 ID: ``data-old-hires`` → 主图 JSON → ``landingImage`` 的 src."""
