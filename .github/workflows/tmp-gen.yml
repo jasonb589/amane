@@ -1,0 +1,53 @@
+name: tmp-gen
+
+# 临时: 生成 openapi / 前端 client 并上传 artifact
+on:
+  push:
+    tags: ["gen-*"]
+
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: "24"
+      PNPM_VERSION: "11"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Setup just
+        uses: extractions/setup-just@v4
+
+      - name: Sync python deps
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Sync web deps
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - name: Generate
+        run: just generate
+
+      - name: Upload generated files
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated
+          path: |
+            web/openapi.json
+            web/src/client
