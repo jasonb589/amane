@@ -321,6 +321,6 @@ def test_batch_item_line() -> None:
             "duration": "1m03s",
         }
     )
-    assert line == "⚠️ <b>MIDA-278</b> · 刮削 · 缺 amazon、tenhow · 1m03s"
+    assert line == "⚠️ MIDA-278 · 刮削 · 缺 amazon、tenhow · 1m03s"
     # 没有番号时不留空, 也不该出现连续分隔符
-    assert _batch_item({"status_icon": "✅", "type_label": "整理"}) == "✅ <b>—</b> · 整理"
+    assert _batch_item({"status_icon": "✅", "type_label": "整理"}) == "✅ — · 整理"

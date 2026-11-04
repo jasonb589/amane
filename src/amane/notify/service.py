@@ -264,9 +264,13 @@ def _split_title(text: str) -> tuple[str, str]:
 
 
 def _batch_item(variables: dict[str, Any]) -> str:
-    """合并窗口里的一项: 图标 + 番号 + 类型 (+ 缺哪些源 / 耗时). 供 ``{batch_items}`` 使用."""
+    """合并窗口里的一项: 图标 + 番号 + 类型 (+ 缺哪些源 / 耗时). 供 ``{batch_items}`` 使用.
+
+    只用纯文本: 通知正文按 HTML 模式渲染时变量值会被转义, 带上 ``<b>`` 就会原样显示成标签.
+    """
     number = str(variables.get("number") or "").strip() or "—"
-    parts = [f"{variables.get('status_icon') or ''} <b>{number}</b>".strip()]
+    icon = str(variables.get("status_icon") or "").strip()
+    parts = [f"{icon} {number}".strip()]
     label = str(variables.get("type_label") or variables.get("type") or "").strip()
     if label:
         parts.append(label)
