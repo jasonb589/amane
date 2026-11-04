@@ -64,5 +64,41 @@
       "bskLink": "Installation guide",
       "solver": "Deploy a FlareSolverr-compatible service and set its address in the settings."
     }
+  },
+  "stats": {
+    "title": "Source success rate",
+    "hint": "Per-source results from the most recent scrape tasks; reachable does not mean a match was found.",
+    "samples": "Sample: {{count}} scrapes",
+    "loading": "Collecting…",
+    "empty": "No scrape history yet",
+    "columns": {
+      "site": "Source",
+      "rate": "Success",
+      "ok": "OK",
+      "failed": "Failed",
+      "cache": "Cached",
+      "reasons": "Failure reasons"
+    },
+    "reasons": {
+      "no_usable_metadata": "No matching entry",
+      "not_found": "Entry not found",
+      "http_error": "HTTP error",
+      "api_error": "API error",
+      "rate_limited": "Rate limited",
+      "server_error": "Server 5xx",
+      "timeout": "Timeout",
+      "network": "Network error",
+      "cloudflare_challenge": "Cloudflare challenge",
+      "cloudflare_blocked": "Cloudflare blocked",
+      "ip_banned": "IP banned",
+      "geo_restricted": "Geo restricted",
+      "age_verification": "Age verification",
+      "login_required": "Login required",
+      "empty_response": "Empty response",
+      "parse_error": "Parse error",
+      "crawler_unavailable": "Source unavailable",
+      "unexpected": "Unexpected error",
+      "unknown": "No reason recorded"
+    }
   }
 }

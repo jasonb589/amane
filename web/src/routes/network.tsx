@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { BrowserBackendPanel } from "@/components/network-check/browser-backend-panel";
 import { NetworkCheckPanel } from "@/components/network-check/network-check-panel";
+import { SiteStatsPanel } from "@/components/network-check/site-stats-panel";
 import { useNetworkCheck } from "@/hooks/use-network-check";
 
 export const Route = createFileRoute("/network")({
@@ -50,6 +51,8 @@ function NetworkCheckPage() {
         onCheck={check}
         onRetry={retry}
       />
+
+      <SiteStatsPanel />
     </Stack>
   );
 }

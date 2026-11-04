@@ -480,6 +480,7 @@ class NotificationService:
         variables["batch"] = _batch_summary(count, distinct)
 
         self._spawn(channel, variables)
+
     def _spawn(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> None:
         task = asyncio.create_task(self._send(channel, variables))
         self._sending.add(task)

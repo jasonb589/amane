@@ -64,5 +64,41 @@
       "bskLink": "查看安装说明",
       "solver": "部署 FlareSolverr 兼容服务, 并在设置中填写地址."
     }
+  },
+  "stats": {
+    "title": "来源成功率",
+    "hint": "取最近若干次刮削任务里每个来源的结果; 能连上不等于刮到内容.",
+    "samples": "样本: {{count}} 次刮削",
+    "loading": "统计中…",
+    "empty": "还没有刮削记录",
+    "columns": {
+      "site": "来源",
+      "rate": "成功率",
+      "ok": "成功",
+      "failed": "失败",
+      "cache": "缓存",
+      "reasons": "失败原因"
+    },
+    "reasons": {
+      "no_usable_metadata": "没有匹配到条目",
+      "not_found": "找不到条目",
+      "http_error": "HTTP 错误",
+      "api_error": "接口报错",
+      "rate_limited": "被限流",
+      "server_error": "服务端 5xx",
+      "timeout": "超时",
+      "network": "网络错误",
+      "cloudflare_challenge": "Cloudflare 挑战",
+      "cloudflare_blocked": "Cloudflare 拒绝",
+      "ip_banned": "IP 被封",
+      "geo_restricted": "地区限制",
+      "age_verification": "年龄验证拦截",
+      "login_required": "需要登录",
+      "empty_response": "空响应",
+      "parse_error": "解析失败",
+      "crawler_unavailable": "来源不可用",
+      "unexpected": "意外错误",
+      "unknown": "未记录原因"
+    }
   }
 }

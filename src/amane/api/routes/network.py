@@ -87,8 +87,6 @@ async def check_connectivity(
 
 
 @router.get("/site-stats", response_model=SiteStatsResponse)
-async def site_stats(
-    repo: RepoDep, limit: Annotated[int, Query(ge=1, le=5000)] = 500
-) -> SiteStatsResponse:
+async def site_stats(repo: RepoDep, limit: Annotated[int, Query(ge=1, le=5000)] = 500) -> SiteStatsResponse:
     """最近 ``limit`` 条已完成刮削任务的逐来源结果分布; 与连通性探测无关, 是历史成功率."""
     return await collect_site_stats(repo, limit=limit)

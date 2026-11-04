@@ -66,8 +66,7 @@ async def collect_site_stats(repo: Repository, *, limit: int) -> SiteStatsRespon
                 failed=bucket["failed"],
                 cache_hit=bucket["cache_hit"],
                 reasons=[
-                    SiteStatReason(reason=reason or None, count=count)
-                    for reason, count in site_reasons.most_common()
+                    SiteStatReason(reason=reason or None, count=count) for reason, count in site_reasons.most_common()
                 ],
             )
         )
