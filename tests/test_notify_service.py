@@ -250,6 +250,23 @@ def test_build_request_telegram_photo() -> None:
     assert json.loads(body2)["text"] == "ABC-1"
 
 
+def test_build_request_skips_internal_poster() -> None:
+    """面板内部资源 (/api/resources/...) 需要 token, Telegram 取不到 → 换缩略图或纯文本.
+
+    回归: 以前把内部地址原样交给 sendPhoto, Telegram 回 400, 整条刮削通知就此丢掉.
+    """
+    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
+    url, _, body = build_request(
+        channel, {"number": "ABC-1", "poster_url": "/api/resources/abc", "thumb_url": "https://img/thumb.jpg"}
+    )
+    assert url.endswith("/sendPhoto")
+    assert json.loads(body)["photo"] == "https://img/thumb.jpg"
+
+    url2, _, body2 = build_request(channel, {"number": "ABC-1", "poster_url": "/api/resources/abc"})
+    assert url2.endswith("/sendMessage")
+    assert json.loads(body2)["text"] == "ABC-1"
+
+
 def test_build_request_bark_and_wecom() -> None:
     """Bark 用第一行当标题; 企业微信发 text 消息."""
     bark = NotifyChannelConfig(provider="bark", token="key1", text="标题行\n正文行")

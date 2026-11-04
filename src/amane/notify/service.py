@@ -317,6 +317,15 @@ def _site_outcomes(task: Task | None) -> tuple[list[str], list[str], str, str]:
     return failed, lines, amazon, amazon_reason
 
 
+def _public_image(value: object) -> str:
+    """只放行公网图片 URL.
+
+    ``/api/resources/...`` 这类内部地址需要面板 token 才能取, 交给 Telegram 只会得到 400,
+    而 ``_send`` 对 4xx 不重试 —— 整条消息会静默丢掉 (实测: 刮削卡片因此消失).
+    """
+    text = str(value or "").strip()
+    return text if text.startswith(("http://", "https://")) else ""
+
 def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[str, dict[str, str], str]:
     """生成请求 (url, headers, body).
 
@@ -330,7 +339,10 @@ def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tu
         headers["Content-Type"] = "application/json"
         if channel.provider is NotifyProvider.TELEGRAM:
             chat_id = channel.chat_id.strip()
-            photo = str(variables.get("poster_url") or "") if channel.send_photo else ""
+            photo = _public_image(variables.get("poster_url")) if channel.send_photo else ""
+            if not photo and channel.send_photo:
+                # 海报是面板内部资源时退到缩略图; 两个都不可公开取用就发纯文本, 别让整条消息被拒.
+                photo = _public_image(variables.get("thumb_url"))
             if photo:
                 method = "sendPhoto"
                 payload: dict[str, Any] = {
