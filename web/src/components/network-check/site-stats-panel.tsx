@@ -54,8 +54,11 @@ export function SiteStatsPanel() {
             </Table.Thead>
             <Table.Tbody>
               {items.map((item) => {
-                const total = item.ok + item.failed + item.cache_hit;
-                const hit = item.ok + item.cache_hit;
+                const ok = item.ok ?? 0;
+                const failed = item.failed ?? 0;
+                const cache = item.cache_hit ?? 0;
+                const total = ok + failed + cache;
+                const hit = ok + cache;
                 const rate = total > 0 ? Math.round((hit / total) * 100) : 0;
                 return (
                   <Table.Tr key={item.site}>
@@ -82,13 +85,13 @@ export function SiteStatsPanel() {
                       <Text size="sm">{hit}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm" c={item.failed > 0 ? "red" : "dimmed"}>
-                        {item.failed}
+                      <Text size="sm" c={failed > 0 ? "red" : "dimmed"}>
+                        {failed}
                       </Text>
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" c="dimmed">
-                        {item.cache_hit}
+                        {cache}
                       </Text>
                     </Table.Td>
                     <Table.Td>
