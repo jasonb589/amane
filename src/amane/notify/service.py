@@ -326,6 +326,7 @@ def _public_image(value: object) -> str:
     text = str(value or "").strip()
     return text if text.startswith(("http://", "https://")) else ""
 
+
 def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[str, dict[str, str], str]:
     """生成请求 (url, headers, body).
 

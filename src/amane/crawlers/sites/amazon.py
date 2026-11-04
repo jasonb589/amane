@@ -32,6 +32,7 @@ DMM / FANZA 的商品标题常带促销与渠道噪声 (``【視聴期限なし�
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, override
@@ -284,6 +285,7 @@ class AmazonCrawler(Crawler):
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
+        started = time.monotonic()
         self._saw_page = False
         title = _search_title(query.partial_result, query.number)
         if len(_norm(title)) < 4:
@@ -298,6 +300,14 @@ class AmazonCrawler(Crawler):
             poster_urls = _poster_urls(image_id) if image_id else await self._cover_urls(asin)
             if not poster_urls:
                 continue
+            # 与其它来源的 "scrape ok" 对齐: 日志里能直接看到日亚命中了哪一条、用的是原图还是兜底图.
+            self.logger.info(
+                "scrape ok",
+                asin=asin,
+                number=query.number,
+                cover="original" if image_id else "main-image",
+                duration_s=round(time.monotonic() - started, 2),
+            )
             return MediaMetadata(
                 number=query.number,
                 poster_urls=poster_urls,
