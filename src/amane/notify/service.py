@@ -669,9 +669,8 @@ class NotificationService:
             "failed_sites": "、".join(failed_sites),
             "site_failures": "\n".join(site_failure_lines),
             "amazon_state": amazon_state,
-            # 渠道用 `require: [amazon_failed]` 过滤: amazon 成功时为空, 该渠道保持静默.
-            "amazon_state": amazon_state,
             "amazon_reason": amazon_reason,
+            # 渠道用 `require` 过滤: `amazon_failed` 任意失败; `amazon_broken` 只在真故障时非空.
             "amazon_failed": "1" if amazon_state == "failed" else "",
             # 只有「站点正常应答但抓不到」才算故障; 站点本就没有这个番号 (not_listed) 不报警.
             "amazon_broken": "1" if amazon_state == "failed" and amazon_reason != "not_listed" else "",
@@ -790,7 +789,6 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "error_short": "",
     "failed_sites": "",
     "site_failures": "",
-    "amazon_state": "",
     "amazon_state": "",
     "amazon_reason": "",
     "amazon_failed": "",
