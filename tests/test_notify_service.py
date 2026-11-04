@@ -15,7 +15,7 @@ from typing import Any
 from amane.config.manager import NotifyChannelConfig, NotifyConfig
 from amane.db.models import Task, TaskType
 from amane.events import Event, EventType
-from amane.notify.service import NotificationService, _batch_line, _local_time, build_request
+from amane.notify.service import NotificationService, _batch_item, _batch_line, _local_time, build_request
 
 _STARTED = datetime(2026, 10, 16, 9, 0, 0, tzinfo=UTC)
 
@@ -306,5 +306,21 @@ def test_matches_accepts_preset_channel_without_url() -> None:
     assert service._matches(ok, event, {"type": "scrape", "category": "censored"}) is True
     # 预设渠道缺 token: 根本发不出去, 不该匹配
     assert service._matches(NotifyChannelConfig(provider="telegram"), event, {"type": "scrape"}) is False
+
+
+def test_batch_item_line() -> None:
+    """合并消息里的一项: 图标 + 番号 + 类型 + 缺哪些源 + 耗时."""
+    line = _batch_item(
+        {
+            "status_icon": "⚠️",
+            "number": "MIDA-278",
+            "type_label": "刮削",
+            "failed_sites": "amazon、tenhow",
+            "duration": "1m03s",
+        }
+    )
+    assert line == "⚠️ <b>MIDA-278</b> · 刮削 · 缺 amazon、tenhow · 1m03s"
+    # 没有番号时不留空, 也不该出现连续分隔符
+    assert _batch_item({"status_icon": "✅", "type_label": "整理"}) == "✅ <b>—</b> · 整理"
     # 自定义 HTTP 仍然要求 url
     assert service._matches(NotifyChannelConfig(), event, {"type": "scrape"}) is False

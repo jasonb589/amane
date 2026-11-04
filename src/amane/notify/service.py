@@ -191,6 +191,9 @@ def _short_time(value: str) -> str:
 
 
 #: 供应商正文上限: 超了对方直接回 400 (telegram 文本 4096 / 图片说明 1024, 企业微信 2048, bark 正文 1000).
+#: 合并消息里最多列多少条; 再多就折成「另 N 项」, 免得一条消息糊满屏.
+_BATCH_ITEMS_LIMIT = 10
+
 _MAX_TEXT: dict[NotifyProvider, int] = {
     NotifyProvider.TELEGRAM: 4096,
     NotifyProvider.WECOM: 2048,
@@ -257,6 +260,22 @@ def _split_title(text: str) -> tuple[str, str]:
     """Bark 这类需要标题+正文的服务: 第一行当标题, 其余当正文."""
     head, _, rest = text.partition("\n")
     return head.strip() or "Amane", rest.strip()
+
+
+def _batch_item(variables: dict[str, Any]) -> str:
+    """合并窗口里的一项: 图标 + 番号 + 类型 (+ 缺哪些源 / 耗时). 供 ``{batch_items}`` 使用."""
+    number = str(variables.get("number") or "").strip() or "—"
+    parts = [f"{variables.get('status_icon') or ''} <b>{number}</b>".strip()]
+    label = str(variables.get("type_label") or variables.get("type") or "").strip()
+    if label:
+        parts.append(label)
+    sites = str(variables.get("failed_sites") or "").strip()
+    if sites:
+        parts.append(f"缺 {sites}")
+    duration = str(variables.get("duration") or "").strip()
+    if duration:
+        parts.append(duration)
+    return " · ".join(parts)
 
 
 def _site_outcomes(task: Task | None) -> tuple[list[str], list[str], str]:
@@ -345,6 +364,8 @@ class _Pending:
 
     variables: dict[str, Any]
     numbers: list[str] = field(default_factory=list)
+    items: list[str] = field(default_factory=list)
+    """合并窗口内每一条的摘要行; 合成一条消息时按顺序列出来."""
     count: int = 0
     first_at: float = 0.0
     timer: asyncio.Task[None] | None = None
@@ -451,6 +472,9 @@ class NotificationService:
         number = str(variables.get("number") or "")
         if number and number not in pending.numbers:
             pending.numbers.append(number)
+        item = _batch_item(variables)
+        if item:
+            pending.items.append(item)
         pending.timer = asyncio.create_task(self._flush_later(index, channel, failed, pending.first_at))
 
     async def _flush_later(self, index: int, channel: NotifyChannelConfig, failed: bool, first_at: float) -> None:
@@ -478,6 +502,9 @@ class NotificationService:
         variables["movie_count"] = len(distinct)
         variables["numbers"] = "、".join(distinct)
         variables["batch"] = _batch_summary(count, distinct)
+        variables["batch_items"] = "\n".join(pending.items[:_BATCH_ITEMS_LIMIT])
+        if len(pending.items) > _BATCH_ITEMS_LIMIT:
+            variables["batch_items"] += f"\n… 另 {len(pending.items) - _BATCH_ITEMS_LIMIT} 项"
 
         self._spawn(channel, variables)
 
@@ -668,13 +695,15 @@ class NotificationService:
             "time_short": _short_time(finished_local),
             "link": link,
             # 带面板按钮的整行 HTML: 用 ``{link_line|r}`` 引用 (关掉转义), 没有面板地址时整行为空.
-            "link_line": f'<a href="{link}">▸ 打开面板</a>' if link else "",
+            # 链接行单独一行, 用粗体标签提示去面板看详情 (模板里用 `{link_line|r}` 引用).
+            "link_line": f'<a href="{link}">▸ 打开任务面板 · 查看详情</a>' if link else "",
             "log_tail": await self._log_tail(raw_id, config.log_tail_lines) if config.log_tail_lines > 0 else "",
             "count": 1,
             "task_count": 1,
             "movie_count": 1 if number else 0,
             "numbers": number,
             "batch": "",
+            "batch_items": "",
         }
 
     async def _number(self, repo: Repository | None, payload: dict[str, Any]) -> str:
@@ -760,6 +789,7 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "movie_count": 1,
     "numbers": "",
     "batch": "",
+    "batch_items": "",
     "link": "",
     "link_line": "",
     "log_tail": "",
