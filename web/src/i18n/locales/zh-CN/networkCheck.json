@@ -81,6 +81,7 @@
     },
     "reasons": {
       "no_usable_metadata": "没有匹配到条目",
+      "not_listed": "站点没有这个番号",
       "not_found": "找不到条目",
       "http_error": "HTTP 错误",
       "api_error": "接口报错",

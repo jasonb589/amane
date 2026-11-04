@@ -61,6 +61,7 @@ _TYPE_LABELS: dict[str, str] = {
 #: 失败原因 → 通知里的中文说明 (``FailureReason`` 的取值).
 _REASON_LABELS: dict[str, str] = {
     "no_usable_metadata": "没有匹配到条目",
+    "not_listed": "站点没有这个番号",
     "not_found": "找不到条目",
     "http_error": "HTTP 错误",
     "api_error": "接口报错",
@@ -278,20 +279,21 @@ def _batch_item(variables: dict[str, Any]) -> str:
     return " · ".join(parts)
 
 
-def _site_outcomes(task: Task | None) -> tuple[list[str], list[str], str]:
-    """任务结果里的逐站点结果 → (失败站点, 失败明细行, amazon 状态).
+def _site_outcomes(task: Task | None) -> tuple[list[str], list[str], str, str]:
+    """任务结果里的逐站点结果 → (失败站点, 失败明细行, amazon 状态, amazon 失败原因).
 
     面板只把明细放在任务详情里; 通知要让「哪里坏了」一眼可见, 所以这里整理成每站一行.
     """
     result = task.result if task is not None else None
     if not isinstance(result, dict):
-        return [], [], ""
+        return [], [], "", ""
     outcomes = result.get("outcomes")
     if not isinstance(outcomes, list):
-        return [], [], ""
+        return [], [], "", ""
     failed: list[str] = []
     lines: list[str] = []
     amazon = ""
+    amazon_reason = ""
     for item in outcomes:
         if not isinstance(item, dict):
             continue
@@ -299,6 +301,7 @@ def _site_outcomes(task: Task | None) -> tuple[list[str], list[str], str]:
         kind = str(item.get("outcome") or "")
         if site == "amazon" or site.startswith("amazon:"):
             amazon = "failed" if kind == "failed" else "ok"
+            amazon_reason = str(item.get("reason") or "") if kind == "failed" else ""
         if kind != "failed":
             continue
         failed.append(site)
@@ -307,7 +310,7 @@ def _site_outcomes(task: Task | None) -> tuple[list[str], list[str], str]:
         detail = str(item.get("detail") or "")
         extra = " / ".join(part for part in (f"HTTP {status}" if status else "", _ellipsis(detail, 80)) if part)
         lines.append(f"{site}: {_REASON_LABELS.get(reason, reason) or '失败'}" + (f" ({extra})" if extra else ""))
-    return failed, lines, amazon
+    return failed, lines, amazon, amazon_reason
 
 
 def build_request(channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[str, dict[str, str], str]:
@@ -651,7 +654,7 @@ class NotificationService:
             finished_local = _local_time(task.finished_at)
         panel = config.panel_url.rstrip("/")
         link = f"{panel}/tasks" if panel else ""
-        failed_sites, site_failure_lines, amazon_state = _site_outcomes(task)
+        failed_sites, site_failure_lines, amazon_state, amazon_reason = _site_outcomes(task)
         return {
             "task_id": raw_id if isinstance(raw_id, int) else "",
             "type": task_type,
@@ -667,7 +670,12 @@ class NotificationService:
             "site_failures": "\n".join(site_failure_lines),
             "amazon_state": amazon_state,
             # 渠道用 `require: [amazon_failed]` 过滤: amazon 成功时为空, 该渠道保持静默.
+            "amazon_state": amazon_state,
+            "amazon_reason": amazon_reason,
             "amazon_failed": "1" if amazon_state == "failed" else "",
+            # 只有「站点正常应答但抓不到」才算故障; 站点本就没有这个番号 (not_listed) 不报警.
+            "amazon_broken": "1" if amazon_state == "failed" and amazon_reason != "not_listed" else "",
+            "amazon_missing": "1" if amazon_reason == "not_listed" else "",
             "duration": _format_duration(task.started_at, task.finished_at) if task is not None else "",
             "number": number,
             "title": title,
@@ -783,7 +791,11 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "failed_sites": "",
     "site_failures": "",
     "amazon_state": "",
+    "amazon_state": "",
+    "amazon_reason": "",
     "amazon_failed": "",
+    "amazon_broken": "",
+    "amazon_missing": "",
     "count": 1,
     "task_count": 1,
     "movie_count": 1,

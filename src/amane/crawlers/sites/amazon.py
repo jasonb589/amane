@@ -258,6 +258,9 @@ class AmazonCrawler(Crawler):
     #: 本实例点过几次黑幕弹窗的「Yes」: 每次多一个请求 (带上跳回来的正文), 试两次就够.
     _unlock_attempts = 0
 
+    #: 本次检索是否真的拿到过结果页; 决定「没搜到」是站点没卖还是抓取坏了.
+    _saw_page = False
+
     @classmethod
     @override
     def profile(cls) -> CrawlerProfile:
@@ -281,6 +284,7 @@ class AmazonCrawler(Crawler):
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
+        self._saw_page = False
         title = _search_title(query.partial_result, query.number)
         if len(_norm(title)) < 4:
             return None
@@ -300,6 +304,10 @@ class AmazonCrawler(Crawler):
                 source_url=f"{SITE}/dp/{asin}",
                 external_id=asin,
             )
+        if self._saw_page:
+            # 结果页拿到了却没有可用候选: 这个番号在日亚根本没有在售条目, 不是抓取故障.
+            # 用独立原因上报, 通知与统计据此区分「站点没卖」和「抓取坏了」.
+            raise SourceError(FailureReason.NOT_LISTED, detail=query.number)
         return None
 
     async def _lookup(self, term: str, title: str, number: str) -> tuple[str, str] | None:
@@ -313,6 +321,7 @@ class AmazonCrawler(Crawler):
             html = await self._fetch_page(url)
             if html is None:
                 continue
+            self._saw_page = True
             if not mobile and _CURTAIN_RE.search(html) and self._unlock_attempts < _UNLOCK_LIMIT:
                 # 成人区的卡片在年龄门未确认前只给 60x40 占位图. 资格跟着这一次请求链走,
                 # 单靠 cookie 落地再重取并不可靠 (实测重取回来还是占位图), 所以先吃跳回来的正文.

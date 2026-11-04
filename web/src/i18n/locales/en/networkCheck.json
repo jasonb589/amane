@@ -81,6 +81,7 @@
     },
     "reasons": {
       "no_usable_metadata": "No matching entry",
+      "not_listed": "Not listed on this site",
       "not_found": "Entry not found",
       "http_error": "HTTP error",
       "api_error": "API error",

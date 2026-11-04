@@ -58,6 +58,8 @@ class FailureReason(StrEnum):
     EMPTY_RESPONSE = "empty_response"
     NO_USABLE_METADATA = "no_usable_metadata"
     """请求成功但未解析出元数据; 区别于 NOT_FOUND 的 HTTP 404."""
+    NOT_LISTED = "not_listed"
+    """站点正常应答, 但该番号在站点上没有在售条目 (例如日亚根本没卖); 不是抓取故障."""
     PARSE_ERROR = "parse_error"
     """响应与读模型不符 (字段缺失/类型变化); 通常意味着站点 schema 已变更."""
     CRAWLER_UNAVAILABLE = "crawler_unavailable"

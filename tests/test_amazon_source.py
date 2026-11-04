@@ -233,7 +233,7 @@ async def test_fetch_falls_back_to_asin_main_image() -> None:
         'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
     )
     shell = "<html><body><script>var hiRes=1</script>no product image</body></html>"
-    client = _StubClient([search, shell])
+    client = _StubClient([search, shell, shell, shell])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
     query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
