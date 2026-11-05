@@ -1,0 +1,27 @@
+name: tmp-check
+
+# 临时验证工作流: 只有推 check-* 标签才跑, 用完删掉 (不参与发版, 不触发 docker 构建).
+on:
+  push:
+    tags: ["check-*"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up UV
+        uses: astral-sh/setup-uv@v9.0.0
+
+      - name: Sync
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Ruff check
+        run: uv run ruff check src/amane tests scripts
+
+      - name: Ruff format check
+        run: uv run ruff format --check src/amane tests scripts
+
+      - name: Pytest
+        run: uv run pytest -q

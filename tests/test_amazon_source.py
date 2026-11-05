@@ -243,6 +243,8 @@ async def test_fetch_falls_back_to_asin_main_image() -> None:
     assert meta is not None
     assert meta.external_id == "B00ADULT10"
     assert meta.poster_urls[0] == "https://m.media-amazon.com/images/P/B00ADULT10.jpg"
+    # 小图之后补一条按 ASIN 镜像日亚封面的地址 (1055x1500), 由管线按面积取最大.
+    assert meta.poster_urls[-1] == "https://tenhow.net/images/B00ADULT10.jpg"
 
 
 @pytest.mark.asyncio

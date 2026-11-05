@@ -400,9 +400,15 @@ class AmazonCrawler(Crawler):
         if image_id:
             return _poster_urls(image_id)
         # 详情页现在常回 JS 空壳 (200 但无 data-old-hires); 按 ASIN 取主图这条总是有货,
-        # 实测 351x500 / 45 KB —— 比没有封面强, 也比 60x40 的占位 gif 强.
+        # 实测 352x500 / 28 KB —— 比没有封面强, 但比真封面小得多.
+        # 再补一条按 ASIN 镜像日亚封面的地址 (tenhow, 实测 1055x1500):
+        # 管线下载完按像素面积取最大, 镜像没收录该 ASIN 时 404、下载失败会被自然跳过.
         base = "https://m.media-amazon.com/images/P"
-        return [f"{base}/{asin}.jpg", f"{base}/{asin}.01._SCLZZZZZZZ_.jpg"]
+        return [
+            f"{base}/{asin}.jpg",
+            f"{base}/{asin}.01._SCLZZZZZZZ_.jpg",
+            f"https://tenhow.net/images/{asin}.jpg",
+        ]
 
     async def _detail_image(self, asin: str) -> str | None:
         """详情页取真封面 ID: ``data-old-hires`` → 主图 JSON → ``landingImage`` 的 src.
