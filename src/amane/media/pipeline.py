@@ -49,6 +49,10 @@ def _internal_url(store: ResourceStore, locator_url: str) -> str:
     return f"{RESOURCE_URL_PREFIX}/{store.url_hash(locator_url)}"
 
 
+#: 海报候选最长边小于它就算「明显偏小」: 即使比例判定够高, 也比一比 thumb 裁出来的那张.
+_SMALL_POSTER_EDGE = 800
+
+
 def _success_first(urls: list[str], succeeded: set[str]) -> list[str]:
     # 成功者保序前置, 失败者保序置于尾部. succeeded 为空时幂等返回原序.
     return [u for u in urls if u in succeeded] + [u for u in urls if u not in succeeded]
@@ -164,13 +168,21 @@ async def materialize_images(
 
         thumb_size = probe_size(thumb_local) if thumb_local else None
         cand_size = poster_candidate_size
+        # 候选明显偏小 (最长边 < 800, 例如日亚只剩 352x500 兜底图) 时, 即使比例判定「够高不裁」
+        # 也把 thumb 裁一份来比面积: 裁出来的更大就用裁的, 更小仍保留原候选.
+        small_candidate = cand_size is not None and max(cand_size) < _SMALL_POSTER_EDGE
         cropped = False
 
         if (
             config.scraping.crop_poster
             and mode != "none"
-            and should_crop_poster(thumb_size, cand_size, skip_ratio=config.scraping.poster_crop_skip_ratio)
             and thumb_local
+            and (
+                small_candidate
+                or should_crop_poster(
+                    thumb_size, cand_size, skip_ratio=config.scraping.poster_crop_skip_ratio
+                )
+            )
         ):
             ratio = config.scraping.poster_ratio
             # ``right`` 是旧版唯一行为: args 保持纯比例, 既有派生资源不失效; 其它模式才加前缀.
@@ -189,8 +201,17 @@ async def materialize_images(
             crop_res = await store.acquire_derived(thumb_src or "", "crop", args, crop_producer)
             if crop_res:
                 await _maybe_upscale(store, crop_res, config, data_dir)
-                result_poster_urls = [_internal_url(store, crop_res.url)]
-                cropped = True
+                crop_size = probe_size(store.full_path(crop_res))
+                # 由「候选偏小」触发的裁切要与原候选比面积: 裁出来更小就没必要换.
+                if not small_candidate or (
+                    crop_size is not None
+                    and cand_size is not None
+                    and crop_size[0] * crop_size[1] > cand_size[0] * cand_size[1]
+                ):
+                    result_poster_urls = [_internal_url(store, crop_res.url)]
+                    cropped = True
+                else:
+                    result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
             else:
                 result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
         else:

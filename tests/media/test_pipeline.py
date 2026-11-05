@@ -142,6 +142,28 @@ async def test_poster_keeps_priority_order_when_sizes_equal(resource_store: Reso
 
 
 @pytest.mark.asyncio
+async def test_small_candidate_falls_back_to_cropped_thumb(resource_store: ResourceStore, tmp_path: Path):
+    """候选最长边 < 800 时, 拿 thumb 裁一份比面积: 裁出来的更大就换掉那张小图."""
+    client = FakeClient({"https://amazon/P.jpg": (352, 500), "https://s/t.jpg": (800, 538)})
+    out = await materialize_images(
+        ["https://amazon/P.jpg"],
+        ["https://s/t.jpg"],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        HotSettings(),
+        tmp_path,
+    )
+    # 800x538 裁 0.7 → 376x538 (202288) > 352x500 (176000) → 用裁的
+    assert out.poster_urls[0].startswith(pipeline_mod.RESOURCE_URL_PREFIX)
+    url_hash = out.poster_urls[0].rsplit("/", 1)[-1]
+    got = await resource_store.get_by_url_hash(url_hash)
+    assert got is not None
+    _, crop_path = got
+    assert Image.open(crop_path).size == (376, 538)
+
+
+@pytest.mark.asyncio
 async def test_no_poster_source_crops_from_thumb(resource_store: ResourceStore, tmp_path: Path):
     """无 poster 候选 → 从 thumb 裁剪 (内部 URL)."""
     client = FakeClient({"https://s/t.jpg": (800, 538)})
