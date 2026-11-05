@@ -164,6 +164,7 @@ async def materialize_images(
 
         thumb_size = probe_size(thumb_local) if thumb_local else None
         cand_size = poster_candidate_size
+        cropped = False
 
         if (
             config.scraping.crop_poster
@@ -189,6 +190,7 @@ async def materialize_images(
             if crop_res:
                 await _maybe_upscale(store, crop_res, config, data_dir)
                 result_poster_urls = [_internal_url(store, crop_res.url)]
+                cropped = True
             else:
                 result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
         else:
@@ -197,6 +199,16 @@ async def materialize_images(
                 res = await store.get_by_url(poster_candidate_url)
                 if res:
                     await _maybe_upscale(store, res, config, data_dir)
+
+        # 海报最终来自哪张、多大: 只靠结果页看不出来, 记一条便于定位是哪一环掉了.
+        logger.info(
+            "poster chosen",
+            chosen=result_poster_urls[0] if result_poster_urls else None,
+            size=list(cand_size) if cand_size else None,
+            thumb_size=list(thumb_size) if thumb_size else None,
+            candidates=len(poster_urls),
+            cropped=cropped,
+        )
 
     # 下载预告片.
     trailer_ok: set[str] = set()
