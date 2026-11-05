@@ -54,6 +54,24 @@ def test_parse_video_reads_jsonld_fields() -> None:
     assert meta.source_url == VIDEO_URL
 
 
+def test_parse_video_strips_crumb_suffix_from_og_title() -> None:
+    """og:title 是「标题 - 分类 - 站点」时, 面包屑里出现过的分类尾巴也要剥掉."""
+    meta = parse_video(_page(BREADCRUMB), VIDEO_URL)
+
+    assert meta is not None
+    assert meta.title == "人气巨乳御姐的三洞大乱斗"
+
+
+def test_parse_video_keeps_dash_that_is_not_a_crumb() -> None:
+    """面包屑里没有的分段不动: 标题自带的 `` - `` 不能被吃掉."""
+    page = _page(BREADCRUMB, title="第二部 - 完全版 - 小黄书 xChina")
+
+    meta = parse_video(page, VIDEO_URL)
+
+    assert meta is not None
+    assert meta.title == "第二部 - 完全版"
+
+
 def test_parse_video_falls_back_to_og_tags() -> None:
     """ld+json 缺失时退回 og:title / og:image, 标题去掉站点后缀."""
     meta = parse_video(_page(), VIDEO_URL)

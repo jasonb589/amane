@@ -84,6 +84,29 @@ def _crumb(blocks: list[dict[str, Any]], kind: str) -> str | None:
     return None
 
 
+def _strip_crumb_suffix(title: str, blocks: list[dict[str, Any]]) -> str:
+    """去掉 og:title 尾巴上的面包屑分段.
+
+    站点把 og:title 拼成「标题 - 分类 - 小黄书 xChina」; 站点名已单独剥掉, 这里再去掉
+    「 - 分类」这类尾巴 —— 只按面包屑里真实出现过的名字匹配, 免得把标题自带的 `` - `` 一起吃掉.
+    """
+    names = {
+        str(item.get("name") or "").strip()
+        for block in blocks
+        if block.get("@type") == "BreadcrumbList"
+        for item in (block.get("itemListElement") or [])
+        if isinstance(item, dict)
+    }
+    names.discard("")
+    names.discard(title)
+    for _ in range(3):
+        head, sep, tail = title.rpartition(" - ")
+        if not sep or tail.strip() not in names:
+            break
+        title = head.strip()
+    return title
+
+
 def _runtime_minutes(duration: object) -> int | None:
     """ISO8601 时长 (``PT20M50S``) → 分钟; 不足一分钟按一分钟算."""
     if not isinstance(duration, str):
@@ -138,10 +161,10 @@ def parse_video(html: str, url: str) -> MediaMetadata | None:
             source_url = page.strip()
         series = _crumb(blocks, "series")
     if not title:
-        # 兜底: og:title 去掉站点后缀 (形如「标题 - 系列 - 小黄书 xChina」).
+        # 兜底: og:title 去掉站点后缀 (形如「标题 - 分类 - 小黄书 xChina」), 再去掉面包屑尾巴.
         match = _OG_TITLE_RE.search(html or "")
         if match is not None:
-            title = match[1].replace(_TITLE_SUFFIX, "").strip()
+            title = _strip_crumb_suffix(match[1].replace(_TITLE_SUFFIX, "").strip(), blocks)
         image = _OG_IMAGE_RE.search(html or "")
         if not poster and image is not None:
             poster.append(image[1].strip())
