@@ -179,9 +179,7 @@ async def materialize_images(
             and thumb_local
             and (
                 small_candidate
-                or should_crop_poster(
-                    thumb_size, cand_size, skip_ratio=config.scraping.poster_crop_skip_ratio
-                )
+                or should_crop_poster(thumb_size, cand_size, skip_ratio=config.scraping.poster_crop_skip_ratio)
             )
         ):
             ratio = config.scraping.poster_ratio
