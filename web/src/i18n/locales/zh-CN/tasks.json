@@ -92,6 +92,7 @@
     "login_required": "需要登录",
     "empty_response": "空响应",
     "no_usable_metadata": "无可用元数据",
+    "not_listed": "站点没有这个番号",
     "parse_error": "站点响应解析失败",
     "crawler_unavailable": "来源不可用",
     "unexpected": "意外错误"
