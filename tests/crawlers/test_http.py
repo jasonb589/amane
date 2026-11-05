@@ -165,6 +165,26 @@ async def test_always_source_routes_get_html_through_browser(mock_web, mock_brow
 
 
 @pytest.mark.asyncio
+async def test_always_source_routes_get_text_through_browser(mock_web, mock_browser):
+    """只取纯文本的来源 (amazon / xchina) 也必须遵守 use_browser=always.
+
+    曾经 get_text 绕过渲染策略: 直连被 Cloudflare 挡住也永远不升级到浏览器.
+    """
+    client = HttpClient(web=mock_web, browser=mock_browser, browser_timeout=12345)
+    view = client.for_source(
+        "xchina",
+        SiteConfig(use_browser=BrowserMode.ALWAYS, browser_backend=BrowserBackendName.CAMOUFOX),
+    )
+    mock_browser.get_page.return_value = ("<html><body>xchina</body></html>", None)
+
+    text = await view.get_text("https://xchina.co/photo/001a0cb3b79c6")
+
+    assert text == "<html><body>xchina</body></html>"
+    mock_web.get_text.assert_not_awaited()
+    assert mock_browser.get_page.await_args.kwargs["scope"] == "xchina"
+
+
+@pytest.mark.asyncio
 async def test_get_html_passes_selector_and_skips_network_idle(mock_web, mock_browser):
     client = HttpClient(web=mock_web, browser=mock_browser)
     view = client.for_source("minnano", SiteConfig(use_browser=BrowserMode.ALWAYS))

@@ -188,7 +188,8 @@ class XchinaCrawler(Crawler):
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
-        html = await self.client.get_text(url)
+        # 走 get_html 而不是 get_text: 只有这条路径会在直连被 Cloudflare 挡住时按需升级到浏览器后端.
+        html = await self.client.get_html(url)
         meta = parse_video(html, url)
         if meta is not None:
             self.logger.debug("xchina scraped", url=url, title=meta.title)

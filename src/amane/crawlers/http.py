@@ -108,6 +108,11 @@ class HttpClient:
         cookies: dict[str, str] | None = None,
         encoding: str = "utf-8",
     ) -> str:
+        # 与 get_html 同样遵守渲染策略: 否则 ``use_browser=always`` 对只取纯文本的来源
+        # (amazon / xchina) 形同虚设 —— 直连被挑战挡住也永远不会升级到浏览器.
+        scope = self._scope(url)
+        if self._policy.should_render(scope):
+            return await self._render(url, headers=headers, cookies=cookies, wait_for=None)
         return await self._web.get_text(url, headers=headers, cookies=cookies, encoding=encoding)
 
     async def get_html(
