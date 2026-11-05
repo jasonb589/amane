@@ -103,6 +103,39 @@ async def test_poster_external_when_candidate_tall(resource_store: ResourceStore
 
 
 @pytest.mark.asyncio
+async def test_poster_picks_largest_candidate_over_priority(resource_store: ResourceStore, tmp_path: Path):
+    """第一个候选只有小图时, 后面的大图要顶到最前 (amazon 兜底图 352x500 的教训)."""
+    client = FakeClient(
+        {
+            "https://amazon/P.jpg": (352, 500),  # 排在 field_priority 第一位, 但只有小图
+            "https://dmm/ps.jpg": (1032, 1468),
+            "https://s/t.jpg": (800, 538),
+        }
+    )
+    out = await materialize_images(
+        ["https://amazon/P.jpg", "https://dmm/ps.jpg"],
+        ["https://s/t.jpg"],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        HotSettings(),
+        tmp_path,
+    )
+    assert out.poster_urls[0] == "https://dmm/ps.jpg"
+    assert out.poster_urls[1] == "https://amazon/P.jpg"
+
+
+@pytest.mark.asyncio
+async def test_poster_keeps_priority_order_when_sizes_equal(resource_store: ResourceStore, tmp_path: Path):
+    """同尺寸时仍按来源顺序, 不改既有优先级语义."""
+    client = FakeClient({"https://a/p.jpg": (1032, 1468), "https://b/p.jpg": (1032, 1468)})
+    out = await materialize_images(
+        ["https://a/p.jpg", "https://b/p.jpg"], [], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path
+    )
+    assert out.poster_urls == ["https://a/p.jpg", "https://b/p.jpg"]
+
+
+@pytest.mark.asyncio
 async def test_no_poster_source_crops_from_thumb(resource_store: ResourceStore, tmp_path: Path):
     """无 poster 候选 → 从 thumb 裁剪 (内部 URL)."""
     client = FakeClient({"https://s/t.jpg": (800, 538)})

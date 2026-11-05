@@ -54,6 +54,17 @@ def _success_first(urls: list[str], succeeded: set[str]) -> list[str]:
     return [u for u in urls if u in succeeded] + [u for u in urls if u not in succeeded]
 
 
+def _best_first(urls: list[str], best: str | None) -> list[str]:
+    """把像素面积最大的那张挪到最前: 来源顺序只用来打破平局.
+
+    有的来源按配置排在前面却只能给兜底小图 (如 amazon ``/images/P/<ASIN>.jpg`` 352x500),
+    排在后面的大图源不该因此被丢掉.
+    """
+    if not best or best not in urls:
+        return urls
+    return [best, *(u for u in urls if u != best)]
+
+
 def sr_args_dict(cfg: SrConfig) -> dict:
     pm = get_preset_meta(cfg.preset)
     return {"preset": cfg.preset, "tool": pm.tool, "model": pm.model, "scale": pm.scale}
@@ -122,14 +133,25 @@ async def materialize_images(
     # 下载 poster; 候选偏矮则从 thumb 裁剪.
     poster_ok: set[str] = set()
     poster_candidate_local: Path | None = None
+    poster_candidate_url: str | None = None
+    poster_candidate_size: tuple[int, int] | None = None
     result_poster_urls = list(poster_urls)
     if DownloadableResource.poster in kinds:
         for url in poster_urls:
             local = await store.acquire(url, client)
             if local:
                 poster_ok.add(url)
-                if poster_candidate_local is None:
-                    poster_candidate_local = local
+                size = probe_size(local)
+                # 选像素面积最大的一张; 来源顺序只用于同尺寸时的先后.
+                if poster_candidate_local is None or (
+                    size is not None
+                    and (
+                        poster_candidate_size is None
+                        or size[0] * size[1] > poster_candidate_size[0] * poster_candidate_size[1]
+                    )
+                ):
+                    poster_candidate_local, poster_candidate_url = local, url
+                    poster_candidate_size = size
 
         # 裁剪需要 thumb 本地文件; 若未选 thumb 下载, 为裁剪临时 acquire 首个 thumb.
         mode = resolve_crop_mode(config.scraping.poster_crop_mode, content_type)
@@ -141,7 +163,7 @@ async def materialize_images(
                     break
 
         thumb_size = probe_size(thumb_local) if thumb_local else None
-        cand_size = probe_size(poster_candidate_local) if poster_candidate_local else None
+        cand_size = poster_candidate_size
 
         if (
             config.scraping.crop_poster
@@ -168,15 +190,13 @@ async def materialize_images(
                 await _maybe_upscale(store, crop_res, config, data_dir)
                 result_poster_urls = [_internal_url(store, crop_res.url)]
             else:
-                result_poster_urls = _success_first(poster_urls, poster_ok)
+                result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
         else:
-            result_poster_urls = _success_first(poster_urls, poster_ok)
-            if poster_candidate_local:
-                for url in poster_urls:
-                    res = await store.get_by_url(url)
-                    if res:
-                        await _maybe_upscale(store, res, config, data_dir)
-                        break
+            result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
+            if poster_candidate_url:
+                res = await store.get_by_url(poster_candidate_url)
+                if res:
+                    await _maybe_upscale(store, res, config, data_dir)
 
     # 下载预告片.
     trailer_ok: set[str] = set()
