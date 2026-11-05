@@ -48,7 +48,6 @@ class EventBus:
         """注册旁路监听器 (通知等). 监听器抛异常只记日志, 不影响任务链路."""
         self._listeners.append(listener)
 
-
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
         self._connections.append(ws)

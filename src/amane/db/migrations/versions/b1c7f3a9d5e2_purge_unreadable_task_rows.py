@@ -44,6 +44,7 @@ def _unreadable() -> str:
         f" OR UPPER(status) NOT IN ({_in_clause(_STATUSES)})"
     )
 
+
 def _json_valid_available() -> bool:
     """``json_valid`` 需要 SQLite 编译进 JSON1; 不可用时跳过坏 JSON 判断, 不阻塞升级."""
     try:
@@ -64,10 +65,7 @@ def upgrade() -> None:
 
     condition = _unreadable()
     if _json_valid_available():
-        condition += (
-            " OR payload IS NULL OR json_valid(payload) = 0"
-            " OR (result IS NOT NULL AND json_valid(result) = 0)"
-        )
+        condition += " OR payload IS NULL OR json_valid(payload) = 0 OR (result IS NOT NULL AND json_valid(result) = 0)"
 
     op.execute(sa.text(f"DELETE FROM task_links WHERE parent_task_id IN (SELECT id FROM tasks WHERE {condition})"))
     op.execute(sa.text(f"DELETE FROM task_links WHERE child_task_id IN (SELECT id FROM tasks WHERE {condition})"))

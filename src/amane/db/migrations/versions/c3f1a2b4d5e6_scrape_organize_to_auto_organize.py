@@ -41,10 +41,7 @@ def upgrade() -> None:
     for legacy in ("SCRAPE_ORGANIZE", "scrape_organize"):
         if has_auto_organize:
             op.execute(
-                sa.text(
-                    f"UPDATE libraries SET automation = 'SCRAPE', auto_organize = 1"
-                    f" WHERE automation = '{legacy}'"
-                )
+                sa.text(f"UPDATE libraries SET automation = 'SCRAPE', auto_organize = 1 WHERE automation = '{legacy}'")
             )
         else:
             # 异常顺序 (上游支线未跑到): 至少把旧枚举取值归一到上游能读的值, 不再阻断启动.

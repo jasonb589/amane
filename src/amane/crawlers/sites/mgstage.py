@@ -27,6 +27,7 @@ def _poster_url(cover_url: str) -> str | None:
         return None
     return f"{directory}/{_POSTER_PREFIX}{filename.removeprefix(_COVER_PREFIX)}"
 
+
 #: 页面上任意一张图: 同一条目所有图都在同一个目录下, 文件名只差尺寸前缀.
 _IMAGE_URL = re.compile(r"https://image\.mgstage\.com/images/[^\"'\s]+\.jpg")
 

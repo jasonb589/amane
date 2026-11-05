@@ -60,7 +60,7 @@ _NAME_SEPARATOR = re.compile(r"[,，、/]+")
 _CONTENT_TYPES = frozenset({ContentType.UNCENSORED, ContentType.AMATEUR})
 
 #: 详情页的判定标记: 命中不到就是站点给的提示页 (标题里一定有站点名).
-_DETAIL_MARKERS = ("itemprop=\"name\"", "カリビアンコム")
+_DETAIL_MARKERS = ('itemprop="name"', "カリビアンコム")
 
 
 def split_number(number: str) -> tuple[str, str, str] | None:

@@ -30,10 +30,7 @@ def upgrade() -> None:
     for legacy in ("SCRAPE_ORGANIZE", "scrape_organize"):
         if has_auto_organize:
             op.execute(
-                sa.text(
-                    f"UPDATE libraries SET automation = 'SCRAPE', auto_organize = 1"
-                    f" WHERE automation = '{legacy}'"
-                )
+                sa.text(f"UPDATE libraries SET automation = 'SCRAPE', auto_organize = 1 WHERE automation = '{legacy}'")
             )
         else:
             op.execute(sa.text(f"UPDATE libraries SET automation = 'SCRAPE' WHERE automation = '{legacy}'"))
