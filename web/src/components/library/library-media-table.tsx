@@ -12,7 +12,7 @@ import {
   type MantineBreakpoint,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconDots, IconFolderDown, IconForms, IconRefresh, IconTrash } from "@tabler/icons-react";
+import { IconDots, IconFolderDown, IconForms, IconLink, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
@@ -32,6 +32,7 @@ import { ListToolbar } from "@/components/common/list-toolbar";
 import { SortableTh } from "@/components/common/sortable-th";
 import { SelectionBar } from "@/components/common/selection-bar";
 import { ScrapeOverrideDialog } from "./scrape-override-dialog";
+import { ScrapeUrlDialog } from "./scrape-url-dialog";
 import { MediaDeleteDialog } from "./media-delete-dialog";
 import { useIdSelection } from "@/hooks/use-id-selection";
 import { extractErrorMessage } from "@/lib/api-error";
@@ -170,6 +171,8 @@ export function LibraryMediaTable({
   );
   const [overrideTarget, setOverrideTarget] = useState<MediaFileResponse | null>(null);
   const [overrideSaving, setOverrideSaving] = useState(false);
+  const [urlTarget, setUrlTarget] = useState<MediaFileResponse | null>(null);
+  const [urlSaving, setUrlSaving] = useState(false);
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: listMediaQueryKey() });
 
@@ -284,6 +287,35 @@ export function LibraryMediaTable({
       });
     } finally {
       setOverrideSaving(false);
+    }
+  }
+
+  async function handleUrlScrape(number: string, url: string, contentType: ContentType | undefined) {
+    if (urlTarget == null) return;
+    setUrlSaving(true);
+    try {
+      await submitTask({
+        body: {
+          type: "scrape",
+          media_id: urlTarget.id,
+          number,
+          url,
+          ...(contentType != null ? { content_type: contentType } : {}),
+        },
+        throwOnError: true,
+      });
+      notifications.show({
+        message: t("common:toast.scrapeStarted"),
+        color: "blue",
+      });
+      setUrlTarget(null);
+    } catch (err) {
+      notifications.show({
+        message: extractErrorMessage(err, t("common:toast.operationFailed")),
+        color: "red",
+      });
+    } finally {
+      setUrlSaving(false);
     }
   }
 
@@ -517,6 +549,13 @@ export function LibraryMediaTable({
                     >
                       <IconForms size={16} />
                     </HintedActionIcon>
+                    <HintedActionIcon
+                      variant="subtle"
+                      label={t("actions.scrapeWithUrl")}
+                      onClick={() => setUrlTarget(item)}
+                    >
+                      <IconLink size={16} />
+                    </HintedActionIcon>
                     <Menu position="bottom-end" withinPortal>
                       <Menu.Target>
                         <ActionIcon
@@ -565,6 +604,9 @@ export function LibraryMediaTable({
                         >
                           {t("actions.scrapeWithNumber")}
                         </Menu.Item>
+                        <Menu.Item leftSection={<IconLink size={14} />} onClick={() => setUrlTarget(item)}>
+                          {t("actions.scrapeWithUrl")}
+                        </Menu.Item>
                         <Menu.Divider />
                         <DeleteMenuItems
                           onDeleteRecord={() => void handleDeleteOne(item.id)}
@@ -593,6 +635,14 @@ export function LibraryMediaTable({
           if (!overrideSaving) setOverrideTarget(null);
         }}
         onSubmit={(number, contentType) => void handleOverrideScrape(number, contentType)}
+      />
+      <ScrapeUrlDialog
+        target={urlTarget}
+        saving={urlSaving}
+        onClose={() => {
+          if (!urlSaving) setUrlTarget(null);
+        }}
+        onSubmit={(number, url, contentType) => void handleUrlScrape(number, url, contentType)}
       />
       <MediaDeleteDialog
         libraryId={libraryId}

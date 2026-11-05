@@ -317,6 +317,10 @@
           "hentai": "Hentai"
         }
       },
+      "url": {
+        "label": "Detail page URL",
+        "description": "Skips search and parses only this page"
+      },
       "use_cache": {
         "label": "Use Cache",
         "description": "Checked uses that cache; otherwise refetch",

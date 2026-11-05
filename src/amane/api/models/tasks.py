@@ -166,6 +166,10 @@ class ScrapeRequest(BaseModel):
     content_type: ContentType | None = Field(
         default=None, description="内容类型; 未给出时: 仅 media_id 按文件路径推断, 有 number 时按番号推断"
     )
+    url: str | None = Field(
+        default=None,
+        description="指定详情页 URL: 非空时跳过检索, 只由负责该域名的来源解析这个页面 (冷门条目用)",
+    )
     use_cache: set[CacheKind] = Field(
         default_factory=lambda: {CacheKind.metadata, CacheKind.trans},
         description="启用的缓存种类 (metadata: 复用 DB per-site 快照; trans: 复用译文). 空集 = 全部强制刷新",
@@ -177,6 +181,18 @@ class ScrapeRequest(BaseModel):
         if isinstance(value, str):
             stripped = value.strip()
             return stripped or None
+        return value
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def _normalize_url(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            if not stripped.lower().startswith(("http://", "https://")):
+                raise ValueError("url must start with http:// or https://")
+            return stripped
         return value
 
     @model_validator(mode="after")
@@ -203,20 +219,26 @@ class ScrapeRequest(BaseModel):
                     number=self.number,
                     content_type=self.content_type or infer_content_type(self.number),
                     media_file_id=self.media_id,
+                    url=self.url,
                     use_cache=self.use_cache,
                 )
             parsed = parse_file_info(media.path)
-            assert parsed.number is not None
+            if parsed.number is None:
+                # 路径里解析不出番号 (例如 300NTK-cut_restored.mp4): 指定链接刮削也要先有番号当主键,
+                # 由调用方按 missing 处理, 让前端提示用户同时填番号.
+                return None
             return ScrapePayload(
                 number=parsed.number,
                 content_type=self.content_type or parsed.content_type,
                 media_file_id=self.media_id,
+                url=self.url,
                 use_cache=self.use_cache,
             )
         assert self.number is not None
         return ScrapePayload(
             number=self.number,
             content_type=self.content_type or infer_content_type(self.number),
+            url=self.url,
             use_cache=self.use_cache,
         )
 

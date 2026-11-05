@@ -3540,6 +3540,18 @@ export const HotSettingsSchema = {
                         use_browser: 'auto',
                         use_proxy: true
                     },
+                    xchina: {
+                        cookie: {},
+                        languages: [
+                            'zh',
+                            'ja',
+                            'en'
+                        ],
+                        official_routes: {},
+                        rate_limit: 2,
+                        use_browser: 'auto',
+                        use_proxy: true
+                    },
                     xcity: {
                         cookie: {},
                         languages: [
@@ -8466,6 +8478,18 @@ export const ScrapeSubmissionSchema = {
             ],
             description: '内容类型; 未给出时: 仅 media_id 按文件路径推断, 有 number 时按番号推断'
         },
+        url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Url',
+            description: '指定详情页 URL: 非空时跳过检索, 只由负责该域名的来源解析这个页面 (冷门条目用)'
+        },
         use_cache: {
             items: {
                 $ref: '#/components/schemas/CacheKind'
@@ -8568,6 +8592,7 @@ export const ScrapingConfigSchema = {
                         'r18dev',
                         'tenhow',
                         'theporndb',
+                        'xchina',
                         'xcity'
                     ]
                 },
@@ -8612,6 +8637,7 @@ export const ScrapingConfigSchema = {
                         'r18dev',
                         'tenhow',
                         'theporndb',
+                        'xchina',
                         'xcity'
                     ]
                 },
@@ -8656,6 +8682,7 @@ export const ScrapingConfigSchema = {
                         'r18dev',
                         'tenhow',
                         'theporndb',
+                        'xchina',
                         'xcity'
                     ]
                 },
@@ -9339,6 +9366,7 @@ export const SiteNameSchema = {
         'tenhow',
         'theporndb',
         'wikipedia',
+        'xchina',
         'xcity'
     ],
     title: 'SiteName',

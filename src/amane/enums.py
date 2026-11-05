@@ -33,6 +33,7 @@ class SiteName(StrEnum):
     TENHOW = "tenhow"
     THEPORNDB = "theporndb"
     WIKIPEDIA = "wikipedia"
+    XCHINA = "xchina"
     XCITY = "xcity"
 
 

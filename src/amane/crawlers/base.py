@@ -2,6 +2,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import structlog
 
@@ -112,6 +113,29 @@ class Crawler(ABC):
         else:
             self.logger.info("scrape ok", number=number, title=result.title, duration_s=elapsed)
         return result
+
+    async def fetch_from_url(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
+        """按给定详情页直接解析, 跳过检索; 不支持按页抓取的来源返回 None.
+
+        手动指定 URL 的刮削走这里 —— 冷门条目 (例如只有新配信站 id 的里番) 在目录里搜不到,
+        但详情页本身是可解析的.
+        """
+        return await self._scrape(url, options)
+
+    def serves_url(self, url: str) -> bool:
+        """该来源是否负责这个 URL: 按域名后缀比对, 同一注册域的不同子域视为同站."""
+        host = urlparse(url).netloc.lower()
+        if not host:
+            return False
+        for candidate in (self.base_url, *self._profile.urls):
+            chost = urlparse(candidate).netloc.lower()
+            if not chost:
+                continue
+            if host == chost or host.endswith("." + chost) or chost.endswith("." + host):
+                return True
+            if host.split(".", 1)[-1] == chost.split(".", 1)[-1]:
+                return True
+        return False
 
     async def check_connectivity(self) -> ConnectivityOutcome:
         """连通性自检: 缺省 GET ``base_url``, 用与刮削相同的视图 (渲染来源经浏览器, 其余直接请求).

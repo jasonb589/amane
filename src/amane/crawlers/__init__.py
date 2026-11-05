@@ -41,6 +41,7 @@ from .sites import (
     R18DevCrawler,
     TenhowCrawler,
     ThePornDBCrawler,
+    XchinaCrawler,
     XCityCrawler,
 )
 
@@ -71,6 +72,7 @@ registry.register(OfficialCrawler)
 registry.register(AmazonCrawler)
 registry.register(CaribbeanCrawler)
 registry.register(TenhowCrawler)
+registry.register(XchinaCrawler)
 
 # 演员站在 amane.crawlers.actor 导入时注册.
 
@@ -115,6 +117,7 @@ __all__ = [
     "ThePornDBCrawler",
     "WikipediaActorCrawler",
     "XCityCrawler",
+    "XchinaCrawler",
     "actor_registry",
     "film_actors",
     "registry",

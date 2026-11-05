@@ -1,4 +1,4 @@
-"""DMM 里番: アニメ目录搜索与纯链接候选解析."""
+"""DMM 里番: アニメ目录搜索与纯链接候选解析, 以及按 URL 指定来源的域名匹配."""
 
 from __future__ import annotations
 
@@ -36,6 +36,14 @@ def test_href_urls_reads_plain_category_links() -> None:
     """アニメ目录页只给 href (没有 detailUrl JSON), 纯链接也要能收成候选."""
     html = f"<div>{ANIME_HREF}</div>"
     assert DmmCrawler._href_urls(html) == ["https://www.dmm.co.jp/mono/anime/-/detail/=/cid=68jvdw41/"]
+
+
+def test_serves_url_matches_same_site_subdomains() -> None:
+    crawler = DmmCrawler(_FakeClient({}))  # type: ignore[arg-type]
+    assert crawler.serves_url("https://www.dmm.co.jp/mono/anime/-/detail/=/cid=68jvdw41/")
+    assert crawler.serves_url("https://video.dmm.co.jp/anime/content/?id=147jvdw41")
+    assert not crawler.serves_url("https://www.amazon.co.jp/s?k=MIDV")
+    assert not crawler.serves_url("")
 
 
 @pytest.mark.asyncio

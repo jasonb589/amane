@@ -24,6 +24,7 @@ from .prestige import PrestigeCrawler
 from .r18dev import R18DevCrawler
 from .tenhow import TenhowCrawler
 from .theporndb import ThePornDBCrawler
+from .xchina import XchinaCrawler
 from .xcity import XCityCrawler
 
 __all__ = [
@@ -54,4 +55,5 @@ __all__ = [
     "TenhowCrawler",
     "ThePornDBCrawler",
     "XCityCrawler",
+    "XchinaCrawler",
 ]
