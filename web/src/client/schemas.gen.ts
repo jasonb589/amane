@@ -2352,6 +2352,7 @@ export const FailureReasonSchema = {
         'login_required',
         'empty_response',
         'no_usable_metadata',
+        'not_listed',
         'parse_error',
         'crawler_unavailable',
         'unexpected'
