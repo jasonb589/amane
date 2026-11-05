@@ -160,6 +160,7 @@ class BrowserPool:
                     web_provider=lambda: self._web,
                     url=self._solver_url,
                     default_timeout=self._timeout_ms,
+                    proxy=self._proxy,
                 )
             case _:
                 raise ValueError(f"unsupported browser backend: {name}")
@@ -518,10 +519,18 @@ class SolverBackend:
     因此 ``headers`` / ``wait_for`` 不参与转发 (本地后端支持).
     """
 
-    def __init__(self, *, web_provider: Callable[[], WebClient], url: str, default_timeout: float) -> None:
+    def __init__(
+        self,
+        *,
+        web_provider: Callable[[], WebClient],
+        url: str,
+        default_timeout: float,
+        proxy: str | None = None,
+    ) -> None:
         self._web_provider = web_provider
         self._url = url.rstrip("/")
         self._default_timeout = default_timeout
+        self._proxy = proxy
         self._sessions: set[str] = set()
         # 有些兼容服务 (见 trawl) 只在**无 session** 时响应, 会话绑定的请求会挂到超时:
         # 首次踩到就把该后端标记为不支持会话, 之后一律走一次性请求 (实例随热重建重置).
@@ -606,6 +615,10 @@ class SolverBackend:
             "url": url,
             "maxTimeout": int(timeout_ms),
         }
+        if self._proxy:
+            # 站点侧的出口代理 (面板「代理」): trawl 的 /v1 支持 per-request ``proxy``.
+            # 我们访问 solver 自身仍走直连 (见 ``use_proxy=False``), 否则等于自己绕自己.
+            payload["proxy"] = self._proxy
         if scope is not None:
             payload["session"] = scope
         if cookies:

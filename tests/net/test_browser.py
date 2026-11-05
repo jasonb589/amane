@@ -770,3 +770,32 @@ async def test_solver_releases_scope_lock_on_session_failure():
     assert failed[1].message == "boom"
     assert recovered == ("<html>ok</html>", None)
     assert [call["cmd"] for call in web.calls] == ["sessions.create", "sessions.create", "request.get"]
+
+
+@pytest.mark.asyncio
+async def test_solver_forwards_global_proxy_to_payload():
+    """面板的「代理」要转发给 solver: trawl 的 /v1 支持 per-request ``proxy``."""
+    web = _FakeWeb([{"status": "ok"}, _SOLVER_OK])
+    solver = SolverBackend(
+        web_provider=lambda: web,  # type: ignore[arg-type]
+        url="http://solver.test:8191",
+        default_timeout=1000,
+        proxy="http://74.222.29.169:27703",
+    )
+
+    assert await solver.get_page("https://a.example/1", scope="site-a") == ("<html>ok</html>", None)
+
+    payload = web.calls[-1][2]["json"]
+    assert payload["proxy"] == "http://74.222.29.169:27703"
+    # 访问 solver 自身仍直连: 否则等于自己绕自己.
+    assert web.calls[-1][2]["use_proxy"] is False
+
+
+@pytest.mark.asyncio
+async def test_solver_omits_proxy_when_unset():
+    """未配置代理时不写该字段, 让 solver 用自身出口."""
+    solver, web = _make_solver([{"status": "ok"}, _SOLVER_OK])
+
+    assert await solver.get_page("https://a.example/1", scope="site-a") == ("<html>ok</html>", None)
+
+    assert "proxy" not in web.calls[-1][2]["json"]
