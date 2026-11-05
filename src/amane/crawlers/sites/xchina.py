@@ -54,7 +54,7 @@ def _jsonld_blocks(html: str) -> list[dict[str, Any]]:
     for match in _JSONLD_RE.finditer(html or ""):
         try:
             data = json.loads(match[1])
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             continue
         if isinstance(data, dict):
             blocks.append(data)

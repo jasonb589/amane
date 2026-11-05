@@ -112,7 +112,6 @@ class CrawlerLike(Protocol):
     def serves_url(self, url: str) -> bool: ...
 
 
-
 async def aggregate(
     query: SearchQuery,
     crawlers: Mapping[str, CrawlerLike],

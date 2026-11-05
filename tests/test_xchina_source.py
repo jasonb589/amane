@@ -26,9 +26,7 @@ BREADCRUMB = (
     '{"@type":"ListItem","position":2,"name":"视频","item":"https://xchina.co/videos"},'
     '{"@type":"ListItem","position":3,"name":"国产","item":"https://xchina.co/video-category/cn"},'
     '{"@type":"ListItem","position":4,"name":"糖心Vlog","item":"https://xchina.co/video-series/20"},'
-    '{"@type":"ListItem","position":5,"name":"人气巨乳御姐的三洞大乱斗","item":"'
-    + VIDEO_URL
-    + '"}]}'
+    '{"@type":"ListItem","position":5,"name":"人气巨乳御姐的三洞大乱斗","item":"' + VIDEO_URL + '"}]}'
 )
 
 
