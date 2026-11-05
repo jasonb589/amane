@@ -130,7 +130,13 @@ async def test_poster_keeps_priority_order_when_sizes_equal(resource_store: Reso
     """同尺寸时仍按来源顺序, 不改既有优先级语义."""
     client = FakeClient({"https://a/p.jpg": (1032, 1468), "https://b/p.jpg": (1032, 1468)})
     out = await materialize_images(
-        ["https://a/p.jpg", "https://b/p.jpg"], [], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path
+        ["https://a/p.jpg", "https://b/p.jpg"],
+        [],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        HotSettings(),
+        tmp_path,
     )
     assert out.poster_urls == ["https://a/p.jpg", "https://b/p.jpg"]
 
