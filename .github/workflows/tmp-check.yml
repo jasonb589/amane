@@ -24,4 +24,4 @@ jobs:
         run: uv run ruff format --check src/amane tests scripts
 
       - name: Pytest
-        run: uv run pytest -q tests/media/test_pipeline.py
+        run: uv run pytest -q
