@@ -572,6 +572,27 @@ async def test_solver_falls_back_to_sessionless_when_session_request_fails():
 
 
 @pytest.mark.asyncio
+async def test_solver_falls_back_to_sessionless_on_solver_5xx():
+    """trawl 带 session 的取页会等满 maxTimeout 后回 500 (实测 12 秒): 同样要降级.
+
+    只认超时会把这种情况当成站点故障, 整个来源判失败 (xchina 就是这么挂的).
+    """
+    solver, web = _make_solver(
+        [
+            {"status": "ok"},
+            RequestError("solver", RequestFailure(kind=FailureKind.HTTP_STATUS, message="HTTP 500", status=500)),
+            _SOLVER_OK,
+        ]
+    )
+
+    html, failure = await solver.get_page("https://a.example/", scope="site-a")
+
+    assert (html, failure) == ("<html>ok</html>", None)
+    assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create", "request.get", "request.get"]
+    assert "session" not in web.calls[2][2]["json"]
+
+
+@pytest.mark.asyncio
 async def test_solver_stays_sessionless_after_fallback():
     """降级是粘性的: 之后的来源不再建会话, 免得每次刮削都白等一个超时."""
     solver, web = _make_solver([{"status": "ok"}, _solver_timeout(), _SOLVER_OK, _SOLVER_OK])

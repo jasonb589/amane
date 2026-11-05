@@ -598,9 +598,9 @@ class SolverBackend:
             await self._ensure_session(scope)
             return await self._request_get(url, scope, timeout_ms, cookies)
         except RequestError as exc:
-            # 兼容服务 (trawl 之类): sessions.create 正常返回, 但会话绑定的 request.get 会一直等到超时.
-            # 只对**超时**降级 —— 配置错、服务已关之类重试也没意义, 照常抛出.
-            if exc.failure is None or exc.failure.kind is not FailureKind.TIMEOUT:
+            # 兼容服务 (trawl 之类): sessions.create 正常返回, 但会话绑定的 request.get 会一直挂到超时,
+            # 或等满 maxTimeout 后回 5xx. 只对这两类降级 —— 配置错、服务已关之类重试也没意义, 照常抛出.
+            if not _session_fallback_allowed(exc.failure):
                 raise
             logger.warning("solver sessions unusable, fall back to sessionless", url=self._url, error=str(exc))
             self._sessionless = True
@@ -704,6 +704,19 @@ def _solver_failure(message: str) -> RequestFailure:
 def _is_missing_session(message: str) -> bool:
     lower = message.lower()
     return "session" in lower and ("not found" in lower or "does not exist" in lower or "unknown" in lower)
+
+
+def _session_fallback_allowed(failure: RequestFailure | None) -> bool:
+    """会话绑定的取页失败, 是否可能由「该后端不支持会话」造成.
+
+    trawl 这类兼容服务: ``sessions.create`` 正常返回, 但带 session 的 ``request.get`` 会一直挂到
+    超时, 或等满 ``maxTimeout`` 后回 5xx. 只对这两类降级 —— 配置错、服务已关之类重试也没意义.
+    """
+    if failure is None:
+        return False
+    if failure.kind is FailureKind.TIMEOUT:
+        return True
+    return failure.kind is FailureKind.HTTP_STATUS and (failure.status or 0) >= 500
 
 
 def _is_existing_session(message: str) -> bool:
