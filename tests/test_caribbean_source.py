@@ -19,6 +19,7 @@ def test_profile_probes_entry_page_not_age_gate() -> None:
     assert profile.urls[0].endswith("/index2.htm")
     assert profile.urls[0] != profile.base_url
 
+
 # 经典模板 (-NNN): 封面走 l_l.jpg, 剧照是真实锚点.
 _CLASSIC = """
 <html><head><title>テスト | 無修正アダルト動画 カリビアンコム</title></head>
