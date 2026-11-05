@@ -3,12 +3,21 @@
 import pytest
 
 from amane.crawlers.sites.caribbean import (
+    CaribbeanCrawler,
     is_detail_page,
     number_variants,
     parse_detail,
     release_from_number,
     runtime_minutes,
 )
+
+
+def test_profile_probes_entry_page_not_age_gate() -> None:
+    """连通性探测不能指向根域名: 那里只有 年齢認証 门页, 会被判成「年龄验证拦截」."""
+    profile = CaribbeanCrawler.profile()
+    assert profile.urls, "未声明探测入口时只会拿 base_url, 也就是门页"
+    assert profile.urls[0].endswith("/index2.htm")
+    assert profile.urls[0] != profile.base_url
 
 # 经典模板 (-NNN): 封面走 l_l.jpg, 剧照是真实锚点.
 _CLASSIC = """
