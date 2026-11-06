@@ -315,9 +315,7 @@ class TestMetadataHttp:
         linked_dir = tmp_path / "CROP-010"
         linked_dir.mkdir()
         (linked_dir / "CROP-010.mp4").write_bytes(b"x")
-        await repo.create_media_file(
-            library_id=library.id, path=str(linked_dir / "CROP-010.mp4"), metadata_id=meta.id
-        )
+        await repo.create_media_file(library_id=library.id, path=str(linked_dir / "CROP-010.mp4"), metadata_id=meta.id)
 
         async def fake_download(url: str, dest: Path, **kwargs: object) -> bool:
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -344,9 +342,7 @@ class TestMetadataHttp:
         (moved_dir / "CROP-011.mp4").write_bytes(b"x")
         orphan = await repo.upsert_metadata(number="CROP-011", thumb_urls=["https://example.com/t.jpg"])
         assert orphan.id is not None
-        await repo.create_media_file(
-            library_id=library.id, path=str(moved_dir / "CROP-011.mp4"), number="CROP-011"
-        )
+        await repo.create_media_file(library_id=library.id, path=str(moved_dir / "CROP-011.mp4"), number="CROP-011")
 
         orphan_resp = await client.post(
             f"metadata/{orphan.id}/crop-poster", json={"left": 421, "top": 0, "right": 800, "bottom": 538}

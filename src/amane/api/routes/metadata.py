@@ -349,9 +349,7 @@ async def delete_metadata(metadata_id: int, repo: RepoDep) -> None:
     logger.info("metadata deleted", metadata_id=metadata_id)
 
 
-async def _write_poster_into_libraries(
-    repo: RepoDep, runtime: RuntimeDep, metadata: Metadata, poster_url: str
-) -> int:
+async def _write_poster_into_libraries(repo: RepoDep, runtime: RuntimeDep, metadata: Metadata, poster_url: str) -> int:
     """把裁好的海报写回片库目录的 ``poster.jpg``; 返回写入的目录数.
 
     优先写该元数据**已关联**的文件所在目录; 一条关联都没有时 (文件被整理走、旧记录已删),
