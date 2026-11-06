@@ -236,12 +236,12 @@ MOSAIC_NATURE_VALUES: tuple[MosaicNature, ...] = tuple(MosaicNature)
 CONTENT_TYPE_VALUES: tuple[ContentType, ...] = tuple(ContentType)
 
 # 分辨率: 元组顺序即优先级; 2160p 归一为 4K.
-# 匹配作用于 _normalize_markers 之后的 basename:
-# - 数字标记允许紧跟帧率 (1080p60); K/p 后不得再接字母 (4KS / HDTV 不命中)
+# 匹配作用于剥离垃圾串之后的 basename:
+# - 数字标记允许紧跟帧率 (1080p60); K 后只允许紧跟 S (站内命名的 4KS), 其它字母不命中 (HDTV)
 # - HD/SD 不得是番号前缀: HD-123 / HD_123 (下划线归一成点后同形) 不命中
 _DEFINITION_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("8K", re.compile(r"\b8K(?:\d+)?\b")),
-    ("4K", re.compile(r"\b4K(?:\d+)?\b")),
+    ("8K", re.compile(r"\b8K(?:S)?(?:\d+)?\b")),
+    ("4K", re.compile(r"\b4K(?:S)?(?:\d+)?\b")),
     ("4K", re.compile(r"\b2160P(?:\d+)?\b")),
     ("1440p", re.compile(r"\b1440P(?:\d+)?\b")),
     ("1080p", re.compile(r"\b1080P(?:\d+)?\b")),

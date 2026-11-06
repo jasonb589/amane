@@ -85,6 +85,8 @@ CASES: list[object] = [
     # --- 分辨率: 点号 / 连字符 ---
     _Case("ABC-123.8K.mp4", definition="8K", number="ABC-123"),
     _Case("ABC-123-4K.mp4", definition="4K", number="ABC-123"),
+    # 站内命名把 4K 写成 4KS (1dldss00529_4Ks): 同样算 4K.
+    _Case("ABC-123.4KS.mp4", definition="4K", number="ABC-123"),
     _Case("ABC-123.2160p.mp4", definition="4K", number="ABC-123"),
     _Case("ABC-123.2160P.mp4", definition="4K", number="ABC-123"),
     _Case("ABC-123.1440p.mp4", definition="1440p", number="ABC-123"),
@@ -128,7 +130,6 @@ CASES: list[object] = [
     # --- 分辨率误报: 番号/编码里的字母数字不当作独立标记 ---
     _Case("SKYHD-172.mp4", number="SKYHD-172"),
     _Case("ABC-123.HDTV.mp4", number="ABC-123"),
-    _Case("ABC-123.4KS.mp4", number="ABC-123"),
     _Case("ABC-2160.mp4"),
     _Case("ABC-123.1080.mp4", number="ABC-123"),
     # 带 p 的分辨率片段整段剥除, 数字不并入番号
@@ -640,3 +641,19 @@ CJK_FALLBACK_CASES: list[tuple[str, ContentType]] = [
 @pytest.mark.parametrize(("path", "expected"), CJK_FALLBACK_CASES)
 def test_unmatched_cjk_title_falls_back_to_hentai(path: str, expected: ContentType) -> None:
     assert parse_file_info(path).content_type is expected
+
+
+def test_definition_ignores_4k_inside_garbage_prefix() -> None:
+    """水印里的 4K 不算分辨率: 剥掉 4k688.com@ 之后名字里没有 4K 标记."""
+    info = parse_file_info("/media/正常/4K688.com@ABC-123.mp4", escape_strings=["4k688.com@"])
+
+    assert info.number == "ABC-123"
+    assert info.definition is None
+
+
+def test_definition_keeps_real_4k_marker_after_garbage_prefix() -> None:
+    """剥掉水印后仍然存在的 4K / 4Ks 才算: 该加后缀时照样加."""
+    for name in ("4K688.com@1drpt00122_4Ks.mp4", "4K688.com@1dldss00529_4K.mp4"):
+        info = parse_file_info(f"/media/正常/{name}", escape_strings=["4k688.com@"])
+
+        assert info.definition == "4K", name
