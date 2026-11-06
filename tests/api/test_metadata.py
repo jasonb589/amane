@@ -304,6 +304,57 @@ class TestMetadataHttp:
         ).status_code == 404
 
     @pytest.mark.asyncio(loop_scope="function")
+    async def test_crop_poster_writes_back_to_library(
+        self, client: AsyncClient, repo: Repository, app: FastAPI, tmp_path: Path
+    ):
+        """裁切后把海报写回片库目录; 关联被整理删掉时按番号找回当前落点."""
+        library = await repo.create_library(name="poster-lib", path=str(tmp_path))
+        assert library.id is not None
+        meta = await repo.upsert_metadata(number="CROP-010", thumb_urls=["https://example.com/t.jpg"])
+        assert meta.id is not None
+        linked_dir = tmp_path / "CROP-010"
+        linked_dir.mkdir()
+        (linked_dir / "CROP-010.mp4").write_bytes(b"x")
+        await repo.create_media_file(
+            library_id=library.id, path=str(linked_dir / "CROP-010.mp4"), metadata_id=meta.id
+        )
+
+        async def fake_download(url: str, dest: Path, **kwargs: object) -> bool:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (800, 538), "blue").save(dest)
+            return True
+
+        async def fake_resolve(url: str, **kwargs: object) -> str:
+            return url
+
+        app.state.runtime.web_client.download = fake_download  # type: ignore[method-assign]
+        app.state.runtime.web_client.resolve_final_url = fake_resolve  # type: ignore[method-assign]
+
+        resp = await client.post(
+            f"metadata/{meta.id}/crop-poster", json={"left": 421, "top": 0, "right": 800, "bottom": 538}
+        )
+        assert resp.status_code == 200
+        written = linked_dir / "poster.jpg"
+        assert written.is_file()
+        assert Image.open(written).size == (379, 538)
+
+        # 文件被整理走、旧关联已删: 按番号找回同名文件的目录再写.
+        moved_dir = tmp_path / "CROP-011"
+        moved_dir.mkdir()
+        (moved_dir / "CROP-011.mp4").write_bytes(b"x")
+        orphan = await repo.upsert_metadata(number="CROP-011", thumb_urls=["https://example.com/t.jpg"])
+        assert orphan.id is not None
+        await repo.create_media_file(
+            library_id=library.id, path=str(moved_dir / "CROP-011.mp4"), number="CROP-011"
+        )
+
+        orphan_resp = await client.post(
+            f"metadata/{orphan.id}/crop-poster", json={"left": 421, "top": 0, "right": 800, "bottom": 538}
+        )
+        assert orphan_resp.status_code == 200
+        assert (moved_dir / "poster.jpg").is_file()
+
+    @pytest.mark.asyncio(loop_scope="function")
     async def test_locks_http(self, client: AsyncClient, repo: Repository):
         meta = await repo.upsert_metadata(number="LOCK-101", title="X")
         assert meta.id is not None
