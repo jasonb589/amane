@@ -17,6 +17,7 @@ from .jav321 import Jav321Crawler
 from .javbus import JavBusCrawler
 from .javdb import JavDBCrawler
 from .javlibrary import JavLibraryCrawler
+from .javtxt import JavtxtCrawler
 from .kin8 import Kin8Crawler
 from .mgstage import MGStageCrawler
 from .official import OfficialCrawler
@@ -47,6 +48,7 @@ __all__ = [
     "JavBusCrawler",
     "JavDBCrawler",
     "JavLibraryCrawler",
+    "JavtxtCrawler",
     "Kin8Crawler",
     "MGStageCrawler",
     "OfficialCrawler",

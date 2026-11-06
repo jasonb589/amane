@@ -34,6 +34,7 @@ from .sites import (
     JavBusCrawler,
     JavDBCrawler,
     JavLibraryCrawler,
+    JavtxtCrawler,
     Kin8Crawler,
     MGStageCrawler,
     OfficialCrawler,
@@ -51,6 +52,7 @@ registry.register(JavBusCrawler)
 registry.register(MGStageCrawler)
 registry.register(FC2Crawler)
 registry.register(JavLibraryCrawler)
+registry.register(JavtxtCrawler)
 registry.register(FreejavbtCrawler)
 registry.register(Jav321Crawler)
 registry.register(AiravCrawler)
