@@ -1,8 +1,18 @@
-import { ActionIcon, Button, Divider, Group, Paper, Stack, Text } from "@mantine/core";
+import {
+  ActionIcon,
+  Button,
+  Divider,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  UnstyledButton,
+} from "@mantine/core";
 import { useState } from "react";
 import { IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { useTranslation } from "react-i18next";
+import { isRecord } from "@/lib/utils";
 import type { ArrayFieldProps, ObjectJSONSchema } from "../schema";
 import { FieldRouter } from "./field-router";
 
@@ -27,7 +37,10 @@ export function ObjectArrayField({
   const createDefaultItem = (): Record<string, unknown> => {
     const item: Record<string, unknown> = {};
     for (const [key, fieldSchema] of Object.entries(properties)) {
-      item[key] = fieldSchema.default ?? null;
+      // 无 schema 默认值的可选字段保持缺席, 由后端的 default_factory 初始化.
+      if (fieldSchema.default !== undefined) {
+        item[key] = structuredClone(fieldSchema.default);
+      }
     }
     return item;
   };
@@ -74,15 +87,16 @@ export function ObjectArrayField({
               )}
 
               {items.map((item, index) => {
-                const record = (item ?? {}) as Record<string, unknown>;
+                const record = isRecord(item) ? item : {};
                 const expanded = !collapsible || openIndex === index;
                 const title = collapsible ? String(record.name ?? "") : "";
                 return (
                   <Paper key={index} withBorder radius="md" p="sm">
                     <Group justify="space-between" mb={expanded ? "xs" : 0} wrap="nowrap">
-                      <Group
-                        gap="xs"
-                        wrap="nowrap"
+                      <UnstyledButton
+                        type="button"
+                        disabled={!collapsible}
+                        aria-expanded={collapsible ? expanded : undefined}
                         style={{ flex: 1, cursor: collapsible ? "pointer" : undefined }}
                         onClick={
                           collapsible
@@ -90,19 +104,21 @@ export function ObjectArrayField({
                             : undefined
                         }
                       >
-                        {collapsible && (
-                          <IconChevronRight
-                            size={14}
-                            style={{
-                              transform: expanded ? "rotate(90deg)" : undefined,
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
-                        <Text size="sm" fw={500}>
-                          {collapsible && title ? title : `Item ${index + 1}`}
-                        </Text>
-                      </Group>
+                        <Group gap="xs" wrap="nowrap">
+                          {collapsible && (
+                            <IconChevronRight
+                              size={14}
+                              style={{
+                                transform: expanded ? "rotate(90deg)" : undefined,
+                                flexShrink: 0,
+                              }}
+                            />
+                          )}
+                          <Text size="sm" fw={500}>
+                            {collapsible && title ? title : `Item ${index + 1}`}
+                          </Text>
+                        </Group>
+                      </UnstyledButton>
                       {!readonly && (
                         <ActionIcon
                           variant="subtle"
@@ -113,6 +129,13 @@ export function ObjectArrayField({
                             const next = [...items];
                             next.splice(index, 1);
                             field.handleChange(next);
+                            setOpenIndex((current) =>
+                              current === null || current === index
+                                ? null
+                                : current > index
+                                  ? current - 1
+                                  : current,
+                            );
                           }}
                         >
                           <IconTrash size={14} />

@@ -493,7 +493,10 @@ class WatcherService:
                 )
                 logger.info("scrape task submitted", task_id=task.id, number=parsed.number, path=path_str)
 
-        await self._event_bus.emit(EventType.FILE_DISCOVERED, {"path": path_str, "media_file_id": media.id})
+        await self._event_bus.emit(
+            EventType.FILE_DISCOVERED,
+            {"path": path_str, "media_file_id": media.id, "library_id": library_id},
+        )
 
     async def _on_file_deleted(self, path: Path) -> None:
         path_str = str(path)
@@ -505,7 +508,10 @@ class WatcherService:
         await self._repo.delete_media_file(media.id)
         logger.info("file removed from db", path=path_str, media_file_id=media.id)
 
-        await self._event_bus.emit(EventType.FILE_REMOVED, {"path": path_str, "media_file_id": media.id})
+        await self._event_bus.emit(
+            EventType.FILE_REMOVED,
+            {"path": path_str, "media_file_id": media.id, "library_id": media.library_id, "number": media.number},
+        )
 
     async def _on_file_moved(self, src: Path, dest: Path, library_id: int) -> None:
         src_str = str(src)

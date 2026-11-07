@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import re
 import time
@@ -17,23 +18,26 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 
 from ..config.manager import NotifyChannelConfig, NotifyConfig, NotifyProvider
 from ..events import Event, EventType
 from ..net.errors import RequestError
+from ..net.redact import redact_text, sensitive_http
 from ..parsing import infer_content_type, parse_file_info
+from .telegram import clip_html, clip_text, plain_html
 from .templates import render
 
 if TYPE_CHECKING:
+    from curl_cffi import Response
+
     from ..db.models import Task
     from ..db.repository import Repository
     from ..net.http import WebClient
 
 logger = structlog.get_logger()
-
-_TERMINAL = frozenset({EventType.TASK_COMPLETED, EventType.TASK_FAILED})
 
 #: ``EventType`` → 配置里的短取值 (``NotifyEvent``, 不带点以便 i18n 选项能查到翻译).
 _EVENT_KEYS: dict[EventType, str] = {
@@ -55,6 +59,12 @@ _TYPE_LABELS: dict[str, str] = {
     "rescrape": "重新刮削",
     "scan_invalid": "扫描无效文件",
     "delete": "删除",
+    "semantic_index": "语义索引",
+    "semantic_benchmark": "语义基准测试",
+    "purge": "清空回收站",
+    "actor_push": "演员推送",
+    "file_discovered": "文件发现",
+    "file_removed": "文件移除",
 }
 
 
@@ -118,7 +128,8 @@ def _format_duration(started: datetime | None, finished: datetime | None) -> str
 
 def _local_time(value: datetime) -> str:
     """库里存的是 UTC naive 时间, 通知里按容器时区显示 (compose 的 TZ 决定)."""
-    return value.replace(tzinfo=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+    return aware.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _batch_line(count: int, numbers: list[str], limit: int = 5) -> str:
@@ -142,7 +153,7 @@ _WORD_RE = re.compile(r"\w")
 _TRAIL_JUNK_RE = re.compile(r"[\s·・|｜,，、]+[^\w<]*$")
 #: 行首"图标 + 分隔符"但分隔符前没有任何内容的前缀 (``🏢  · 📅 2026-01-01`` 里的 ``🏢  · ``
 #: 前面那个空字段): 连分隔符一起去掉, 后面那个字段的图标留着.
-_LEAD_JUNK_RE = re.compile(r"^[^\w<]*(?:·|・|\|｜)\s*")
+_LEAD_JUNK_RE = re.compile(r"^[^\w<]*(?:·|・|\||｜)\s*")
 
 
 def _squash_lines(text: str) -> str:
@@ -255,6 +266,11 @@ _DEFAULT_TEXT = (
     "🚫 {error_short}\n"
     "⏱ {duration} · 🕒 {time_short}{batch}"
 )
+_DEFAULT_BATCH_TEXT = (
+    "{status_icon} {type_label} · {status}\n"
+    "{task_count} 个任务 · 涉及 {movie_count} 部\n"
+    "💾 {library}\n\n{batch_items}\n\n🕒 {time_short}"
+)
 
 
 def _split_title(text: str) -> tuple[str, str]:
@@ -321,9 +337,12 @@ _RESOURCE_URL_PREFIX = "/api/resources/"
 
 
 def _render_text(channel: NotifyChannelConfig, variables: dict[str, Any]) -> str:
-    """按渠道渲染正文; HTML 渠道对变量值做转义."""
-    html_mode = channel.provider is NotifyProvider.TELEGRAM and channel.parse_mode.strip().upper() == "HTML"
-    return _squash_lines(render(channel.text or _DEFAULT_TEXT, variables, html_mode=html_mode))
+    """格式转义仅作用于变量; 无正文内容时仍保留用户输入的符号."""
+    mode = channel.parse_mode if channel.provider is NotifyProvider.TELEGRAM else ""
+    default = _DEFAULT_BATCH_TEXT if variables.get("count", 1) > 1 else _DEFAULT_TEXT
+    template = (channel.text or default).replace("\\r\\n", "\n").replace("\\n", "\n")
+    text = render(template, variables, html_mode=mode == "HTML", markdown_mode=mode == "MarkdownV2")
+    return _squash_lines(text) or text.strip()
 
 
 def _photo_url(variables: dict[str, Any], panel_url: str, image_token: str | None) -> str:
@@ -339,7 +358,9 @@ def _photo_url(variables: dict[str, Any], panel_url: str, image_token: str | Non
         if raw.startswith(("http://", "https://")):
             return raw
         if raw.startswith(_RESOURCE_URL_PREFIX) and panel_url and image_token:
-            return f"{panel_url.rstrip('/')}{raw}?token={image_token}"
+            parts = urlsplit(f"{panel_url.rstrip('/')}{raw}")
+            query = [(key, value) for key, value in parse_qsl(parts.query) if key != "token"]
+            return urlunsplit(parts._replace(query=urlencode([*query, ("token", image_token)])))
     return ""
 
 
@@ -358,26 +379,41 @@ def build_request(
     headers = dict(channel.headers)
     if channel.provider is not NotifyProvider.CUSTOM:
         rendered = _render_text(channel, variables)
+        headers = {key: value for key, value in headers.items() if key.lower() != "content-type"}
         headers["Content-Type"] = "application/json"
         if channel.provider is NotifyProvider.TELEGRAM:
             chat_id = channel.chat_id.strip()
-            photo = _photo_url(variables, panel_url, image_token) if channel.send_photo else ""
+            # 多任务摘要没有单一海报; 避免使用最后一条任务的图片表示整批结果.
+            photo = (
+                _photo_url(variables, panel_url, image_token)
+                if channel.send_photo and variables.get("count", 1) == 1
+                else ""
+            )
+            clip = clip_html if channel.parse_mode == "HTML" else clip_text
+            payload: dict[str, Any]
             if photo:
                 method = "sendPhoto"
-                payload: dict[str, Any] = {
+                payload = {
                     "chat_id": chat_id,
                     "photo": photo,
-                    "caption": _clip(rendered, _MAX_CAPTION),
+                    "caption": clip(rendered, _MAX_CAPTION),
                 }
             else:
                 method = "sendMessage"
                 payload = {
                     "chat_id": chat_id,
-                    "text": _clip(rendered, _MAX_TEXT[NotifyProvider.TELEGRAM]),
+                    "text": clip(rendered or "Amane", _MAX_TEXT[NotifyProvider.TELEGRAM]),
                     "disable_web_page_preview": True,
                 }
             if channel.parse_mode:
                 payload["parse_mode"] = channel.parse_mode
+            if channel.message_thread_id:
+                payload["message_thread_id"] = channel.message_thread_id
+            if channel.disable_notification:
+                payload["disable_notification"] = True
+            link = str(variables.get("link") or "")
+            if channel.show_link and link.startswith(("http://", "https://")):
+                payload["reply_markup"] = {"inline_keyboard": [[{"text": "打开任务面板", "url": link}]]}
             token = channel.token.strip()
             return f"https://api.telegram.org/bot{token}/{method}", headers, json.dumps(payload, ensure_ascii=False)
         if channel.provider is NotifyProvider.BARK:
@@ -401,12 +437,39 @@ class _Pending:
     """合并窗口内累积的同渠道同类事件."""
 
     variables: dict[str, Any]
-    numbers: list[str] = field(default_factory=list)
+    numbers: dict[str, None] = field(default_factory=dict)
     items: list[str] = field(default_factory=list)
     """合并窗口内每一条的摘要行; 合成一条消息时按顺序列出来."""
     count: int = 0
     first_at: float = 0.0
     timer: asyncio.Task[None] | None = None
+
+
+def _reply(provider: NotifyProvider, response: Response) -> tuple[int, str, float]:
+    """HTTP 成功仍须校验供应商业务结果; 错误正文仅保留诊断摘要."""
+    status = response.status_code
+    if provider is NotifyProvider.CUSTOM:
+        return status, response.text if not 200 <= status < 300 else "", 0
+    try:
+        data = json.loads(response.text)
+    except ValueError, TypeError:
+        return status, "通知服务返回无效 JSON", 0
+    if not isinstance(data, dict):
+        return status, "通知服务返回无效结果", 0
+    success = {
+        NotifyProvider.TELEGRAM: data.get("ok") is True,
+        NotifyProvider.BARK: data.get("code") == 200,
+        NotifyProvider.WECOM: data.get("errcode") == 0,
+    }.get(provider, False)
+    if success and 200 <= status < 300:
+        return status, "", 0
+    if provider is NotifyProvider.TELEGRAM and isinstance(data.get("error_code"), int):
+        status = data["error_code"]
+    parameters = data.get("parameters")
+    retry = parameters.get("retry_after", 0) if isinstance(parameters, dict) else 0
+    delay = float(retry) if isinstance(retry, int | float) and 0 < retry <= 86400 else 0
+    detail = str(data.get("description") or data.get("errmsg") or data.get("message") or "通知服务拒绝请求")
+    return status, detail, delay
 
 
 class NotificationService:
@@ -418,8 +481,9 @@ class NotificationService:
         self._repo: Repository | None = None
         self._log_dir: Path | None = None
         self._image_token: str | None = None
-        self._pending: dict[tuple[int, bool], _Pending] = {}
+        self._pending: dict[tuple[int, bool, str, str], _Pending] = {}
         self._sending: set[asyncio.Task[Any]] = set()
+        self._slots = asyncio.Semaphore(4)
 
     def configure(
         self,
@@ -430,8 +494,13 @@ class NotificationService:
         log_dir: Path | None,
         image_token: str | None = None,
     ) -> None:
-        """热配置变更时调用 (同步; rebuild 不能 await): 只换引用, 在途发送继续跑完."""
-        self._config = config.model_copy(deep=True)
+        """渠道变更清除旧窗口; 已开始发送的请求继续使用其客户端与配置."""
+        if self._config != config:
+            for pending in self._pending.values():
+                if pending.timer is not None:
+                    pending.timer.cancel()
+            self._pending.clear()
+            self._config = config.model_copy(deep=True)
         self._web = web_client
         self._repo = repo
         self._log_dir = log_dir
@@ -448,17 +517,27 @@ class NotificationService:
         )
 
     async def close(self) -> None:
-        """停服: 取消还没到点的合并窗口 (在途发送不打断)."""
+        """关闭合并窗口, 在关闭网络客户端前有界等待已提交的发送."""
+        timers = []
         for pending in self._pending.values():
             if pending.timer is not None:
                 pending.timer.cancel()
+                timers.append(pending.timer)
         self._pending.clear()
+        self._config = None
+        if timers:
+            await asyncio.gather(*timers, return_exceptions=True)
+        if self._sending:
+            _, waiting = await asyncio.wait(self._sending, timeout=10)
+            for task in waiting:
+                task.cancel()
+            await asyncio.gather(*waiting, return_exceptions=True)
 
     # ------------------------------------------------------------------ 事件
 
     async def on_event(self, event: Event) -> None:
         """EventBus 监听器; 任何失败都只记日志, 不向任务链路抛."""
-        if event.type not in _TERMINAL or not self.enabled:
+        if event.type not in _EVENT_KEYS or not self.enabled:
             return
         config = self._config
         assert config is not None
@@ -466,6 +545,8 @@ class NotificationService:
             variables = await self._variables(event, config)
         except Exception:
             logger.exception("notify context failed", event_type=str(event.type))
+            return
+        if self._config is not config:
             return
         failed = event.type is EventType.TASK_FAILED
         for index, channel in enumerate(config.channels):
@@ -483,7 +564,6 @@ class NotificationService:
             # 预设渠道的地址由程序拼, 缺的是 token; 这里记一条, 免得又变成"静默不匹配".
             logger.warning("notify channel skipped: token missing", channel=channel.name or str(channel.provider))
             return False
-            return False
         if channel.events and _EVENT_KEYS.get(event.type, "") not in {str(item) for item in channel.events}:
             return False
         selected_types = {str(item) for item in channel.task_types}
@@ -499,7 +579,7 @@ class NotificationService:
         if channel.throttle_seconds <= 0:
             self._spawn(channel, variables)
             return
-        key = (index, failed)
+        key = (index, failed, str(variables.get("type") or ""), str(variables.get("library") or ""))
         pending = self._pending.get(key)
         if pending is None:
             pending = _Pending(variables=variables, first_at=time.monotonic())
@@ -511,16 +591,17 @@ class NotificationService:
                 pending.timer.cancel()
         pending.count += 1
         number = str(variables.get("number") or "")
-        if number and number not in pending.numbers:
-            pending.numbers.append(number)
+        if number:
+            pending.numbers[number] = None
         item = _batch_item(variables)
-        if item:
+        if item and len(pending.items) < _BATCH_ITEMS_LIMIT:
             pending.items.append(item)
-        pending.timer = asyncio.create_task(self._flush_later(index, channel, failed, pending.first_at))
+        pending.timer = asyncio.create_task(self._flush_later(key, channel, pending.first_at))
 
-    async def _flush_later(self, index: int, channel: NotifyChannelConfig, failed: bool, first_at: float) -> None:
+    async def _flush_later(
+        self, key: tuple[int, bool, str, str], channel: NotifyChannelConfig, first_at: float
+    ) -> None:
         """静默窗口结束就发; 期间每来一个新事件都会被 cancel 后重新计时."""
-        key = (index, failed)
         wait = float(channel.throttle_seconds)
         if channel.max_wait_seconds > 0:
             # 流水线一直不停时也要有上限, 否则永远等不到"静默".
@@ -537,29 +618,40 @@ class NotificationService:
         self._pending.pop(key, None)
         variables = dict(pending.variables)
         count = max(pending.count, 1)
-        distinct = list(dict.fromkeys(pending.numbers))
+        distinct = list(pending.numbers)
         variables["count"] = count
         variables["task_count"] = count
         variables["movie_count"] = len(distinct)
         variables["numbers"] = "、".join(distinct)
         variables["batch"] = _batch_summary(count, distinct)
         variables["batch_items"] = "\n".join(pending.items[:_BATCH_ITEMS_LIMIT])
-        if len(pending.items) > _BATCH_ITEMS_LIMIT:
-            variables["batch_items"] += f"\n… 另 {len(pending.items) - _BATCH_ITEMS_LIMIT} 项"
+        if count > len(pending.items):
+            variables["batch_items"] += f"\n… 另 {count - len(pending.items)} 项"
 
         self._spawn(channel, variables)
 
     def _spawn(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> None:
-        task = asyncio.create_task(self._send(channel, variables))
+        task = asyncio.create_task(self._send_guarded(channel, variables))
         self._sending.add(task)
         task.add_done_callback(self._sending.discard)
+
+    async def _send_guarded(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[bool, str]:
+        async with self._slots:
+            try:
+                return await self._send(channel, variables)
+            except Exception as exc:
+                # 异常可能包含 URL 中的密钥; 返回类型而不记录完整 traceback 或请求内容.
+                logger.warning(
+                    "notify send failed", channel=channel.name or str(channel.provider), error=type(exc).__name__
+                )
+                return False, f"发送失败: {type(exc).__name__}"
 
     async def _send(self, channel: NotifyChannelConfig, variables: dict[str, Any]) -> tuple[bool, str]:
         web = self._web
         # enabled 已保证 web 非空; send_test 也会先判空, 这里只是兜底.
         if web is None:
             return False, "网络客户端未就绪"
-        label = channel.name or channel.url or str(channel.provider)
+        label = channel.name or str(channel.provider)
         if channel.provider is not NotifyProvider.CUSTOM:
             if not channel.token.strip():
                 logger.warning("notify channel skipped: token missing", channel=label)
@@ -569,63 +661,102 @@ class NotificationService:
                 return False, "缺少频道 / 群 ID"
         panel = (self._config.panel_url if self._config is not None else "").strip()
         url, headers, body = build_request(channel, variables, panel_url=panel, image_token=self._image_token)
-        used_photo = url.endswith("/sendPhoto")
-        if body.startswith("{") and not any(key.lower() == "content-type" for key in headers):
+        used_photo = channel.provider is NotifyProvider.TELEGRAM and url.endswith("/sendPhoto")
+        if body.lstrip().startswith("{") and not any(key.lower() == "content-type" for key in headers):
             # 不带 Content-Type 时对方会按表单解析 body, Telegram 会直接回
             # "Bad Request: message text is empty" (实测 400).
             headers["Content-Type"] = "application/json"
-        response, last_error = await self._post(channel, url, headers, body)
-        if used_photo and (response is None or response.status_code >= 400):
+        response, last_error = await self._post(channel, url, headers, body, web=web)
+        status, detail, _ = _reply(channel.provider, response) if response is not None else (0, last_error, 0)
+        if (
+            channel.provider is NotifyProvider.TELEGRAM
+            and status == 400
+            and channel.parse_mode
+            and "parse entities" in detail.lower()
+        ):
+            payload = json.loads(body)
+            field_name = "caption" if used_photo else "text"
+            rendered = _render_text(channel, variables)
+            plain = (
+                plain_html(rendered)
+                if channel.parse_mode == "HTML"
+                else re.sub(r"\\([_*\[\]()~`>#+\-=|{}.!\\])", r"\1", rendered)
+            )
+            payload[field_name] = clip_text(plain or "Amane", _MAX_CAPTION if used_photo else 4096)
+            payload.pop("parse_mode", None)
+            body = json.dumps(payload, ensure_ascii=False)
+            response, last_error = await self._post(channel, url, headers, body, web=web)
+            status, detail, _ = _reply(channel.provider, response) if response is not None else (0, last_error, 0)
+        photo_errors = ("photo", "image", "file", "wrong type", "webpage", "url content")
+        if used_photo and status == 400 and any(word in detail.lower() for word in photo_errors):
             # 图被拒 (Telegram 抓不到图 / 尺寸 / 群组限制) 时退回纯文本: 卡片本身总要发出去.
             logger.warning(
                 "notify photo rejected, retry as text",
                 channel=label,
                 status=response.status_code if response is not None else None,
             )
-            text_channel = channel.model_copy(update={"send_photo": False})
-            url, headers, body = build_request(text_channel, variables, panel_url=panel, image_token=self._image_token)
-            response, last_error = await self._post(channel, url, headers, body)
+            payload = json.loads(body)
+            payload["text"] = payload.pop("caption", "") or "Amane"
+            payload.pop("photo", None)
+            payload["disable_web_page_preview"] = True
+            url = url.removesuffix("sendPhoto") + "sendMessage"
+            response, last_error = await self._post(
+                channel, url, headers, json.dumps(payload, ensure_ascii=False), web=web
+            )
+            status, detail, _ = _reply(channel.provider, response) if response is not None else (0, last_error, 0)
         if response is None:
             return False, last_error or "请求失败"
-        if response.status_code >= 400:
-            detail = response.text[:200]
+        if not 200 <= status < 300 or detail:
+            detail = self._safe_error(channel, detail)
             logger.warning(
                 "notify rejected",
                 channel=label,
-                status=response.status_code,
+                status=status,
                 body=detail,
             )
-            return False, f"HTTP {response.status_code}: {detail}"
+            return False, f"HTTP {status}: {detail}"
         return True, f"HTTP {response.status_code}"
 
     async def _post(
-        self, channel: NotifyChannelConfig, url: str, headers: dict[str, str], body: str | bytes
-    ) -> tuple[Any, str]:
-        """发一次请求; 5xx / 429 / 断连重试一次. 返回 (response | None, 错误说明)."""
-        web = self._web
-        assert web is not None
+        self, channel: NotifyChannelConfig, url: str, headers: dict[str, str], body: str | bytes, *, web: WebClient
+    ) -> tuple[Response | None, str]:
+        """状态码可重试时最多重发一次; Telegram 限流遵守 retry_after, 传输失败不重复投递."""
         response = None
         last_error = ""
         for attempt in (1, 2):
             try:
-                response = await web.request(
-                    channel.method.value.upper(),
-                    url,
-                    headers=headers or None,
-                    data=body or None,
-                    timeout=channel.timeout,
-                    # 4xx 不抛异常: 要把对方的错误正文记进日志, 否则只看到一个 "HTTP 400".
-                    ok_statuses=frozenset(range(400, 500)),
-                )
+                secrets = [channel.token, self._image_token or "", *channel.headers.values()]
+                with sensitive_http(url, secrets):
+                    response = await web.request(
+                        "GET"
+                        if channel.provider is NotifyProvider.CUSTOM and channel.method.value == "get"
+                        else "POST",
+                        url,
+                        headers=headers or None,
+                        data=body or None,
+                        timeout=channel.timeout,
+                        # 状态码由通知层统一处理, 防止叠加网络层的重试.
+                        ok_statuses=frozenset(range(300, 600)),
+                        max_attempts=1,
+                        allow_redirects=False,
+                    )
             except RequestError as exc:
                 response = None
-                last_error = f"请求失败: {exc}"
-                logger.warning("notify request failed", error=str(exc), attempt=attempt)
-            if response is not None and response.status_code != 429 and response.status_code < 500:
+                last_error = f"请求失败: {self._safe_error(channel, exc.message)}"
+                logger.warning("notify request failed", channel=channel.name or str(channel.provider), error=last_error)
+                break
+            status, _, delay = _reply(channel.provider, response)
+            if status != 429 and status < 500:
                 break
             if attempt == 1:
-                await asyncio.sleep(_RETRY_DELAY_S)
+                if delay > 60:
+                    break
+                await asyncio.sleep(delay or _RETRY_DELAY_S)
         return response, last_error
+
+    def _safe_error(self, channel: NotifyChannelConfig, text: str) -> str:
+        with sensitive_http(channel.url, [channel.token.strip(), self._image_token or "", *channel.headers.values()]):
+            return redact_text(text)[:200]
 
     async def send_test(self, channel: NotifyChannelConfig) -> tuple[bool, str]:
         """用示例数据真实发送一次并返回结果, 供面板上的"测试"按钮调用."""
@@ -635,7 +766,10 @@ class NotificationService:
         config = self._config
         if config is not None and config.panel_url:
             variables["link"] = f"{config.panel_url.rstrip('/')}/tasks"
-        return await self._send(channel, variables)
+            variables["link_line"] = (
+                f'<a href="{html.escape(variables["link"], quote=True)}">▸ 打开任务面板 · 查看详情</a>'
+            )
+        return await self._send_guarded(channel, variables)
 
     # ------------------------------------------------------------------ 变量
 
@@ -645,8 +779,17 @@ class NotificationService:
         task = None
         if repo is not None and isinstance(raw_id, int):
             task = await repo.get_task(raw_id)
-        payload: dict[str, Any] = dict(task.payload or {}) if task is not None else {}
-        task_type = str(task.type) if task is not None else str(event.data.get("type") or "")
+        payload: dict[str, Any] = dict(task.payload or {}) if task is not None else dict(event.data)
+        file_event = event.type in {EventType.FILE_DISCOVERED, EventType.FILE_REMOVED}
+        if file_event and isinstance(event.data.get("media_file_id"), int):
+            payload["media_file_ids"] = [event.data["media_file_id"]]
+        task_type = (
+            str(task.type)
+            if task is not None
+            else _EVENT_KEYS[event.type]
+            if file_event
+            else str(event.data.get("type") or "")
+        )
         number = await self._number(repo, payload)
         if (
             not number
@@ -679,6 +822,8 @@ class NotificationService:
         if number and repo is not None:
             metadata = await repo.get_metadata_by_number(number)
             if metadata is not None:
+                category = str(metadata.content_type)
+                category_label = _CATEGORY_LABELS.get(category, category)
                 title = metadata.title or ""
                 # 通知里带图 / 带详情: 单个字段优先, 没有就取候选列表第一项
                 # (DMM 高清 CDN 这类地址可直接交给 Telegram 抓取).
@@ -697,6 +842,12 @@ class NotificationService:
                 runtime = f"{metadata.runtime} 分钟" if metadata.runtime else ""
         library = ""
         library_id = payload.get("library_id")
+        if library_id is None and repo is not None:
+            ids = payload.get("media_file_ids")
+            if isinstance(ids, list) and ids and isinstance(ids[0], int):
+                media = await repo.get_media_file(ids[0])
+                if media is not None:
+                    library_id = media.library_id
         if repo is not None and isinstance(library_id, int):
             found = await repo.get_library(library_id)
             library = found.name if found is not None else ""
@@ -709,6 +860,9 @@ class NotificationService:
         finished_local = ""
         if task is not None and task.finished_at is not None:
             finished_local = _local_time(task.finished_at)
+        elif file_event:
+            finished = event.timestamp
+            finished_local = _local_time(datetime.fromisoformat(event.timestamp))
         panel = config.panel_url.rstrip("/")
         link = f"{panel}/tasks" if panel else ""
         failed_sites, site_failure_lines, amazon_state, amazon_reason = _site_outcomes(task)
@@ -716,7 +870,13 @@ class NotificationService:
             "task_id": raw_id if isinstance(raw_id, int) else "",
             "type": task_type,
             "type_label": _TYPE_LABELS.get(task_type, task_type),
-            "status": "失败" if failed else "成功",
+            "status": "失败"
+            if failed
+            else "已发现"
+            if event.type is EventType.FILE_DISCOVERED
+            else "已移除"
+            if file_event
+            else "成功",
             "success": not failed,
             "status_icon": "❌" if failed else "✅",
             "error": error,
@@ -760,7 +920,7 @@ class NotificationService:
             "link": link,
             # 带面板按钮的整行 HTML: 用 ``{link_line|r}`` 引用 (关掉转义), 没有面板地址时整行为空.
             # 链接行单独一行, 用粗体标签提示去面板看详情 (模板里用 `{link_line|r}` 引用).
-            "link_line": f'<a href="{link}">▸ 打开任务面板 · 查看详情</a>' if link else "",
+            "link_line": f'<a href="{html.escape(link, quote=True)}">▸ 打开任务面板 · 查看详情</a>' if link else "",
             "log_tail": await self._log_tail(raw_id, config.log_tail_lines) if config.log_tail_lines > 0 else "",
             "count": 1,
             "task_count": 1,
@@ -775,11 +935,6 @@ class NotificationService:
         direct = payload.get("number")
         if isinstance(direct, str) and direct:
             return direct
-        path = payload.get("path") or payload.get("file_path") or payload.get("scope_path")
-        if isinstance(path, str) and path:
-            parsed = parse_file_info(path).number
-            if parsed:
-                return parsed
         ids = payload.get("media_file_ids")
         if repo is not None and isinstance(ids, list) and ids and isinstance(ids[0], int):
             media = await repo.get_media_file(ids[0])
@@ -790,6 +945,9 @@ class NotificationService:
                 parsed = parse_file_info(media.path).number
                 if parsed:
                     return parsed
+        path = payload.get("path") or payload.get("file_path") or payload.get("scope_path")
+        if isinstance(path, str) and path:
+            return parse_file_info(path).number or ""
         return ""
 
     async def _log_tail(self, task_id: Any, lines: int) -> str:
@@ -801,12 +959,21 @@ class NotificationService:
 
 
 def _read_tail(path: Path, lines: int) -> str:
-    """读取文件末尾 N 行; 读不到返回空串."""
+    """最多读取末尾 256 KiB; 避免为一条通知载入整个任务日志."""
+    if lines <= 0:
+        return ""
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        with path.open("rb") as stream:
+            size = stream.seek(0, 2)
+            start = max(0, size - 256 * 1024)
+            stream.seek(start)
+            raw = stream.read()
+            if start:
+                _, separator, remaining = raw.partition(b"\n")
+                raw = remaining if separator else raw
     except OSError:
         return ""
-    tail = text.splitlines()[-lines:]
+    tail = raw.decode("utf-8", errors="replace").splitlines()[-lines:]
     return "\n".join(tail)
 
 

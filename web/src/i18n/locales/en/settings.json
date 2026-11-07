@@ -1,5 +1,11 @@
 {
   "title": "Settings",
+  "notifyTest": {
+    "invalidChannel": "Cannot read the current channel configuration",
+    "failed": "Sending failed",
+    "success": "Sent successfully ({{message}})",
+    "send": "Send test"
+  },
   "tabs": {
     "scraping": "Movie Scraping",
     "media_server": "Media server",
@@ -705,6 +711,18 @@
             "label": "Chat / channel ID",
             "description": "Telegram only, e.g. -1001234567890"
           },
+          "message_thread_id": {
+            "label": "Topic ID",
+            "description": "Telegram supergroup topic ID; 0 uses the default topic"
+          },
+          "disable_notification": {
+            "label": "Send silently",
+            "description": "Send Telegram messages without a notification sound"
+          },
+          "show_link": {
+            "label": "Show panel button",
+            "description": "Add a task panel button when a panel URL is configured"
+          },
           "text": {
             "label": "Message body",
             "description": "Plain-text template with {variables}: {type_label} {status} {number} {title} {library} {duration} {finished_at_local} {category_label} {plot} {actors} {tags} {studio} {release} {poster_url} {link} {log_tail} {count} {numbers} {batch} {error}; empty uses the built-in default"
@@ -747,7 +765,11 @@
                 "actor_scrape": "Actor scrape",
                 "rescrape": "Re-scrape",
                 "scan_invalid": "Scan invalid",
-                "delete": "Delete"
+                "delete": "Delete",
+                "semantic_index": "Semantic index",
+                "semantic_benchmark": "Semantic benchmark",
+                "purge": "Empty trash",
+                "actor_push": "Push actor"
               }
             }
           },

@@ -677,6 +677,10 @@ class NotifyTaskType(StrEnum):
     RESCRAPE = "rescrape"
     SCAN_INVALID = "scan_invalid"
     DELETE = "delete"
+    SEMANTIC_INDEX = "semantic_index"
+    SEMANTIC_BENCHMARK = "semantic_benchmark"
+    PURGE = "purge"
+    ACTOR_PUSH = "actor_push"
 
 
 class NotifyProvider(StrEnum):
@@ -711,9 +715,13 @@ class NotifyChannelConfig(BaseModel):
     text: str = Field(default="", description="消息正文模板, 支持 {变量}; 留空用内置默认正文")
     parse_mode: str = Field(default="", description="telegram 可选: HTML 或 MarkdownV2; 留空按纯文本")
     send_photo: bool = Field(default=False, description="telegram: 有 poster_url 时改发图片+标题 (sendPhoto)")
+    message_thread_id: int = Field(default=0, ge=0, description="Telegram 群组话题 ID; 0 表示默认话题")
+    disable_notification: bool = Field(default=False, description="Telegram 静音发送, 不触发声音提醒")
+    show_link: bool = Field(default=True, description="Telegram 通知附带打开任务面板的按钮")
     events: list[NotifyEvent] = Field(
         default_factory=lambda: [NotifyEvent.COMPLETED, NotifyEvent.FAILED],
         description="订阅的事件; 空 = 全部",
+        json_schema_extra={"default": ["completed", "failed"]},
     )
     task_types: list[NotifyTaskType] = Field(default_factory=list, description="只通知这些任务类型; 空 = 全部")
     content_types: list[ContentType] = Field(default_factory=list, description="只通知这些内容类型; 空 = 全部")
@@ -721,6 +729,15 @@ class NotifyChannelConfig(BaseModel):
         default_factory=list,
         description="这些变量为空时跳过该渠道 (如 photo 类渠道填 poster_url, 避免必然失败的请求)",
     )
+
+    @field_validator("parse_mode")
+    @classmethod
+    def _normalize_parse_mode(cls, value: str) -> str:
+        modes = {"": "", "html": "HTML", "markdown": "Markdown", "markdownv2": "MarkdownV2"}
+        normalized = modes.get(value.strip().lower())
+        if normalized is None:
+            raise ValueError("parse_mode 必须为空、HTML、Markdown 或 MarkdownV2")
+        return normalized
 
     @field_validator("events", mode="before")
     @classmethod

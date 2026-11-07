@@ -6426,13 +6426,36 @@ export const NotifyChannelConfigSchema = {
             description: 'telegram: 有 poster_url 时改发图片+标题 (sendPhoto)',
             default: false
         },
+        message_thread_id: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Message Thread Id',
+            description: 'Telegram 群组话题 ID; 0 表示默认话题',
+            default: 0
+        },
+        disable_notification: {
+            type: 'boolean',
+            title: 'Disable Notification',
+            description: 'Telegram 静音发送, 不触发声音提醒',
+            default: false
+        },
+        show_link: {
+            type: 'boolean',
+            title: 'Show Link',
+            description: 'Telegram 通知附带打开任务面板的按钮',
+            default: true
+        },
         events: {
             items: {
                 $ref: '#/components/schemas/NotifyEvent'
             },
             type: 'array',
             title: 'Events',
-            description: '订阅的事件; 空 = 全部'
+            description: '订阅的事件; 空 = 全部',
+            default: [
+                'completed',
+                'failed'
+            ]
         },
         task_types: {
             items: {
@@ -6570,10 +6593,33 @@ export const NotifyTaskTypeSchema = {
         'actor_scrape',
         'rescrape',
         'scan_invalid',
-        'delete'
+        'delete',
+        'semantic_index',
+        'semantic_benchmark',
+        'purge',
+        'actor_push'
     ],
     title: 'NotifyTaskType',
     description: '可通知的任务类型 (取值与 ``db.models.TaskType`` 一致, 由测试守住不漂移).'
+} as const;
+
+export const NotifyTestResponseSchema = {
+    properties: {
+        ok: {
+            type: 'boolean',
+            title: 'Ok'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        }
+    },
+    type: 'object',
+    required: [
+        'ok',
+        'message'
+    ],
+    title: 'NotifyTestResponse'
 } as const;
 
 export const OptionalPathTemplateDefaultsSchema = {

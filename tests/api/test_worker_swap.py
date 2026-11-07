@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
+from curl_cffi.requests import Response
 from httpx2 import ASGITransport, AsyncClient
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -16,6 +17,7 @@ import amane.app.bootstrap as bootstrap_module
 import amane.app.runtime as runtime_module
 from amane.api.routes import API_PREFIX
 from amane.config import HotSettings
+from amane.config.manager import NotifyChannelConfig
 from amane.db.models import Task, TaskType
 from amane.db.repository import Repository
 from amane.handlers.models import RefreshPayload, RefreshResult
@@ -317,3 +319,51 @@ async def test_r18_handle_released_after_retire(
 
     await asyncio.gather(*list(runtime._retire_tasks), return_exceptions=True)
     assert handle_a.closed is True
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_shutdown_finishes_notifications_before_closing_network(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    context = app.router.lifespan_context(app)
+    await context.__aenter__()
+    runtime: AppRuntime = app.state.runtime
+    sending = asyncio.Event()
+    release = asyncio.Event()
+    draining = asyncio.Event()
+    completed = asyncio.Event()
+    closed = asyncio.Event()
+    original_drain = runtime.notifier.close
+    original_close = runtime.web_client.close
+
+    async def request(*args: object, **kwargs: object) -> Response:
+        sending.set()
+        await release.wait()
+        assert not closed.is_set()
+        completed.set()
+        response = Response()
+        response.status_code = 200
+        return response
+
+    async def drain() -> None:
+        draining.set()
+        await original_drain()
+
+    async def close_network() -> None:
+        assert completed.is_set(), "网络客户端必须在通知发送完成后关闭"
+        closed.set()
+        await original_close()
+
+    monkeypatch.setattr(runtime.web_client, "request", request)
+    monkeypatch.setattr(runtime.web_client, "close", close_network)
+    monkeypatch.setattr(runtime.notifier, "close", drain)
+    runtime.notifier._spawn(NotifyChannelConfig(url="https://notify.test/hook", body="ready"), {})
+    await asyncio.wait_for(sending.wait(), timeout=LOAD_TOLERANT_TIMEOUT)
+    closing = asyncio.create_task(context.__aexit__(None, None, None))
+    try:
+        await asyncio.wait_for(draining.wait(), timeout=LOAD_TOLERANT_TIMEOUT)
+        assert not closed.is_set()
+    finally:
+        release.set()
+        await asyncio.wait_for(closing, timeout=LOAD_TOLERANT_TIMEOUT)
+    assert closed.is_set()

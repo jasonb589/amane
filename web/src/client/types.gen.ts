@@ -3220,6 +3220,24 @@ export type NotifyChannelConfig = {
      */
     send_photo?: boolean;
     /**
+     * Message Thread Id
+     *
+     * Telegram 群组话题 ID; 0 表示默认话题
+     */
+    message_thread_id?: number;
+    /**
+     * Disable Notification
+     *
+     * Telegram 静音发送, 不触发声音提醒
+     */
+    disable_notification?: boolean;
+    /**
+     * Show Link
+     *
+     * Telegram 通知附带打开任务面板的按钮
+     */
+    show_link?: boolean;
+    /**
      * Events
      *
      * 订阅的事件; 空 = 全部
@@ -3323,7 +3341,21 @@ export type NotifyProvider = 'custom' | 'telegram' | 'bark' | 'wecom';
  *
  * 可通知的任务类型 (取值与 ``db.models.TaskType`` 一致, 由测试守住不漂移).
  */
-export type NotifyTaskType = 'scrape' | 'organize' | 'refresh' | 'cleanup' | 'upscale' | 'r18_import' | 'actor_scrape' | 'rescrape' | 'scan_invalid' | 'delete';
+export type NotifyTaskType = 'scrape' | 'organize' | 'refresh' | 'cleanup' | 'upscale' | 'r18_import' | 'actor_scrape' | 'rescrape' | 'scan_invalid' | 'delete' | 'semantic_index' | 'semantic_benchmark' | 'purge' | 'actor_push';
+
+/**
+ * NotifyTestResponse
+ */
+export type NotifyTestResponse = {
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Message
+     */
+    message: string;
+};
 
 /**
  * OptionalPathTemplateDefaults
@@ -6195,13 +6227,9 @@ export type TestNotifyError = TestNotifyErrors[keyof TestNotifyErrors];
 
 export type TestNotifyResponses = {
     /**
-     * Response Test Notify
-     *
      * Successful Response
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: NotifyTestResponse;
 };
 
 export type TestNotifyResponse = TestNotifyResponses[keyof TestNotifyResponses];

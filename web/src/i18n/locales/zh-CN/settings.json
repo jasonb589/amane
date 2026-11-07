@@ -1,5 +1,11 @@
 {
   "title": "设置",
+  "notifyTest": {
+    "invalidChannel": "无法读取当前渠道配置",
+    "failed": "发送失败",
+    "success": "发送成功 ({{message}})",
+    "send": "测试发送"
+  },
   "tabs": {
     "scraping": "影片刮削",
     "media_server": "媒体服务器",
@@ -708,6 +714,18 @@
             "label": "改发图片",
             "description": "仅 telegram: 有 poster_url 时用 sendPhoto 发图片 + 标题"
           },
+          "message_thread_id": {
+            "label": "群组话题 ID",
+            "description": "Telegram 超级群组的话题 ID; 0 表示默认话题"
+          },
+          "disable_notification": {
+            "label": "静音发送",
+            "description": "Telegram 收到消息时不播放提示音"
+          },
+          "show_link": {
+            "label": "显示面板按钮",
+            "description": "配置面板地址后, 在 Telegram 消息下方显示任务面板按钮"
+          },
           "test_send": {
             "label": "测试发送",
             "description": "用示例数据真实发送一次 —— 直接按上面填的内容发, 不需要先保存"
@@ -738,7 +756,11 @@
                 "actor_scrape": "演员刮削",
                 "rescrape": "重新刮削",
                 "scan_invalid": "扫描无效文件",
-                "delete": "删除"
+                "delete": "删除",
+                "semantic_index": "语义索引",
+                "semantic_benchmark": "语义基准测试",
+                "purge": "清空回收站",
+                "actor_push": "演员推送"
               }
             }
           },

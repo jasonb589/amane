@@ -89,6 +89,7 @@ class AppSession:
         with suppress(asyncio.CancelledError):
             await self._cron_task
         await self.runtime.stop_workers()
+        await self.runtime.notifier.close()
         if self.runtime.playback_factory is not None:
             await self.runtime.playback_factory.aclose()
         if self.runtime.browser is not None:

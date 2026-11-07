@@ -95,6 +95,34 @@ class TestEventBus:
         await bus.close_all()
         assert bus.connection_count == 0
 
+    @pytest.mark.asyncio(loop_scope="function")
+    @pytest.mark.parametrize("failed", [False, True])
+    async def test_disconnect_during_broadcast_preserves_other_delivery(self, failed: bool) -> None:
+        bus = EventBus()
+        delivered: list[dict] = []
+        observed: list[Event] = []
+
+        class DisconnectingWS:
+            async def send_json(self, data: dict) -> None:
+                bus.disconnect(self)  # type: ignore[arg-type]
+                if failed:
+                    raise RuntimeError("connection closed during send")
+
+        class ConnectedWS:
+            async def send_json(self, data: dict) -> None:
+                delivered.append(data)
+
+        async def listen(event: Event) -> None:
+            observed.append(event)
+
+        bus._connections.extend([DisconnectingWS(), ConnectedWS()])  # type: ignore[arg-type]
+        bus.add_listener(listen)
+        await bus.emit(EventType.TASK_COMPLETED, {"task_id": 42})
+
+        assert [item["data"] for item in delivered] == [{"task_id": 42}]
+        assert [event.data for event in observed] == [{"task_id": 42}]
+        assert bus.connection_count == 1
+
 
 class TestWebSocketEndpoint:
     """/ws endpoint integration tests"""

@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from amane.config.manager import NotifyChannelConfig, NotifyConfig
+from amane.config.manager import NotifyChannelConfig, NotifyConfig, NotifyProvider
 from amane.db.models import Task, TaskType
 from amane.events import Event, EventType
 from amane.notify.service import (
@@ -57,6 +57,7 @@ class _StubRepo:
                 "directors": ["导演A"],
                 "score": 8.2,
                 "runtime": 120,
+                "content_type": "censored",
             },
         )()
 
@@ -158,7 +159,7 @@ def test_local_time_formats_container_timezone() -> None:
 
 class _NotifyResponse:
     status_code = 200
-    text = ""
+    text = '{"ok":true}'
 
 
 class _RecordingWeb:
@@ -191,7 +192,7 @@ def test_quiet_window_merges_events_into_one_summary() -> None:
         throttle_seconds=1,
         max_wait_seconds=30,
     )
-    service.configure(NotifyConfig(enabled=True, channels=[channel]), web_client=web, repo=None, log_dir=None)
+    service.configure(NotifyConfig(enabled=True, channels=[channel]), web_client=web, repo=None, log_dir=None)  # type: ignore[arg-type]
 
     async def run() -> None:
         for number in ("ABC-1", "ABC-2", "ABC-3"):
@@ -219,7 +220,7 @@ def test_max_wait_flushes_while_events_keep_arriving() -> None:
         throttle_seconds=2,
         max_wait_seconds=1,
     )
-    service.configure(NotifyConfig(enabled=True, channels=[channel]), web_client=web, repo=None, log_dir=None)
+    service.configure(NotifyConfig(enabled=True, channels=[channel]), web_client=web, repo=None, log_dir=None)  # type: ignore[arg-type]
 
     async def run() -> None:
         for _ in range(5):
@@ -235,7 +236,7 @@ def test_max_wait_flushes_while_events_keep_arriving() -> None:
 def test_build_request_telegram_text() -> None:
     """telegram: 只填 token/chat_id/正文, 程序拼出 sendMessage 与 JSON."""
     channel = NotifyChannelConfig(
-        provider="telegram", token="123:abc", chat_id="-1001", text="{type_label} {status}\n{number}"
+        provider=NotifyProvider.TELEGRAM, token="123:abc", chat_id="-1001", text="{type_label} {status}\n{number}"
     )
     url, headers, body = build_request(channel, {"type_label": "刮削", "status": "成功", "number": "ABC-1"})
     assert url == "https://api.telegram.org/bot123:abc/sendMessage"
@@ -245,7 +246,9 @@ def test_build_request_telegram_text() -> None:
 
 def test_build_request_telegram_photo() -> None:
     """send_photo 打开且有海报时走 sendPhoto; 没有海报时退回 sendMessage (避免必然 400)."""
-    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
+    channel = NotifyChannelConfig(
+        provider=NotifyProvider.TELEGRAM, token="t", chat_id="c", text="{number}", send_photo=True
+    )
     url, _, body = build_request(channel, {"number": "ABC-1", "poster_url": "https://img/x.jpg"})
     assert url.endswith("/sendPhoto")
     payload = json.loads(body)
@@ -258,7 +261,9 @@ def test_build_request_telegram_photo() -> None:
 
 def test_build_request_photo_uses_image_token_for_internal_poster() -> None:
     """内部海报用只读图片 token 拼成公网地址: Telegram 能直接抓, 不需要上传文件."""
-    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
+    channel = NotifyChannelConfig(
+        provider=NotifyProvider.TELEGRAM, token="t", chat_id="c", text="{number}", send_photo=True
+    )
     url, _, body = build_request(
         channel,
         {"number": "ABC-1", "poster_url": "/api/resources/abc"},
@@ -271,7 +276,9 @@ def test_build_request_photo_uses_image_token_for_internal_poster() -> None:
 
 def test_build_request_photo_falls_back_to_thumb() -> None:
     """没有图片 token 时退到公网缩略图; 两个都不行就不带图 (不能把整条消息搭进去)."""
-    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}", send_photo=True)
+    channel = NotifyChannelConfig(
+        provider=NotifyProvider.TELEGRAM, token="t", chat_id="c", text="{number}", send_photo=True
+    )
     url, _, body = build_request(
         channel, {"number": "ABC-1", "poster_url": "/api/resources/abc", "thumb_url": "https://img/thumb.jpg"}
     )
@@ -285,11 +292,11 @@ def test_build_request_photo_falls_back_to_thumb() -> None:
 
 def test_build_request_bark_and_wecom() -> None:
     """Bark 用第一行当标题; 企业微信发 text 消息."""
-    bark = NotifyChannelConfig(provider="bark", token="key1", text="标题行\n正文行")
+    bark = NotifyChannelConfig(provider=NotifyProvider.BARK, token="key1", text="标题行\n正文行")
     url, _, body = build_request(bark, {})
     assert url == "https://api.day.app/push"
     assert json.loads(body) == {"device_key": "key1", "title": "标题行", "body": "正文行"}
-    wecom = NotifyChannelConfig(provider="wecom", token="k2", text="{number}")
+    wecom = NotifyChannelConfig(provider=NotifyProvider.WECOM, token="k2", text="{number}")
     url, _, body = build_request(wecom, {"number": "ABC-2"})
     assert url.endswith("webhook/send?key=k2")
     assert json.loads(body) == {"msgtype": "text", "text": {"content": "ABC-2"}}
@@ -297,7 +304,7 @@ def test_build_request_bark_and_wecom() -> None:
 
 def test_build_request_default_text_and_custom_passthrough() -> None:
     """text 留空用内置默认正文; custom 渠道仍按 url/body 原样渲染 (老配置不受影响)."""
-    preset = NotifyChannelConfig(provider="telegram", token="t", chat_id="c")
+    preset = NotifyChannelConfig(provider=NotifyProvider.TELEGRAM, token="t", chat_id="c")
     _, _, body = build_request(preset, {"type_label": "整理", "status": "成功", "number": "A-1"})
     default_text = json.loads(body)["text"]
     assert "整理" in default_text and "成功" in default_text
@@ -311,9 +318,9 @@ def test_send_test_reports_result() -> None:
     """测试发送: 成功给 HTTP 码; 缺 token 时不发请求, 直接返回可读原因."""
     web = _RecordingWeb()
     service = NotificationService()
-    service.configure(NotifyConfig(enabled=True), web_client=web, repo=None, log_dir=None)
-    channel = NotifyChannelConfig(provider="telegram", token="t", chat_id="c", text="{number}")
-    broken = NotifyChannelConfig(provider="telegram", chat_id="c", text="x")
+    service.configure(NotifyConfig(enabled=True), web_client=web, repo=None, log_dir=None)  # type: ignore[arg-type]
+    channel = NotifyChannelConfig(provider=NotifyProvider.TELEGRAM, token="t", chat_id="c", text="{number}")
+    broken = NotifyChannelConfig(provider=NotifyProvider.TELEGRAM, chat_id="c", text="x")
 
     async def run() -> None:
         ok, message = await service.send_test(channel)
@@ -335,10 +342,10 @@ def test_matches_accepts_preset_channel_without_url() -> None:
     """
     service = NotificationService()
     event = Event(type=EventType.TASK_COMPLETED, data={"task_id": 1})
-    ok = NotifyChannelConfig(provider="telegram", token="t", chat_id="c")
+    ok = NotifyChannelConfig(provider=NotifyProvider.TELEGRAM, token="t", chat_id="c")
     assert service._matches(ok, event, {"type": "scrape", "category": "censored"}) is True
     # 预设渠道缺 token: 根本发不出去, 不该匹配
-    assert service._matches(NotifyChannelConfig(provider="telegram"), event, {"type": "scrape"}) is False
+    assert service._matches(NotifyChannelConfig(provider=NotifyProvider.TELEGRAM), event, {"type": "scrape"}) is False
     # 自定义 HTTP 仍然要求 url
     assert service._matches(NotifyChannelConfig(), event, {"type": "scrape"}) is False
 

@@ -20,9 +20,9 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
-#: 双花括号与单花括号分两趟替换: 否则 ``{"ok":{success}}`` 结尾那半个 ``}`` 会被双花括号规则吃掉.
-_DOUBLE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}\}")
-_SINGLE = re.compile(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}")
+# 单次替换只解释模板, 不将变量内容再次作为占位符执行; 两种括号分别匹配以保留 JSON 的闭合括号.
+_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}\}|\{\s*([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}")
+_MARKDOWN = re.compile(r"([\\_*\[\]()~`>#+\-=|{}.!])")
 
 #: ``_j`` / ``_u`` / ``_r`` 后缀 与 ``| j`` / ``| u`` / ``| r`` 过滤器等价.
 _MODE_SUFFIXES: dict[str, str] = {"_j": "json", "_u": "url", "_r": "raw"}
@@ -61,7 +61,14 @@ def _parse_tail(tail: str) -> tuple[str | None, int | None]:
     return mode, limit
 
 
-def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = False, html_mode: bool = False) -> str:
+def render(
+    template: str,
+    variables: Mapping[str, Any],
+    *,
+    json_mode: bool = False,
+    html_mode: bool = False,
+    markdown_mode: bool = False,
+) -> str:
     """把模板里的占位符换成变量值; 认不出的占位原样保留.
 
     ``html_mode`` 时对每个变量值做 HTML 转义 (模板里自己写的 ``<b>`` 等不受影响),
@@ -70,8 +77,8 @@ def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = Fal
     default_mode = "json" if json_mode else ""
 
     def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        mode, limit = _parse_tail(match.group(2))
+        name = match.group(1) or match.group(3)
+        mode, limit = _parse_tail(match.group(2) if match.group(1) else match.group(4))
         if mode is None:
             mode = default_mode
             for suffix, kind in _MODE_SUFFIXES.items():
@@ -96,6 +103,8 @@ def render(template: str, variables: Mapping[str, Any], *, json_mode: bool = Fal
             return quote(text, safe="")
         if html_mode and mode != "raw":
             return html.escape(text)
+        if markdown_mode and mode != "raw":
+            return _MARKDOWN.sub(r"\\\1", text)
         return text
 
-    return _SINGLE.sub(replace, _DOUBLE.sub(replace, template))
+    return _PLACEHOLDER.sub(replace, template)

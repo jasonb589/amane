@@ -86,6 +86,12 @@ Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 work
 
 建图对编译后站点链的消费见 [task-system.md](task-system.md), 默认表取舍见 [content-routes.md](content-routes.md).
 
+## `notify` (Hot)
+
+`NotificationService` 通过 `EventBus` 接收任务终态与文件事件; 文件删除事件携带删除前的番号与媒体库归属. 渠道配置变更清除待合并窗口, 网络配置变更保留窗口; 已开始发送的请求固定使用其客户端. `AppSession.aclose` 在停止任务后、关闭 HTTP 客户端前等待通知结束.
+
+Telegram 预设按渠道、状态、任务类型和媒体库合并, 多任务不使用单条海报. 模板变量仅替换一次, 格式转义不解释变量中的占位符. 通知层独占重试, 传输结果未知时不重发, 仅明确的图片拒绝触发文字降级. 实现与边界用例见 `src/amane/notify/` 与 `tests/test_notify_reliability.py`.
+
 ## `media_server` (Hot)
 
 单服务器, `url` 与 `api_key` 齐备才启用; `kind` 标识 Emby / Jellyfin, 两家接口同源. 客户端不读 `network.proxy`, 单请求超时固定 30s; `api_key` 与其他密钥一样进 secrets 脱敏. 配置变更经 `_rebuild()` 重建 handler 后对新任务生效, 运行中的推送继续使用旧客户端.

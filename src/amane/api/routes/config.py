@@ -8,6 +8,7 @@ from ...config import HotSettings
 from ...config.manager import NotifyChannelConfig
 from ...events import Event, EventType
 from ..deps import ConfigDep, PluginManagerDep, RuntimeDep
+from ..models.notify import NotifyTestResponse
 
 logger = structlog.get_logger()
 
@@ -48,13 +49,18 @@ async def get_config_schema(plugin_manager: PluginManagerDep) -> dict:
 
 
 @router.post("/notify/test")
-async def test_notify(req: dict[str, Any], runtime: RuntimeDep) -> dict[str, Any]:
+async def test_notify(req: dict[str, Any], runtime: RuntimeDep) -> NotifyTestResponse:
     """用界面里正在编辑的渠道配置发一条测试通知 (不必先保存)."""
     try:
         channel = NotifyChannelConfig.model_validate(req)
     except (KeyError, ValidationError, ValueError) as e:
-        logger.warning("notify test rejected", error=str(e))
-        raise HTTPException(status_code=422, detail=str(e)) from e
+        logger.warning("notify test rejected", error=type(e).__name__)
+        detail = (
+            ", ".join(".".join(map(str, item["loc"])) for item in e.errors())
+            if isinstance(e, ValidationError)
+            else "渠道配置无效"
+        )
+        raise HTTPException(status_code=422, detail=f"渠道配置无效: {detail}") from e
     ok, message = await runtime.notifier.send_test(channel)
     logger.info("notify test sent", ok=ok, message=message)
-    return {"ok": ok, "message": message}
+    return NotifyTestResponse(ok=ok, message=message)

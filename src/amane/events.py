@@ -75,13 +75,14 @@ class EventBus:
             return
 
         dead: list[WebSocket] = []
-        for ws in self._connections:
+        # 发送期间连接可能由断开处理或另一次广播移除, 本轮始终使用同一份快照.
+        for ws in list(self._connections):
             try:
                 await ws.send_json(payload)
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self._connections.remove(ws)
+            self.disconnect(ws)
 
     async def emit(self, event_type: EventType, data: dict | None = None) -> None:
         event = Event(type=event_type, data=data or {})
