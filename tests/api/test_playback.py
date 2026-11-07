@@ -85,6 +85,8 @@ def _start_hls_origin(files: dict[str, tuple[str, bytes]]) -> tuple[ThreadingHTT
 
 
 class _HlsOriginHandler(BaseHTTPRequestHandler):
+    # 保持连接, 避免 Windows 上 HTTP/1.0 断连与客户端读取响应竞争.
+    protocol_version = "HTTP/1.1"
     origin_files: ClassVar[dict[str, tuple[str, bytes]]] = {}
 
     def do_GET(self) -> None:

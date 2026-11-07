@@ -126,6 +126,8 @@ def test_allowed_subtitle_type(content_type: str, allowed: bool) -> None:
 
 
 class _Upstream(BaseHTTPRequestHandler):
+    # HTTP/1.0 的立即断连会在 Windows 上先于客户端读取响应, 产生随机 ReadError.
+    protocol_version = "HTTP/1.1"
     captured: dict[str, str | None]
     body: bytes
     status: int
@@ -159,6 +161,7 @@ class _Upstream(BaseHTTPRequestHandler):
         if self.status >= 300 and self.status < 400:
             self.send_response(self.status)
             self.send_header("Location", "https://upstream.example/video")
+            self.send_header("Content-Length", "0")
             self.end_headers()
             return
         self.send_response(self.status)
