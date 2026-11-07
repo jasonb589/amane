@@ -61,4 +61,4 @@ jobs:
       - name: just test
         env:
           FIXTURES_DEPLOY_KEY: ${{ secrets.FIXTURES_DEPLOY_KEY }}
-        run: just test
+        run: just _ci-sync-python && just test
