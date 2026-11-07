@@ -51,8 +51,15 @@ def image_dir(page_text: str) -> tuple[str, str] | None:
     文件名主干形如 ``siro-5755``: 去掉 ``pb_e_`` / ``pf_o1_`` / ``cap_e_0_`` 这类尺寸前缀,
     并统一小写 (站点实际文件名就是全小写).
     """
-    for match in _IMAGE_URL.finditer(page_text):
-        directory, _, filename = match.group(0).rpartition("/")
+    page = Selector(text=page_text or "<html></html>")
+    main_images = page.css("#EnlargeImage::attr(href), img.enlarge_image::attr(src)").getall()
+    candidates = [*main_images, *(match.group(0) for match in _IMAGE_URL.finditer(page_text))]
+    for url in candidates:
+        if _IMAGE_URL.fullmatch(url) is None:
+            continue
+        directory, _, filename = url.rpartition("/")
+        if _IMAGE_PREFIX.match(filename) is None:
+            continue
         stem = _IMAGE_PREFIX.sub("", filename).removesuffix(".jpg").lower()
         if directory and stem:
             return f"{directory}/", stem
@@ -83,7 +90,9 @@ def image_urls(page_text: str) -> tuple[list[str], list[str], list[str]]:
     base, stem = found
     thumbs = [f"{base}pb_e_{stem}.jpg"]
     posters = [f"{base}pf_e_{stem}.jpg"]
-    fanart = [f"{base}cap_e_{index}_{stem}.jpg" for index in range(capture_count(page_text))]
+    capture = re.compile(rf"{re.escape(base)}cap_(?:e|t1)_(\d+)_{re.escape(stem)}\.jpg")
+    indexes = sorted({int(match[1]) for match in capture.finditer(page_text)})
+    fanart = [f"{base}cap_e_{index}_{stem}.jpg" for index in indexes]
     return thumbs, posters, fanart
 
 

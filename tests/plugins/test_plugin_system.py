@@ -1,11 +1,13 @@
 """Film source plugin API and runtime catalog tests."""
 
+from collections import defaultdict
 from pathlib import Path
 from typing import cast
 
 import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from amane.aggregate import aggregate
 from amane.config import HotSettings, PluginConfig
 from amane.crawlers.factory import CrawlerFactory
 from amane.crawlers.http import HttpClient
@@ -447,6 +449,19 @@ async def test_disabled_plugin_is_not_available(tmp_path: Path) -> None:
         plugin_configs={"acme.fake": PluginConfig(enabled=False)},
     )
     assert await factory.get("acme.fake") is None
+
+
+@pytest.mark.asyncio
+async def test_url_scraping_skips_plugins_without_detail_contract(tmp_path: Path) -> None:
+    factory = CrawlerFactory(cast(HttpClient, _FakeHttp()), data_dir=tmp_path, plugin_manager=plugin_manager())
+    crawlers = await factory.get_crawlers(["acme.fake"])
+    result = await aggregate(
+        SearchQuery("TEST-001", url="https://plugin.example.test/detail/1"),
+        crawlers,
+        defaultdict(lambda: ["acme.fake"]),
+    )
+    assert result.metadata.title is None
+    assert result.raw == {}
 
 
 def playback_plugin_source(plugin_id: str, *, capabilities: str | None = "playback") -> str:

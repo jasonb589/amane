@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import asyncio
 from typing import Any
 
 import pytest
 
+from amane.aggregate.models import AggregatedMetadata
 from amane.crawlers.models import SearchQuery
 from amane.crawlers.sites.amazon import (
     _GATE_RE,
     AmazonCrawler,
     _clean,
+    _image_from_detail,
     _keywords,
     _match_score,
     _parse_results,
@@ -19,7 +21,7 @@ from amane.crawlers.sites.amazon import (
     _search_title,
     _title_matches,
 )
-from amane.net.errors import FailureReason, SourceError
+from amane.net.errors import FailureKind, FailureReason, RequestError, RequestFailure, SourceError
 from amane.parsing import ContentType
 
 
@@ -98,6 +100,18 @@ def test_keywords_keep_latin_title_whole() -> None:
     assert _keywords("BEAUTY VENUS VIII", "IPZZ-034") == ["BEAUTY VENUS VIII", "IPZZ-034"]
 
 
+@pytest.mark.parametrize(
+    ("title", "number", "expected"),
+    [
+        ("彼女との秘密", "ABC-001", ["彼女との秘密", "ABC-001"]),
+        ("", "", []),
+        ("彼女との秘密 女優名", "ABC-001", ["彼女との秘密 女優名", "彼女との秘密", "ABC-001"]),
+    ],
+)
+def test_keywords_include_single_word_titles(title: str, number: str, expected: list[str]) -> None:
+    assert _keywords(title, number) == expected
+
+
 def test_match_score_prefers_title_hit_over_number_only() -> None:
     wanted = "義母 前編"
     titled = _match_score("JUFD-001", wanted, "義母 前編 アイデアポケット [DVD]")
@@ -137,7 +151,7 @@ async def test_fetch_retries_when_age_gate_blocks() -> None:
     client = _StubClient([gate, page])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="BEAUTY VENUS VIII")
 
     meta = await crawler.fetch(query)
 
@@ -152,7 +166,7 @@ async def test_fetch_raises_when_age_gate_persists() -> None:
     client = _StubClient([gate, gate, gate])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="BEAUTY VENUS VIII")
 
     with pytest.raises(SourceError) as excinfo:
         await crawler.fetch(query)
@@ -180,7 +194,9 @@ async def test_fetch_falls_back_to_next_keyword_when_first_misses() -> None:
     client = _StubClient([miss, hit])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="【視聴期限なし】義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(
+        number="IPZZ-034", title="【視聴期限なし】義母 前編 アイデアポケット [DVD]"
+    )
 
     meta = await crawler.fetch(query)
 
@@ -215,7 +231,7 @@ async def test_fetch_reads_cover_from_detail_page_when_search_shows_placeholder(
     client = _StubClient([search, detail])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="義母 前編 アイデアポケット [DVD]")
 
     meta = await crawler.fetch(query)
 
@@ -236,7 +252,7 @@ async def test_fetch_falls_back_to_asin_main_image() -> None:
     client = _StubClient([search, shell, shell, shell])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="義母 前編 アイデアポケット [DVD]")
 
     meta = await crawler.fetch(query)
 
@@ -259,7 +275,7 @@ async def test_fetch_retries_other_detail_entries_when_page_is_shell() -> None:
     client = _StubClient([search, shell, full])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット [DVD]")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="義母 前編 アイデアポケット [DVD]")
 
     meta = await crawler.fetch(query)
 
@@ -310,7 +326,7 @@ async def test_fetch_unlocks_black_curtain_for_adult_covers() -> None:
     client = _StubClient([_MOBILE_MISS, curtain, "<html>ok</html>", unlocked])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="BEAUTY VENUS VIII")
 
     meta = await crawler.fetch(query)
 
@@ -337,7 +353,7 @@ async def test_fetch_uses_unlock_response_when_it_already_has_covers() -> None:
     client = _StubClient([_MOBILE_MISS, curtain, unlocked])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="BEAUTY VENUS VIII")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="BEAUTY VENUS VIII")
 
     meta = await crawler.fetch(query)
 
@@ -363,7 +379,7 @@ async def test_fetch_unlocks_black_curtain_only_once() -> None:
     client = _StubClient([_MOBILE_MISS, curtain, "<html>ok</html>", curtain, hit])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(title="義母 前編 アイデアポケット")  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(number="IPZZ-034", title="義母 前編 アイデアポケット")
 
     meta = await crawler.fetch(query)
 
@@ -374,7 +390,8 @@ async def test_fetch_unlocks_black_curtain_only_once() -> None:
 
 def test_search_title_prefers_raw_japanese_title() -> None:
     """字段语言是中文时聚合标题是译名, 检索必须换成来源里的日文原题."""
-    partial = SimpleNamespace(
+    partial = AggregatedMetadata(
+        number="IPZZ-034",
         title="义母 前篇",
         raw={"r18dev:jp": {"title": "義母 前編"}, "dmm": {"title": "義母 前編 [DVD]"}},
     )
@@ -382,7 +399,9 @@ def test_search_title_prefers_raw_japanese_title() -> None:
 
 
 def test_search_title_falls_back_to_aggregated_title() -> None:
-    assert _search_title(SimpleNamespace(title="BEAUTY VENUS VIII", raw={})) == "BEAUTY VENUS VIII"
+    assert (
+        _search_title(AggregatedMetadata(number="IPZZ-034", title="BEAUTY VENUS VIII", raw={})) == "BEAUTY VENUS VIII"
+    )
     assert _search_title(None) == ""
 
 
@@ -401,7 +420,8 @@ async def test_fetch_searches_japanese_title_when_field_is_translated() -> None:
     client = _StubClient([page])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
-    query.partial_result = SimpleNamespace(  # type: ignore[assignment]
+    query.partial_result = AggregatedMetadata(
+        number="IPZZ-034",
         title="美颜维纳斯 第8集",
         raw={"r18dev:jp": {"title": "BEAUTY VENUS VIII"}},
     )
@@ -411,3 +431,53 @@ async def test_fetch_searches_japanese_title_when_field_is_translated() -> None:
     assert meta is not None
     assert meta.external_id == "B00TEST001"
     assert "BEAUTY%20VENUS%20VIII" in client.calls[0]
+
+
+@pytest.mark.parametrize("attribute", ["data-old-hires", "src"])
+def test_detail_placeholder_does_not_override_real_dynamic_image(attribute: str) -> None:
+    html = (
+        f'<img id="landingImage" {attribute}="https://m.media-amazon.com/images/I/01RmK+J4pJL.gif" '
+        'data-a-dynamic-image="{&quot;https://m.media-amazon.com/images/I/81ABCDE.jpg&quot;:[1000,1500]}">'
+    )
+    assert _image_from_detail(html) == "81ABCDE"
+
+
+@pytest.mark.asyncio
+async def test_search_failures_preserve_network_reason() -> None:
+    failure = RequestError("https://www.amazon.co.jp/s", RequestFailure(FailureKind.TIMEOUT, "timeout"))
+    client = _StubClient([failure] * 4)
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("ABC-001", partial_result=AggregatedMetadata("ABC-001", title="彼女との秘密"))
+    with pytest.raises(RequestError) as error:
+        await crawler.fetch(query)
+    assert error.value.reason is FailureReason.TIMEOUT
+    assert len(client.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_concurrent_fetches_keep_failure_state_separate() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class ConcurrentClient:
+        async def get_text(self, url: str, **kwargs: Any) -> str:
+            if "FAIL" in url:
+                entered.set()
+                await release.wait()
+                raise RequestError(url, RequestFailure(FailureKind.TIMEOUT, "timeout"))
+            return "<html>no results</html>"
+
+    crawler = AmazonCrawler(ConcurrentClient())  # type: ignore[arg-type]
+    failed = SearchQuery("FAIL-001", partial_result=AggregatedMetadata("FAIL-001", title="FAIL TITLE"))
+    missing = SearchQuery("MISS-001", partial_result=AggregatedMetadata("MISS-001", title="MISSING TITLE"))
+    task = asyncio.create_task(crawler.fetch(failed))
+    await entered.wait()
+    try:
+        with pytest.raises(SourceError) as error:
+            await crawler.fetch(missing)
+        assert error.value.reason is FailureReason.NOT_LISTED
+    finally:
+        release.set()
+    with pytest.raises(RequestError) as error:
+        await task
+    assert error.value.reason is FailureReason.TIMEOUT

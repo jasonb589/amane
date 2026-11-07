@@ -110,30 +110,40 @@ class TestCompilePriority:
         assert chains[field] == expected, desc
 
 
-class MockCrawler:
+class _NumberOnlyCrawler:
+    """番号检索测试不接受详情页请求."""
+
+    def serves_url(self, url: str) -> bool:
+        return False
+
+    async def fetch_from_url(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
+        raise AssertionError("详情页请求不应进入番号检索测试")
+
+
+class MockCrawler(_NumberOnlyCrawler):
     """返回预设结果, 记录调用次数."""
 
     def __init__(self, result: MediaMetadata | None = None):
         self._result = result
         self.fetch_calls: list[str] = []
 
-    async def fetch(self, query, options=None) -> MediaMetadata | None:
-        self.fetch_calls.append(query.number if hasattr(query, "number") else query)
+    async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
+        self.fetch_calls.append(query.number)
         return self._result
 
 
-class FailingCrawler:
+class FailingCrawler(_NumberOnlyCrawler):
     """爬虫抛异常 - 模拟网络错误."""
 
     def __init__(self):
         self.fetch_calls: list[str] = []
 
-    async def fetch(self, query, options=None) -> MediaMetadata | None:
-        self.fetch_calls.append(query.number if hasattr(query, "number") else query)
+    async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
+        self.fetch_calls.append(query.number)
         raise RuntimeError("Connection failed")
 
 
-class RecordingCrawler:
+class RecordingCrawler(_NumberOnlyCrawler):
     """记录收到的 SearchQuery 与 partial_result 引用 (用于验证两段执行)."""
 
     def __init__(self, result: MediaMetadata):
@@ -495,7 +505,9 @@ class TestTwoPhaseExecution:
             deferred_sites=frozenset({OFF}),
         )
 
-        raw = declared.partials[0].raw
+        partial = declared.partials[0]
+        assert partial is not None
+        raw = partial.raw
         assert raw[K1]["title"] == "译名"
         # 原始结果只挂在快照上, 最终结果不带它.
         assert state.result.raw == {}

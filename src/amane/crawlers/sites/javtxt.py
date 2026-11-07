@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from urllib.parse import quote
 
-from parsel import Selector
+from parsel import Selector, SelectorList
 
 from ...enums import SiteName
 from ..base import Crawler, CrawlerProfile
@@ -42,7 +42,7 @@ _LABEL_PRODUCER = "导演"
 _LABEL_GENRE = "类别"
 
 
-def _text(node: Selector) -> str:
+def _text(node: Selector | SelectorList) -> str:
     return " ".join((node.xpath("string(.)").get() or "").split())
 
 
@@ -79,6 +79,7 @@ def parse_detail(html: str, url: str) -> MediaMetadata | None:
     # 剧情: 只要日文原文. 站点自带的中文是机翻, 交给管线按提示词重译更好.
     plot = _text(sel.css("p.text-jp")) or None
     actors = [_text(node) for node in sel.css("dl.dl-actress a.actress")]
+    director = _value_of(sel, _LABEL_PRODUCER)
     return MediaMetadata(
         number=match.group(1).upper(),
         title=title,
@@ -89,7 +90,7 @@ def parse_detail(html: str, url: str) -> MediaMetadata | None:
         tags=_genres(sel),
         series=_value_of(sel, _LABEL_SERIES),
         plot=plot,
-        directors=[_value_of(sel, _LABEL_PRODUCER)] if _value_of(sel, _LABEL_PRODUCER) else [],
+        directors=[director] if director else [],
         source_url=url,
         external_id=url.rstrip("/").rsplit("/", 1)[-1],
     )
@@ -139,7 +140,9 @@ class JavtxtCrawler(Crawler):
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
         wanted = fold_number(query.number)
-        html = await self.client.get_html(f"{SITE}/search?q={quote(query.number)}")
+        if not wanted:
+            return None
+        html = await self.client.get_html(f"{self.base_url}/search?q={quote(query.number, safe='')}")
         for url in detail_links(html)[: self._MAX_CANDIDATES]:
             meta = parse_detail(await self.client.get_html(url), url)
             if meta is not None and fold_number(meta.number) == wanted:

@@ -123,17 +123,19 @@ class Crawler(ABC):
         return await self._scrape(url, options)
 
     def serves_url(self, url: str) -> bool:
-        """该来源是否负责这个 URL: 按域名后缀比对, 同一注册域的不同子域视为同站."""
-        host = urlparse(url).netloc.lower()
-        if not host:
+        """按声明域名及其子域确认归属; www 前缀不参与比较."""
+        try:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower().rstrip(".").removeprefix("www.")
+        except ValueError:
+            return False
+        if parsed.scheme not in {"http", "https"} or not host:
             return False
         for candidate in (self.base_url, *self._profile.urls):
-            chost = urlparse(candidate).netloc.lower()
+            chost = (urlparse(candidate).hostname or "").lower().rstrip(".").removeprefix("www.")
             if not chost:
                 continue
-            if host == chost or host.endswith("." + chost) or chost.endswith("." + host):
-                return True
-            if host.split(".", 1)[-1] == chost.split(".", 1)[-1]:
+            if host == chost or host.endswith("." + chost):
                 return True
         return False
 

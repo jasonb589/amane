@@ -50,6 +50,13 @@ class _PluginProviderAdapter(FilmSourceProvider):
             return result
         return MediaMetadata.model_validate(result)
 
+    def serves_url(self, url: str) -> bool:
+        """插件 API 只声明番号检索, 不参与指定详情页的刮削."""
+        return False
+
+    async def fetch_from_url(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
+        return None
+
     async def check_connectivity(self) -> ConnectivityOutcome:
         """插件可自定探测入口; 未声明 (``None``) 时按 descriptor 的首个 URL 探测."""
         outcome = await self._provider.check_connectivity()
@@ -92,10 +99,10 @@ class CrawlerFactory:
         self._gfriends_repo = gfriends_repo
         self._plugin_manager = plugin_manager
         self._plugin_configs = plugin_configs or {}
-        self._instances: dict[str, Crawler | FilmSourceProvider] = {}
+        self._instances: dict[str, Crawler | _PluginProviderAdapter] = {}
         self._actor_instances: dict[str, ActorCrawler] = {}
 
-    async def get(self, name: str) -> Crawler | FilmSourceProvider | None:
+    async def get(self, name: str) -> Crawler | _PluginProviderAdapter | None:
         """内置来源与插件来源共用一份实例缓存; 分派只在此处, 下游只依赖结构性协议."""
         cached = self._instances.get(name)
         if cached is not None:
@@ -119,7 +126,7 @@ class CrawlerFactory:
             return None
         return await self._get_plugin(manager, name)
 
-    async def _get_plugin(self, manager: PluginManager, name: str) -> FilmSourceProvider | None:
+    async def _get_plugin(self, manager: PluginManager, name: str) -> _PluginProviderAdapter | None:
         # 插件禁用返回 None; data_dir 缺失抛 RuntimeError.
         config = self._plugin_configs.get(name, PluginConfig())
         if not config.enabled:

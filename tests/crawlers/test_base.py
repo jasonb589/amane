@@ -37,6 +37,25 @@ class FakeCrawler(Crawler):
 
 
 class TestCrawlerBase:
+    @pytest.mark.parametrize(
+        ("base_url", "url", "expected"),
+        [
+            ("https://tenhow.net", "https://unrelated.net/work", False),
+            ("https://tenhow.net", "https://tenhow.net.evil.test/work", False),
+            ("https://tenhow.net", "https://www.tenhow.net/work", True),
+            ("https://www.dmm.co.jp", "https://video.dmm.co.jp/work", True),
+            ("https://www.dmm.co.jp", "https://amazon.co.jp/work", False),
+            ("https://www.dmm.co.jp", "https://co.jp/work", False),
+            ("https://www.dmm.co.jp", "https://www.dmm.co.jp:443/work", True),
+            ("https://tenhow.net", "file://tenhow.net/work", False),
+            ("https://tenhow.net", "https://[invalid", False),
+            ("https://tenhow.net", "", False),
+        ],
+    )
+    def test_serves_url_checks_declared_domain(self, base_url: str, url: str, expected: bool) -> None:
+        crawler = FakeCrawler(config=SiteConfig(base_url=base_url))
+        assert crawler.serves_url(url) is expected
+
     @pytest.mark.asyncio
     async def test_fetch(self):
         result = await FakeCrawler(client=None).fetch(SearchQuery("TEST-001"))

@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 import time
 import unicodedata
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, override
 from urllib.parse import quote
@@ -140,7 +141,7 @@ def _keywords(title: str, number: str) -> list[str]:
     tokens = _clean(title).split()
     terms: list[str] = []
     seen: set[str] = set()
-    for size in range(len(tokens), 1, -1):
+    for size in range(len(tokens), 0, -1):
         if size < len(tokens) and not _CJK_RE.search(" ".join(tokens[size:])):
             continue
         term = " ".join(tokens[:size])
@@ -204,7 +205,7 @@ def _search_title(partial: AggregatedMetadata | None, number: str = "") -> str:
     里番没有番号, 文件名里的日文标题就落在 ``query.number`` 上 —— 全部来源都失手时也用它.
     """
     if partial is not None:
-        raw = getattr(partial, "raw", None) or {}
+        raw = partial.raw
         for site in _RAW_TITLE_ORDER:
             entry = raw.get(site)
             if not isinstance(entry, dict):
@@ -253,14 +254,17 @@ def _poster_urls(image_id: str) -> list[str]:
     return [f"{base}.jpg", f"{base}._SL1500_.jpg"]
 
 
+@dataclass
+class _SearchState:
+    """一次刮削的检索状态, 不随工厂缓存的爬虫实例共享."""
+
+    unlock_attempts: int = 0
+    saw_page: bool = False
+    last_error: RequestError | None = None
+
+
 class AmazonCrawler(Crawler):
     """用日文标题补一张高清 DVD 封面, 不提供其它字段."""
-
-    #: 本实例点过几次黑幕弹窗的「Yes」: 每次多一个请求 (带上跳回来的正文), 试两次就够.
-    _unlock_attempts = 0
-
-    #: 本次检索是否真的拿到过结果页; 决定「没搜到」是站点没卖还是抓取坏了.
-    _saw_page = False
 
     @classmethod
     @override
@@ -286,13 +290,13 @@ class AmazonCrawler(Crawler):
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
         started = time.monotonic()
-        self._saw_page = False
+        state = _SearchState()
         title = _search_title(query.partial_result, query.number)
         if len(_norm(title)) < 4:
             return None
 
         for term in _keywords(title, query.number):
-            hit = await self._lookup(term, title, query.number)
+            hit = await self._lookup(term, title, query.number, state)
             if hit is None:
                 continue
             asin, image_id = hit
@@ -314,13 +318,15 @@ class AmazonCrawler(Crawler):
                 source_url=f"{SITE}/dp/{asin}",
                 external_id=asin,
             )
-        if self._saw_page:
+        if state.last_error is not None:
+            raise state.last_error
+        if state.saw_page:
             # 结果页拿到了却没有可用候选: 这个番号在日亚根本没有在售条目, 不是抓取故障.
             # 用独立原因上报, 通知与统计据此区分「站点没卖」和「抓取坏了」.
             raise SourceError(FailureReason.NOT_LISTED, detail=query.number)
         return None
 
-    async def _lookup(self, term: str, title: str, number: str) -> tuple[str, str] | None:
+    async def _lookup(self, term: str, title: str, number: str, state: _SearchState) -> tuple[str, str] | None:
         """用一个检索词搜一次结果页, 返回 (asin, 图片 ID).
 
         先走移动版: 成人条目在那里直接给真封面, 没有黑幕占位图. 移动版没命中才回桌面版,
@@ -328,19 +334,27 @@ class AmazonCrawler(Crawler):
         """
         for mobile in (True, False):
             url = (_MOBILE_SEARCH_URL if mobile else _SEARCH_URL).format(term=quote(term, safe=""))
-            html = await self._fetch_page(url)
+            try:
+                html = await self._fetch_page(url)
+            except RequestError as exc:
+                state.last_error = exc
+                continue
             if html is None:
                 continue
-            self._saw_page = True
-            if not mobile and _CURTAIN_RE.search(html) and self._unlock_attempts < _UNLOCK_LIMIT:
+            state.saw_page = True
+            if not mobile and _CURTAIN_RE.search(html) and state.unlock_attempts < _UNLOCK_LIMIT:
                 # 成人区的卡片在年龄门未确认前只给 60x40 占位图. 资格跟着这一次请求链走,
                 # 单靠 cookie 落地再重取并不可靠 (实测重取回来还是占位图), 所以先吃跳回来的正文.
-                self._unlock_attempts += 1
+                state.unlock_attempts += 1
                 unlocked = await self._unlock(url)
                 if unlocked is not None and _parse_results(unlocked):
                     html = unlocked
                 else:
-                    html = await self._fetch_page(url)
+                    try:
+                        html = await self._fetch_page(url)
+                    except RequestError as exc:
+                        state.last_error = exc
+                        continue
                     if html is None:
                         continue
             hit = self._best(html, term, title, number)
@@ -365,7 +379,7 @@ class AmazonCrawler(Crawler):
         return asin, image_id
 
     async def _fetch_page(self, url: str) -> str | None:
-        """取一页正文; 真正的年龄门重试, 其它网络错误当成没搜到."""
+        """读取页面正文; 年龄门按预算重试, 网络错误交由检索入口尝试下一地址."""
         for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
             try:
                 # 故意用 get_text 而不是 get_html: 通用拦截启发式把结果页里的 "Age Verification"
@@ -373,7 +387,7 @@ class AmazonCrawler(Crawler):
                 html = await self.client.get_text(url, cookies=self.cookies or None)
             except RequestError as exc:
                 self.logger.debug("amazon search failed", error=str(exc))
-                return None
+                raise
             if not _GATE_RE.search(html):
                 return html
             # 真正的年龄门 (/age_check/) 是概率性的: 同一 URL 换一次请求往往就正常,
@@ -416,7 +430,10 @@ class AmazonCrawler(Crawler):
         详情页有时回 200 的 JS 空壳 (一个图像字段都没有): 换入口再试, 全空才放弃.
         """
         for path in _DETAIL_PATHS:
-            html = await self._fetch_page(f"{SITE}{path.format(asin=asin)}")
+            try:
+                html = await self._fetch_page(f"{SITE}{path.format(asin=asin)}")
+            except RequestError:
+                continue
             if html is None:
                 continue
             image_id = _image_from_detail(html)
@@ -430,7 +447,7 @@ def _image_from_detail(html: str) -> str | None:
     """详情页里的封面 ID; 没有返回 None."""
     for pattern in (_OLD_HIRES_RE, _LANDING_IMAGE_RE):
         match = pattern.search(html)
-        if match is not None:
+        if match is not None and match.group(1) not in _PLACEHOLDER_IDS:
             return match.group(1)
     dynamic = _DYNAMIC_IMAGE_RE.search(html)
     if dynamic is not None:

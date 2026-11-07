@@ -7,7 +7,7 @@
 
 插件 API v1 开放**影片元数据来源**与**播放源**. 二者共用 `{cold.data_dir}/plugins/sources/<id>/` 与 HotSettings `plugins.<id>` 信封; 调用路径、输入输出与 Factory 分离. 插件不直接访问 Repository、任务 Worker、FastAPI 或前端运行时.
 
-影片来源通过一个窄接口接收 `SearchQuery` 并返回 `MediaMetadata`, 随后进入现有聚合 DAG. `MediaMetadata.actors` 为 `list[FilmActor]`, 也接受 `list[str]` (性别 `unknown`), API 版本号不因此递增; 性别契约见 [crawlers.md](crawlers.md).
+影片来源接收 `SearchQuery` 并返回 `MediaMetadata`, 进入聚合 DAG; API v1 未声明详情页解析, 指定 URL 时由 `crawlers/factory.py::_PluginProviderAdapter` 排除. `MediaMetadata.actors` 接受 `list[FilmActor]` 与 `list[str]` (性别 `unknown`); 性别契约见 [crawlers.md](crawlers.md).
 
 播放源接收主机装配的当前 Metadata 与关联文件快照, 返回探测结果或由主机执行的播放目标. 浏览器只请求 Amane 同源、已鉴权的固定媒体端点, 上游查找、鉴权、跨域与会话留在后端; HTTP 形状见 [api.md](api.md).
 

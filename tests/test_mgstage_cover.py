@@ -58,3 +58,18 @@ def test_image_urls_upgrade_small_cover_prefix() -> None:
 
 def test_image_urls_empty() -> None:
     assert image_urls("<html>no images</html>") == ([], [], [])
+
+
+def test_image_urls_ignore_recommendations_and_sparse_capture_gaps() -> None:
+    page = (
+        '<img src="https://image.mgstage.com/images/ad/banner.jpg">'
+        '<img src="https://image.mgstage.com/images/other/123/pb_e_other-123.jpg">'
+        '<img src="https://image.mgstage.com/images/other/123/cap_e_999999999_other-123.jpg">'
+        f'<a id="EnlargeImage" href="{BASE_SIRO}pb_e_siro-5755.jpg"></a>'
+        f'<img src="{BASE_SIRO}cap_t1_0_siro-5755.jpg">'
+        f'<img src="{BASE_SIRO}cap_e_2_siro-5755.jpg">'
+    )
+    thumbs, posters, fanart = image_urls(page)
+    assert thumbs == [f"{BASE_SIRO}pb_e_siro-5755.jpg"]
+    assert posters == [f"{BASE_SIRO}pf_e_siro-5755.jpg"]
+    assert fanart == [f"{BASE_SIRO}cap_e_0_siro-5755.jpg", f"{BASE_SIRO}cap_e_2_siro-5755.jpg"]
