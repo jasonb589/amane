@@ -9,10 +9,12 @@ import pytest
 import structlog
 
 from amane.config import HotSettings
+from amane.config.manager import NotifyChannelConfig, NotifyProvider
 from amane.crawlers.block import FailureReason
 from amane.db.models import Task, TaskStatus, TaskType
 from amane.enums import SiteName
 from amane.net import reset_skip_http_body, set_skip_http_body
+from amane.net.redact import sensitive_http
 from amane.observability.export import build_record_zip
 from amane.observability.models import (
     OUTCOME_DETAIL_LIMIT,
@@ -178,6 +180,44 @@ def test_record_http_skip_body(tmp_path: Path, task: Task):
     assert rec._exchanges[0].body is None
     assert rec._exchanges[0].meta.body_file is None
     rec.close()
+
+
+def test_notify_credentials_do_not_enter_default_record_export(tmp_path: Path, task: Task) -> None:
+    task.type = TaskType.ORGANIZE
+    hot = HotSettings()
+    hot.notify.channels = [NotifyChannelConfig(provider=NotifyProvider.TELEGRAM, token="bot-secret", chat_id="chat")]
+    rec = Recorder.begin(tmp_path, task, hot)
+    with sensitive_http("https://custom.test/private-hook", ["header-secret"]):
+        rec.record_http(
+            method="POST",
+            url="https://custom.test/private-hook",
+            status=500,
+            error="header-secret rejected",
+            content_type="text/plain",
+            body=b"header-secret",
+            elapsed_ms=1,
+        )
+    task.status = TaskStatus.FAILED
+    rec.finalize(task, success=False, error="failed", debug_capture=False)
+    with zipfile.ZipFile(BytesIO(build_record_zip(tmp_path, 42))) as archive:
+        all_data = b"".join(archive.read(name) for name in archive.namelist())
+        assert not any(secret in all_data for secret in (b"bot-secret", b"private-hook", b"header-secret"))
+        index = json.loads(archive.read("task-42/http/index.jsonl"))
+        assert index["url"] == "***"
+        assert index["body_file"] is None
+    with zipfile.ZipFile(BytesIO(build_record_zip(tmp_path, 42, include_secrets=True))) as archive:
+        config = json.loads(archive.read("task-42/config.hot.json"))
+        assert config["notify"]["channels"][0]["token"] == "bot-secret"
+
+
+def test_reused_task_directory_does_not_keep_old_secret_snapshot(tmp_path: Path, task: Task) -> None:
+    hot = HotSettings()
+    hot.llm.api_key = "old-secret"
+    rec = Recorder.begin(tmp_path, task, hot)
+    rec.close()
+    clean = Recorder.begin(tmp_path, task, HotSettings())
+    clean.close()
+    assert not (task_dir_for(tmp_path, 42) / SECRETS_HOT_FILENAME).exists()
 
 
 def test_record_site_outcome_merge_keeps_specific_reason(tmp_path: Path, task: Task):

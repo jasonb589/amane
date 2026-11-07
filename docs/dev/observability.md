@@ -72,7 +72,7 @@ Feed 失败记在源的 `last_error`, 不写入站点 outcome 表.
 
 ### 脱敏
 
-默认脱敏 (`manifest.redacted=true`), 占位符 `***`; HTTP 索引不收录 Cookie / Authorization; 无密钥时不写 `.secrets.hot.json`.
+默认脱敏 (`manifest.redacted=true`), 占位符 `***`; HTTP 索引与网络日志经 `net/redact.py` 隐藏 URL 凭据. 通知发送使用 `sensitive_http`, 隐藏渠道地址与已知凭据并禁止录制响应正文; 其配置密钥仅进入 `.secrets.hot.json`, 默认导出不包含该文件. 无密钥时删除同任务 id 残留的私密快照.
 
 ### 回放 CLI
 

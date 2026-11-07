@@ -16,6 +16,7 @@ import structlog
 
 from ..net.errors import FailureReason
 from ..net.recording import bind_http_recorder_lookup, skip_http_body
+from ..net.redact import redact_text, redact_url
 from ..version import get_version
 from .models import (
     OUTCOME_DETAIL_LIMIT,
@@ -164,6 +165,8 @@ class Recorder:
         rec._write_json(root / "config.hot.json", redact_hot(hot_dump))
         if needs_secrets_file(hot_dump):
             rec._write_json(root / SECRETS_HOT_FILENAME, hot_dump)
+        else:
+            (root / SECRETS_HOT_FILENAME).unlink(missing_ok=True)
         return rec
 
     def debug(self, event: str, **kwargs: Any) -> None:
@@ -195,6 +198,8 @@ class Recorder:
         capture_body: bool = True,
     ) -> None:
         """body 只写入 http/, 不写入 task.log."""
+        url = redact_url(url)
+        error = redact_text(error) if error else error
         site = _site_from_context()
         self._seq += 1
         seq = self._seq

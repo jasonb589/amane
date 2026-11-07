@@ -55,6 +55,11 @@ def needs_secrets_file(hot_dump: dict[str, Any]) -> bool:
         for plugin in plugins.values():
             if isinstance(plugin, dict) and _has_secret_value(plugin.get("config")):
                 return True
+    notify = hot_dump.get("notify")
+    if isinstance(notify, dict):
+        for channel in notify.get("channels", []):
+            if isinstance(channel, dict) and any(channel.get(key) for key in _NOTIFY_PRIVATE_FIELDS):
+                return True
     return False
 
 
@@ -103,10 +108,24 @@ def redact_hot(data: dict[str, Any]) -> dict[str, Any]:
             if isinstance(plugin, dict):
                 plugin["config"] = _redact_secret_values(plugin.get("config"))
 
+    notify = out.get("notify")
+    if isinstance(notify, dict):
+        for channel in notify.get("channels", []):
+            if isinstance(channel, dict):
+                for key in _NOTIFY_PRIVATE_FIELDS:
+                    if channel.get(key):
+                        value = channel[key]
+                        channel[key] = (
+                            dict.fromkeys(value, REDACTION_PLACEHOLDER)
+                            if isinstance(value, dict)
+                            else REDACTION_PLACEHOLDER
+                        )
+
     return out
 
 
 _SECRET_KEY_PARTS = ("api_key", "apikey", "token", "secret", "password", "cookie", "credential", "dsn")
+_NOTIFY_PRIVATE_FIELDS = ("token", "url", "headers", "body")
 
 
 def _is_secret_key(key: object) -> bool:

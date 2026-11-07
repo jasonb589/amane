@@ -38,6 +38,11 @@ def test_hot_slice_scrape_drops_noise():
         ({"scraping": {"site_config": {}}, "llm": {}, "network": {}, "r18": {"dsn": "postgresql://u:p@h/db"}}, True),
         ({"scraping": {"site_config": {}}, "llm": {}, "network": {}, "r18": {"read_password": "default"}}, False),
         ({"plugins": {"acme.fake": {"config": {"api_token": "secret"}}}}, True),
+        ({"notify": {"channels": [{"token": "bot-secret"}]}}, True),
+        ({"notify": {"channels": [{"url": "https://hook.test/private"}]}}, True),
+        ({"notify": {"channels": [{"headers": {"Authorization": "secret"}}]}}, True),
+        ({"notify": {"channels": [{"body": "secret"}]}}, True),
+        ({"notify": {"channels": [{"token": "", "url": "", "headers": {}, "body": ""}]}}, False),
     ],
 )
 def test_needs_secrets_file(dump: dict, expected: bool):
@@ -133,6 +138,21 @@ def test_redact_hot_does_not_mutate_input():
     redact_hot(original)
     assert original["scraping"]["site_config"]["javdb"]["cookie"]["a"] == "b"
     assert original["llm"]["api_key"] == "k"
+
+
+def test_notify_private_configuration_is_removed_from_public_snapshot() -> None:
+    channel = {
+        "name": "notification",
+        "provider": "custom",
+        "token": "bot-secret",
+        "url": "https://hook.test/private",
+        "headers": {"X-Key": "custom-secret"},
+        "body": '{"key":"body-secret"}',
+        "text": "{number}",
+    }
+    result = redact_hot({"notify": {"channels": [channel]}})["notify"]["channels"][0]
+    assert result == {**channel, "token": "***", "url": "***", "headers": {"X-Key": "***"}, "body": "***"}
+    assert channel["token"] == "bot-secret"
 
 
 @pytest.mark.parametrize(
