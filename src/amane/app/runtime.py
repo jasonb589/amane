@@ -391,6 +391,7 @@ class AppRuntime:
             repo=self.repo,
             log_dir=self.config.cold.log_dir,
             image_token=self.image_token,
+            resource_store=self.resource_store,
         )
 
     async def apply_rebuild(self) -> None:

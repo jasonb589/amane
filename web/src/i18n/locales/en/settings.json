@@ -723,6 +723,10 @@
             "label": "Show panel button",
             "description": "Add a task panel button when a panel URL is configured"
           },
+          "show_site_failures": {
+            "label": "Show source failures",
+            "description": "Include failed sources in Telegram messages. Off by default; task failure reasons are still shown."
+          },
           "text": {
             "label": "Message body",
             "description": "Plain-text template with {variables}: {type_label} {status} {number} {title} {library} {duration} {finished_at_local} {category_label} {plot} {actors} {tags} {studio} {release} {poster_url} {link} {log_tail} {count} {numbers} {batch} {error}; empty uses the built-in default"

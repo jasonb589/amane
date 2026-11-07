@@ -58,6 +58,7 @@ class _StubRepo:
                 "score": 8.2,
                 "runtime": 120,
                 "content_type": "censored",
+                "raw": {},
             },
         )()
 

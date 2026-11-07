@@ -24,10 +24,11 @@ import structlog
 
 from ..config.manager import NotifyChannelConfig, NotifyConfig, NotifyProvider
 from ..events import Event, EventType
+from ..media.provenance import resolve_image_provenance
 from ..net.errors import RequestError
 from ..net.redact import redact_text, sensitive_http
 from ..parsing import infer_content_type, parse_file_info
-from .telegram import clip_html, clip_text, plain_html
+from .telegram import clip_html, clip_text, plain_html, text_length
 from .templates import render
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 
     from ..db.models import Task
     from ..db.repository import Repository
+    from ..media.resource_store import ResourceStore
     from ..net.http import WebClient
 
 logger = structlog.get_logger()
@@ -77,6 +79,7 @@ _REASON_LABELS: dict[str, str] = {
     "api_error": "接口报错",
     "rate_limited": "被限流",
     "server_error": "服务端 5xx",
+    "site_maintenance": "站点维护中",
     "timeout": "超时",
     "network": "网络错误",
     "cloudflare_challenge": "Cloudflare 挑战",
@@ -279,7 +282,7 @@ def _split_title(text: str) -> tuple[str, str]:
     return head.strip() or "Amane", rest.strip()
 
 
-def _batch_item(variables: dict[str, Any]) -> str:
+def _batch_item(variables: dict[str, Any], *, include_site_failures: bool = True) -> str:
     """合并窗口里的一项: 图标 + 番号 + 类型 (+ 缺哪些源 / 耗时). 供 ``{batch_items}`` 使用.
 
     只用纯文本: 通知正文按 HTML 模式渲染时变量值会被转义, 带上 ``<b>`` 就会原样显示成标签.
@@ -291,7 +294,7 @@ def _batch_item(variables: dict[str, Any]) -> str:
     if label:
         parts.append(label)
     sites = str(variables.get("failed_sites") or "").strip()
-    if sites:
+    if sites and include_site_failures:
         parts.append(f"缺 {sites}")
     duration = str(variables.get("duration") or "").strip()
     if duration:
@@ -341,6 +344,9 @@ def _render_text(channel: NotifyChannelConfig, variables: dict[str, Any]) -> str
     mode = channel.parse_mode if channel.provider is NotifyProvider.TELEGRAM else ""
     default = _DEFAULT_BATCH_TEXT if variables.get("count", 1) > 1 else _DEFAULT_TEXT
     template = (channel.text or default).replace("\\r\\n", "\n").replace("\\n", "\n")
+    if channel.provider is NotifyProvider.TELEGRAM and not channel.show_site_failures:
+        # 兼容用户已保存的 {failed_sites} / {site_failures} 模板, 不必重新填写正文.
+        variables = {**variables, "failed_sites": "", "site_failures": ""}
     text = render(template, variables, html_mode=mode == "HTML", markdown_mode=mode == "MarkdownV2")
     return _squash_lines(text) or text.strip()
 
@@ -351,17 +357,43 @@ def _photo_url(variables: dict[str, Any], panel_url: str, image_token: str | Non
     内部资源 (``/api/resources/...``) 需要面板 token, 用只读图片 token 拼成公网地址
     (``?token=...``, 只能读资源, 不等于 API token); 拼不出来就退到缩略图, 再不行就不带图.
     """
+    return _photo_candidate(variables, panel_url, image_token)[0]
+
+
+def _photo_candidate(variables: dict[str, Any], panel_url: str, image_token: str | None) -> tuple[str, str]:
+    """发送地址与候选字段一同返回, 来源说明必须与实际发送的图片一致."""
     for key in ("poster_url", "thumb_url"):
         raw = str(variables.get(key) or "").strip()
         if not raw:
             continue
         if raw.startswith(("http://", "https://")):
-            return raw
+            return raw, key
         if raw.startswith(_RESOURCE_URL_PREFIX) and panel_url and image_token:
             parts = urlsplit(f"{panel_url.rstrip('/')}{raw}")
             query = [(key, value) for key, value in parse_qsl(parts.query) if key != "token"]
-            return urlunsplit(parts._replace(query=urlencode([*query, ("token", image_token)])))
-    return ""
+            return urlunsplit(parts._replace(query=urlencode([*query, ("token", image_token)]))), key
+    return "", ""
+
+
+def _photo_caption(channel: NotifyChannelConfig, variables: dict[str, Any], rendered: str) -> str:
+    """为来源行保留长度, 避免长剧情将来源截断; 模板已引用来源时不重复追加."""
+    clip = clip_html if channel.parse_mode == "HTML" else clip_text
+    source = str(variables.get("photo_source") or "")
+    clipped = clip(rendered, _MAX_CAPTION)
+    visible = plain_html(clipped) if channel.parse_mode == "HTML" else clipped
+    if channel.parse_mode == "MarkdownV2":
+        visible = re.sub(r"\\([_*\[\]()~`>#+\-=|{}.!\\])", r"\1", visible)
+    if not source or source in visible:
+        return clipped
+    source_line = render(
+        "🖼 来源：{photo_source}",
+        {"photo_source": source},
+        html_mode=channel.parse_mode == "HTML",
+        markdown_mode=channel.parse_mode == "MarkdownV2",
+    )
+    source_line = clip(source_line, 300)
+    size = text_length(plain_html(source_line) if channel.parse_mode == "HTML" else source_line)
+    return f"{clip(rendered, _MAX_CAPTION - size - 1)}\n{source_line}".strip()
 
 
 def build_request(
@@ -384,11 +416,16 @@ def build_request(
         if channel.provider is NotifyProvider.TELEGRAM:
             chat_id = channel.chat_id.strip()
             # 多任务摘要没有单一海报; 避免使用最后一条任务的图片表示整批结果.
-            photo = (
-                _photo_url(variables, panel_url, image_token)
+            photo, photo_key = (
+                _photo_candidate(variables, panel_url, image_token)
                 if channel.send_photo and variables.get("count", 1) == 1
-                else ""
+                else ("", "")
             )
+            variables = {
+                **variables,
+                "photo_source": variables.get(photo_key.replace("_url", "_source"), "") if photo else "",
+            }
+            rendered = _render_text(channel, variables)
             clip = clip_html if channel.parse_mode == "HTML" else clip_text
             payload: dict[str, Any]
             if photo:
@@ -396,7 +433,7 @@ def build_request(
                 payload = {
                     "chat_id": chat_id,
                     "photo": photo,
-                    "caption": clip(rendered, _MAX_CAPTION),
+                    "caption": _photo_caption(channel, variables, rendered),
                 }
             else:
                 method = "sendMessage"
@@ -481,6 +518,7 @@ class NotificationService:
         self._repo: Repository | None = None
         self._log_dir: Path | None = None
         self._image_token: str | None = None
+        self._resource_store: ResourceStore | None = None
         self._pending: dict[tuple[int, bool, str, str], _Pending] = {}
         self._sending: set[asyncio.Task[Any]] = set()
         self._slots = asyncio.Semaphore(4)
@@ -493,6 +531,7 @@ class NotificationService:
         repo: Repository | None,
         log_dir: Path | None,
         image_token: str | None = None,
+        resource_store: ResourceStore | None = None,
     ) -> None:
         """渠道变更清除旧窗口; 已开始发送的请求继续使用其客户端与配置."""
         if self._config != config:
@@ -505,6 +544,7 @@ class NotificationService:
         self._repo = repo
         self._log_dir = log_dir
         self._image_token = image_token
+        self._resource_store = resource_store
 
     @property
     def enabled(self) -> bool:
@@ -593,7 +633,10 @@ class NotificationService:
         number = str(variables.get("number") or "")
         if number:
             pending.numbers[number] = None
-        item = _batch_item(variables)
+        item = _batch_item(
+            variables,
+            include_site_failures=channel.provider is not NotifyProvider.TELEGRAM or channel.show_site_failures,
+        )
         if item and len(pending.items) < _BATCH_ITEMS_LIMIT:
             pending.items.append(item)
         pending.timer = asyncio.create_task(self._flush_later(key, channel, pending.first_at))
@@ -676,7 +719,7 @@ class NotificationService:
         ):
             payload = json.loads(body)
             field_name = "caption" if used_photo else "text"
-            rendered = _render_text(channel, variables)
+            rendered = str(payload.get(field_name) or "")
             plain = (
                 plain_html(rendered)
                 if channel.parse_mode == "HTML"
@@ -806,6 +849,8 @@ class NotificationService:
         title = ""
         poster = ""
         thumb = ""
+        poster_source = ""
+        thumb_source = ""
         plot = ""
         tags = ""
         actors = ""
@@ -829,6 +874,24 @@ class NotificationService:
                 # (DMM 高清 CDN 这类地址可直接交给 Telegram 抓取).
                 poster = metadata.poster_url or (metadata.poster_urls[0] if metadata.poster_urls else "")
                 thumb = metadata.thumb_url or (metadata.thumb_urls[0] if metadata.thumb_urls else "")
+                if poster:
+                    provenance = await resolve_image_provenance(
+                        poster,
+                        self._resource_store,
+                        metadata.raw,
+                        kind="poster",
+                        local_pixels=poster.startswith(_RESOURCE_URL_PREFIX),
+                    )
+                    poster_source = provenance.label
+                if thumb:
+                    provenance = await resolve_image_provenance(
+                        thumb,
+                        self._resource_store,
+                        metadata.raw,
+                        kind="thumb",
+                        local_pixels=thumb.startswith(_RESOURCE_URL_PREFIX),
+                    )
+                    thumb_source = provenance.label
                 plot = metadata.plot or ""
                 tag_list = [str(item) for item in (metadata.tags or []) if str(item).strip()]
                 actor_list = [name for name in map(_actor_name, metadata.actors or []) if name]
@@ -914,6 +977,9 @@ class NotificationService:
             "library": library,
             "poster_url": poster,
             "thumb_url": thumb,
+            "poster_source": poster_source,
+            "thumb_source": thumb_source,
+            "photo_source": "",
             "finished_at": finished,
             "finished_at_local": finished_local,
             "time_short": _short_time(finished_local),
@@ -1006,6 +1072,9 @@ _SAMPLE_VARIABLES: dict[str, Any] = {
     "library": "测试库",
     "poster_url": "",
     "thumb_url": "",
+    "poster_source": "",
+    "thumb_source": "",
+    "photo_source": "",
     "finished_at": "2026-01-01T12:00:00",
     "finished_at_local": "2026-01-01 20:00:00",
     "time_short": "01-01 20:00",

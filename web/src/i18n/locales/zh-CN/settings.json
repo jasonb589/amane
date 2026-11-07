@@ -726,6 +726,10 @@
             "label": "显示面板按钮",
             "description": "配置面板地址后, 在 Telegram 消息下方显示任务面板按钮"
           },
+          "show_site_failures": {
+            "label": "显示来源失败列表",
+            "description": "Telegram 中显示未成功的来源；默认关闭，任务本身的失败原因仍会显示"
+          },
           "test_send": {
             "label": "测试发送",
             "description": "用示例数据真实发送一次 —— 直接按上面填的内容发, 不需要先保存"

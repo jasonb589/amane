@@ -737,6 +737,7 @@ class NotifyChannelConfig(BaseModel):
     message_thread_id: int = Field(default=0, ge=0, description="Telegram 群组话题 ID; 0 表示默认话题")
     disable_notification: bool = Field(default=False, description="Telegram 静音发送, 不触发声音提醒")
     show_link: bool = Field(default=True, description="Telegram 通知附带打开任务面板的按钮")
+    show_site_failures: bool = Field(default=False, description="Telegram 显示逐来源失败列表; 关闭时仍保留任务失败原因")
     events: list[NotifyEvent] = Field(
         default_factory=lambda: [NotifyEvent.COMPLETED, NotifyEvent.FAILED],
         description="订阅的事件; 空 = 全部",
