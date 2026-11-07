@@ -2342,6 +2342,7 @@ export const FailureReasonSchema = {
         'not_found',
         'rate_limited',
         'server_error',
+        'site_maintenance',
         'timeout',
         'network',
         'cloudflare_challenge',
@@ -6150,6 +6151,16 @@ export const MetadataResponseSchema = {
             title: 'Locked Fields',
             default: []
         },
+        nfo_sync: {
+            anyOf: [
+                {
+                    $ref: '#/components/schemas/NfoSyncResult'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
         file_count: {
             type: 'integer',
             title: 'File Count',
@@ -6347,6 +6358,33 @@ export const NetworkConfigSchema = {
     title: 'NetworkConfig'
 } as const;
 
+export const NfoSyncResultSchema = {
+    properties: {
+        written: {
+            type: 'integer',
+            title: 'Written',
+            default: 0
+        },
+        skipped: {
+            type: 'integer',
+            title: 'Skipped',
+            default: 0
+        },
+        failed: {
+            type: 'integer',
+            title: 'Failed',
+            default: 0
+        },
+        unlocated: {
+            type: 'boolean',
+            title: 'Unlocated',
+            default: false
+        }
+    },
+    type: 'object',
+    title: 'NfoSyncResult'
+} as const;
+
 export const NotifyChannelConfigSchema = {
     properties: {
         name: {
@@ -6444,6 +6482,12 @@ export const NotifyChannelConfigSchema = {
             title: 'Show Link',
             description: 'Telegram 通知附带打开任务面板的按钮',
             default: true
+        },
+        show_site_failures: {
+            type: 'boolean',
+            title: 'Show Site Failures',
+            description: 'Telegram 显示逐来源失败列表; 关闭时仍保留任务失败原因',
+            default: false
         },
         events: {
             items: {
@@ -11188,7 +11232,8 @@ export const WatcherConfigSchema = {
                 type: 'string'
             },
             type: 'array',
-            title: 'Escape Strings'
+            title: 'Escape Strings',
+            'x-long': true
         }
     },
     type: 'object',

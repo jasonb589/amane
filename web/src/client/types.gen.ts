@@ -1420,7 +1420,7 @@ export type FacetSortField = 'name' | 'count';
  *
  * summary.json / task report 的 reason 字段.
  */
-export type FailureReason = 'http_error' | 'api_error' | 'not_found' | 'rate_limited' | 'server_error' | 'timeout' | 'network' | 'cloudflare_challenge' | 'cloudflare_blocked' | 'ip_banned' | 'geo_restricted' | 'age_verification' | 'login_required' | 'empty_response' | 'no_usable_metadata' | 'not_listed' | 'parse_error' | 'crawler_unavailable' | 'unexpected';
+export type FailureReason = 'http_error' | 'api_error' | 'not_found' | 'rate_limited' | 'server_error' | 'site_maintenance' | 'timeout' | 'network' | 'cloudflare_challenge' | 'cloudflare_blocked' | 'ip_banned' | 'geo_restricted' | 'age_verification' | 'login_required' | 'empty_response' | 'no_usable_metadata' | 'not_listed' | 'parse_error' | 'crawler_unavailable' | 'unexpected';
 
 /**
  * FeedCreateRequest
@@ -3039,6 +3039,7 @@ export type MetadataResponse = {
      * Locked Fields
      */
     locked_fields?: Array<MetadataField>;
+    nfo_sync?: NfoSyncResult | null;
     /**
      * File Count
      */
@@ -3143,6 +3144,28 @@ export type NetworkConfig = {
 };
 
 /**
+ * NfoSyncResult
+ */
+export type NfoSyncResult = {
+    /**
+     * Written
+     */
+    written?: number;
+    /**
+     * Skipped
+     */
+    skipped?: number;
+    /**
+     * Failed
+     */
+    failed?: number;
+    /**
+     * Unlocated
+     */
+    unlocated?: boolean;
+};
+
+/**
  * NotifyChannelConfig
  *
  * 一个通知渠道: 事件筛选 + 模板. ``url`` 与 ``body`` 都支持 ``{变量}`` 占位.
@@ -3237,6 +3260,12 @@ export type NotifyChannelConfig = {
      * Telegram 通知附带打开任务面板的按钮
      */
     show_link?: boolean;
+    /**
+     * Show Site Failures
+     *
+     * Telegram 显示逐来源失败列表; 关闭时仍保留任务失败原因
+     */
+    show_site_failures?: boolean;
     /**
      * Events
      *

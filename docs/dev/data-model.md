@@ -27,7 +27,7 @@
 
 类型 (`content_type`) 是**番号的属性**, 落在 `Metadata`: 只在条目创建时落定 (有发现路径时随其路径关键词, 否则只依据番号), 番号不可改, 因此不随文件增删或后续刮削漂移; 它决定刮削路由, 也供「类型」筛选与有码 / 无码角标使用, 不进对外 PATCH. `ContentType.chinese` 是国产, 不是中字.
 
-文件相位 (`mosaic` / `definition` 与中字的文件名标记列) 是 **path 的投影**, 落在 `MediaFile`: 创建与修改 path 时用同一次 `parse_file_info` 回填, 不纳入对外 PATCH; `cd` 只用于 ORGANIZE 分集配对, 不落库. `mosaic` 只写入文件名与目录整段词表命中的马赛克标记 (无码 / 破解 / 流出); 同一次解析命中多个标记时取破解, 其次流出, 再次无码. 中字是两个来源的并集: 文件名的中字标记 (`has_subtitle_in_name`, path 的投影) 与视频同目录存在库 `subtitle_extensions` 命中的字幕 (`has_external_subtitle`, 在登记 / 修改 path / 库扫描时各检查一次; 外挂字幕只在整理落盘时作为 `parse_file_info` 的入参并进 `FileInfo.has_subtitle`, 不改变入库的路径投影). 两者都不校验语言文字, 与 ORGANIZE 的字幕配对口径相同; 目录读取不到时按无字幕处理. 只删除字幕不会触发复查, 视频重新登记、更换 path 或所在库被扫描时才回退. 并集在 Python 是 `MediaFile.has_subtitle` (property), SQL 侧必须改用 `db/models.py::has_subtitle_predicate`, 两处口径必须一致.
+文件相位 (`mosaic` / `definition` 与中字的文件名标记列) 是 **path 的投影**, 落在 `MediaFile`: 创建与修改 path 时经 `parse_file_info` 回填, 不纳入对外 PATCH; `cd` 只用于 ORGANIZE 分集配对, 不落库. `src/amane/handlers/refresh.py::RefreshHandler._sync_file_phase` 按当前过滤规则刷新本次扫描命中的既有行, 仅相位或字幕变化时写入, 不修改番号与元数据绑定; 启动不全库回填. `mosaic` 只采用文件名与目录整段词表命中, 多种标记按破解、流出、无码取首项. 中字合并文件名标记 (`has_subtitle_in_name`) 与同目录命中库 `subtitle_extensions` 的字幕 (`has_external_subtitle`, 登记 / 修改 path / 库扫描时检查); 外挂字幕只在整理时传入 `parse_file_info` 并入 `FileInfo.has_subtitle`, 不改变路径投影. 两者都不校验字幕语言; 目录读取不到按无字幕处理. 只删除字幕不触发复查, 视频重新登记、更换 path 或所在库被扫描时才回退. Python 的 `MediaFile.has_subtitle` 与 SQL 的 `db/models.py::has_subtitle_predicate` 必须保持同一口径.
 
 Metadata 列表与 `/media` 文件行的角标与筛选: 有码 / 无码取条目类型 (没有挂载文件也成立), 无码再并上「存在无码标记的文件」; 中字 / 分辨率 / 破解 / 流出按关联 EXISTS 或页级聚合 (`file_phase`) 判定, 任一挂载文件具备即亮, `definition` 取最高档; 布尔取值的口径见 [api.md](api.md). 文件行同样返回派生的 `censored` / `uncensored`: `censored` 取这一份文件的性质 (带无码标记的副本不算有码), `uncensored` 与列表筛选同口径, 未绑定条目的文件只看自身标记. VR 标识与 `GET /metadata` 的 `vr` 筛选不来自文件相位, 也不物化: 只依据 `Metadata.tags` 与 `parsing/file_info.py::VR_TAGS` 的整体相等判定, 番号不参与; Python 与 SQL 两侧共用同一份词表 (`db/models.py::metadata_vr_predicate`, 用法同 `has_subtitle_predicate`), 因此重命名 / 合并标签后判定立即变化, 无需回填. 代价是判定随 `tags` 的单源取值: 字段链首个非空站点不给 VR 标签的条目判为否.
 
@@ -93,10 +93,10 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 
 | 操作 | 级联行为 | 后果 |
 |------|---------|------|
-| `MediaFile` 删除 | 不级联 Metadata | Metadata 是一等公民; 文件索引消失不影响元数据条目 |
-| `Metadata` 删除 | **nullify** `MediaFile.metadata_id`, 状态回 `PENDING` | 应用层级联 (`delete_metadata`); 文件本身保留, 可再刮削 |
-| `Metadata` 合并 | 来源的 `MediaFile` / `Comment` / `MetadataUserTag` 改挂 target 并去重, 分类投影与来源条目删除 | `merge_metadata_entries`; target 字段与锁定不变, `raw` 只补目标缺失的站点 (来源之间按传入顺序), 不重新聚合 |
-| `Library` 删除 | **级联删除** `MediaFile` | 应用层级联 (`delete_library` 先 flush 删子表再删库, 无 ORM relationship). 仅删 DB 索引, 不动磁盘文件; 路由层同时 `remove_library` 停止监控 |
+| `MediaFile` 删除 | 不级联 Metadata 或 `NfoOutput` | 文件索引消失不影响元数据条目或实际 NFO 输出记录 |
+| `Metadata` 删除 | **nullify** `MediaFile.metadata_id`, 状态回 `PENDING`; 删除 `NfoOutput` | 应用层级联 (`delete_metadata`); 文件本身保留, 可再刮削 |
+| `Metadata` 合并 | 来源的 `MediaFile` / `NfoOutput` / `Comment` / `MetadataUserTag` 改挂 target 并去重, 分类投影与来源条目删除 | `merge_metadata_entries`; target 字段与锁定不变, `raw` 只补目标缺失的站点 (来源之间按传入顺序), 不重新聚合 |
+| `Library` 删除 | **级联删除** `MediaFile` 与 `NfoOutput` | 应用层级联 (`delete_library` 先 flush 删子表再删库, 无 ORM relationship). 仅删 DB 索引, 不动磁盘文件; 路由层同时 `remove_library` 停止监控 |
 | `Feed` 删除 | **级联删除** `FeedItem` | 应用层级联; 已入队的 SCRAPE / Metadata 不受影响 |
 | `UserTag` 删除 | **级联删除**两张关联表的挂载行 | 应用层级联 (不依赖 FK pragma); 合并用户标签时源标签的挂载先迁入 target 再删实体 |
 | `Actor` 删除 / 合并 | 删除其标签挂载行; 合并时源演员的挂载并入 target | 应用层级联, 与别名行同处处理 |
@@ -124,6 +124,8 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 `link_template` 为空则不创建链接, 非空时 ORGANIZE 在视频就位后按该模板写一条指向真实视频的链接 (`link_mode=strm` 写 `.strm`, `symlink` 做符号链接). 链接必须在库外, 否则 REFRESH 会把链接再扫描为媒体. `.strm` 正文由库级 `strm_content_template` 决定 (空则写一行视频绝对路径); 模板引用 `{video_relpath}` 且整理后路径不在本库内时失败, 不写出错误正文. 默认附属模板用 `{link_dir}`, 因此填链接模板后 NFO / 海报自动跟随链接.
 
 模板语言在 `organize/template.py`, 只约束以下几点: 占位符分相位注入 (`metadata` → file 相位 → `apply_video` → `apply_link`), file 相位未检出是**空串**不是 `Unknown`; 渲染时把 `{title}` / `{actor}` 等分量截到 200 UTF-8 字节 (不切开多字节字符), 但不截断渲染后的路径分量; 可选组 `[...]` 内直接占位符全空则整段丢弃, 有一个非空时其余输出空串. 普通占位符缺失回退 `Unknown`. **段名按 Windows 创建结果对齐**: 每个路径段去掉段尾的 `.` 与空格, 控制字符替换为空格 — 创建与 `os.path.abspath` 对段尾字符的处理不同, 不对齐会让索引记录磁盘上不存在的名字; `.` / `..` 原样保留给逃逸检查. **逃逸防护**: 校验对渲染结果做 realpath (跟随符号链接), 相对模板的真实写出路径必须在本库内 (`ALLOW_ALL` 也不例外), 绝对模板必须位于本库或 `safe_dirs` 内, 否则 `ValueError`; 多盘分存要求目标盘在 `safe_dirs` 内. 细则见 `organize/path_templates.py`.
+
+NFO 编辑同步优先使用 `src/amane/handlers/file.py::execute_file_operations` 在视频就位后、NFO 写入前登记的位置, 写入失败仍保留以供后续编辑补写; 同一输出只允许属于一个 Metadata. 整理与 `src/amane/media/nfo_sync.py::sync_metadata_nfos` 共用同步锁, 取得锁后重读最新元数据. 回写遵守当前库的 `write_nfo` 与安全目录, 要求视频和目标父目录仍存在, 不重建目录、不覆盖符号链接或其他影片的 NFO. 缺少输出记录时, 只用编辑前元数据还原可确定的既有 NFO 路径; 库外媒体索引已删除时仅尝试可完整还原的模板, 必须同时找到视频与 NFO, 不遍历目录或模糊匹配. 接口结果语义见 [api.md](api.md)「元数据编辑回写」.
 
 ## Resource (一等存储, 非缓存)
 
