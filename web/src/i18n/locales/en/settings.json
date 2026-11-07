@@ -861,8 +861,8 @@
     },
     "llm": {
       "enabled": {
-        "label": "Enable LLM Translation",
-        "description": "Translate text fields during scrape"
+        "label": "Enable General Field Translation",
+        "description": "Translate the selected fields during scraping; Western tags can be enabled separately"
       },
       "api_key": {
         "label": "API Key",
@@ -887,8 +887,8 @@
         "label": "Max requests per second"
       },
       "translate_fields": {
-        "label": "Fields to Translate",
-        "description": "Currently only title and plot are supported",
+        "label": "General Fields to Translate",
+        "description": "Supports title, plot, and tags",
         "$": {
           "options": {
             "title": "Title",
@@ -907,6 +907,20 @@
             "extrafanart": "Stills",
             "score": "Score"
           }
+        }
+      },
+      "translate_western_tags": {
+        "label": "Translate Western Tags Separately",
+        "description": "Translate Western titles' tags using this page's API and model settings, even when general field translation is off"
+      },
+      "western_tags_language": {
+        "label": "Western Tag Target Language",
+        "description": "Used only for separate Western tag translation; other fields' language preferences stay unchanged",
+        "options": {
+          "zh_cn": "Simplified Chinese",
+          "zh_tw": "Traditional Chinese",
+          "jp": "Japanese",
+          "en": "English"
         }
       },
       "system_prompt": {

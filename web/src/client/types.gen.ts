@@ -2068,6 +2068,11 @@ export type LlmConfig = {
      */
     translate_fields?: Array<MetadataField>;
     /**
+     * Translate Western Tags
+     */
+    translate_western_tags?: boolean;
+    western_tags_language?: Language;
+    /**
      * System Prompt
      */
     system_prompt?: string | null;

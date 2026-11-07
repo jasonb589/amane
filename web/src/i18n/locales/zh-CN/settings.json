@@ -852,8 +852,8 @@
     },
     "llm": {
       "enabled": {
-        "label": "启用 LLM 翻译",
-        "description": "刮削时翻译文本字段"
+        "label": "启用通用字段翻译",
+        "description": "刮削时翻译下方选中的字段；欧美标签可单独启用翻译"
       },
       "api_key": {
         "label": "API 密钥",
@@ -878,8 +878,8 @@
         "label": "每秒请求上限"
       },
       "translate_fields": {
-        "label": "翻译字段",
-        "description": "当前仅支持标题/剧情",
+        "label": "通用翻译字段",
+        "description": "支持标题、剧情和标签",
         "$": {
           "options": {
             "title": "标题",
@@ -898,6 +898,20 @@
             "extrafanart": "剧照",
             "score": "评分"
           }
+        }
+      },
+      "translate_western_tags": {
+        "label": "单独翻译欧美标签",
+        "description": "单独翻译欧美影片标签，共用本页 API 与模型设置；关闭通用字段翻译时仍可启用"
+      },
+      "western_tags_language": {
+        "label": "欧美标签目标语言",
+        "description": "仅用于欧美标签独立翻译；不会更改其他字段的语言偏好",
+        "options": {
+          "zh_cn": "简体中文",
+          "zh_tw": "繁体中文",
+          "jp": "日语",
+          "en": "英语"
         }
       },
       "system_prompt": {

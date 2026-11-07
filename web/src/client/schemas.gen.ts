@@ -3679,6 +3679,8 @@ export const HotSettingsSchema = {
                     'title',
                     'plot'
                 ],
+                translate_western_tags: false,
+                western_tags_language: 'zh_cn',
                 field_prompts: {},
                 api_type: 'chat',
                 base_url: 'https://api.openai.com/v1',
@@ -4107,6 +4109,15 @@ export const LLMConfigSchema = {
             },
             type: 'array',
             title: 'Translate Fields'
+        },
+        translate_western_tags: {
+            type: 'boolean',
+            title: 'Translate Western Tags',
+            default: false
+        },
+        western_tags_language: {
+            $ref: '#/components/schemas/Language',
+            default: 'zh_cn'
         },
         system_prompt: {
             anyOf: [
