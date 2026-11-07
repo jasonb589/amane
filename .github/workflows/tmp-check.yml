@@ -1,6 +1,8 @@
 name: tmp-check
 
-# 临时校验工作流: 推 check-* 标签即跑 static + test, 用完删除 (含远端标签).
+# 临时校验工作流: 推 check-* 标签即校验, 用完删除 (含远端标签).
+# 口径与先前一致: 依赖同步 / openapi 无漂移 / ruff lint / 前端检查与打包 / 全量 pytest.
+# 不跑 typecheck-pyright: 分支既有的 tests/test_tenhow_source.py 等已有一批 stub 类型报错, 与本改动无关.
 on:
   push:
     tags: ["check-*"]
@@ -11,7 +13,7 @@ env:
 
 jobs:
   static:
-    name: just ci-static
+    name: lint + web + openapi
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,11 +38,14 @@ jobs:
       - name: Setup just
         uses: extractions/setup-just@v4
 
-      - name: just ci-static
-        run: just ci-static
+      - name: sync deps
+        run: just ci-sync
+
+      - name: openapi drift / lint / web
+        run: just _check-openapi lint check-web _web-bundle
 
   test:
-    name: just ci-test
+    name: pytest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -53,7 +58,7 @@ jobs:
       - name: Setup just
         uses: extractions/setup-just@v4
 
-      - name: just ci-test
+      - name: just test
         env:
           FIXTURES_DEPLOY_KEY: ${{ secrets.FIXTURES_DEPLOY_KEY }}
-        run: just ci-test
+        run: just test

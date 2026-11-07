@@ -5,7 +5,7 @@ mgstage 要多问一次回放器, works 站要多查一次附件, 官网直接�
 """
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 from amane.crawlers.sites.dahlia import DahliaCrawler
 from amane.crawlers.sites.mgstage import MGStageCrawler
@@ -50,7 +50,7 @@ _MG_PLAYER = '{"html": "<script>var movie = \'' + TRAILER + "';</script>\"}"
 def test_mgstage_trailer_from_sample_player() -> None:
     """详情页只给 pid, 得再问一次回放器才拿得到 mp4."""
     client = _StubClient(pages={_MG_PAGE_URL: _MG_PAGE, _MG_PLAYER_URL: _MG_PLAYER})
-    crawler = MGStageCrawler(client)
+    crawler = MGStageCrawler(cast(Any, client))
 
     meta = asyncio.run(crawler._scrape(_MG_PAGE_URL))
 
@@ -63,7 +63,7 @@ def test_mgstage_without_player_pid_skips_trailer() -> None:
     """没有回放器入口的页面 (老模板) 不该产出预告片, 也不该多打一次请求."""
     page = '<div id="center_column"><div><h1>タイトル</h1></div></div>'
     client = _StubClient(pages={_MG_PAGE_URL: page})
-    crawler = MGStageCrawler(client)
+    crawler = MGStageCrawler(cast(Any, client))
 
     meta = asyncio.run(crawler._scrape(_MG_PAGE_URL))
 
@@ -94,7 +94,7 @@ def test_works_site_trailer_from_media_attachment() -> None:
             _DAHLIA_MEDIA_URL: {"source_url": TRAILER, "guid": {"rendered": "https://example.test/other.mp4"}},
         }
     )
-    crawler = DahliaCrawler(client)
+    crawler = DahliaCrawler(cast(Any, client))
 
     meta = asyncio.run(crawler._scrape(_DAHLIA_WORKS_URL))
 
@@ -111,7 +111,7 @@ def test_works_site_trailer_falls_back_to_guid() -> None:
             _DAHLIA_MEDIA_URL: {"guid": {"rendered": TRAILER}},
         }
     )
-    crawler = DahliaCrawler(client)
+    crawler = DahliaCrawler(cast(Any, client))
 
     meta = asyncio.run(crawler._scrape(_DAHLIA_WORKS_URL))
 
@@ -123,7 +123,7 @@ def test_works_site_without_sample_field_skips_media_request() -> None:
     """没有预告片的作品不该产生 media 请求."""
     works = [{**_DAHLIA_WORKS[0], "acf": {"作品名": "タイトル"}}]
     client = _StubClient(payloads={_DAHLIA_WORKS_URL: works})
-    crawler = DahliaCrawler(client)
+    crawler = DahliaCrawler(cast(Any, client))
 
     meta = asyncio.run(crawler._scrape(_DAHLIA_WORKS_URL))
 
@@ -135,7 +135,7 @@ def test_works_site_without_sample_field_skips_media_request() -> None:
 def test_works_site_survives_media_fetch_failure() -> None:
     """附件取不到只丢预告片, 其余字段照常返回."""
     client = _StubClient(payloads={_DAHLIA_WORKS_URL: _DAHLIA_WORKS})
-    crawler = DahliaCrawler(client)
+    crawler = DahliaCrawler(cast(Any, client))
 
     meta = asyncio.run(crawler._scrape(_DAHLIA_WORKS_URL))
 
@@ -158,7 +158,7 @@ _OFFICIAL_PAGE = """<html><head><title>テスト作品 | 人気メーカー【MO
 def test_official_trailer_from_inline_video() -> None:
     """官网作品页自带 <video src>, 不额外请求."""
     client = _StubClient(pages={_OFFICIAL_URL: _OFFICIAL_PAGE})
-    crawler = OfficialCrawler(client)
+    crawler = OfficialCrawler(cast(Any, client))
 
     meta = asyncio.run(crawler._scrape(_OFFICIAL_URL))
 
