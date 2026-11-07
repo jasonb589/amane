@@ -19,7 +19,7 @@ DEFAULT_CHANGELOG = ROOT / "CHANGELOG.md"
 
 # ``## v0.5.0`` / ``## [0.5.0] - 2026-08-27`` / ``## 0.5.0``
 _H2 = re.compile(r"^##[ \t]+(\S.*?)\s*$")
-_VERSION_TITLE = re.compile(r"^\[?v?(\d+\.\d+\.\d+)\]?(?:\s+.*)?$", re.IGNORECASE)
+_VERSION_TITLE = re.compile(r"^\[?v?(\d+\.\d+\.\d+(?:-custom\.\d+)?)\]?(?:\s+.*)?$", re.IGNORECASE)
 
 
 class ChangelogError(Exception):

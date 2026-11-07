@@ -187,12 +187,12 @@ android-check:
 # Full local gate: generate → fix → check → build
 all: generate fix check build
 
-# Bump version, generate client, commit, tag vX.Y.Z (does not push)
+# Bump product or custom image version, generate client, commit and tag (does not push)
 bump kind:
     uv run python scripts/bump_version.py precheck {{ kind }}
-    uv version --bump {{ kind }}
+    uv run python scripts/bump_version.py update {{ kind }}
     just generate
-    uv run python scripts/bump_version.py commit
+    uv run python scripts/bump_version.py commit {{ kind }}
 
 # Preview next version / commit / tag (no writes)
 bump-dry kind:

@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""发版管线里的检查与白名单提交. 不负责 ``uv version`` 与 ``just generate``.
+"""发版管线里的检查、版本更新与白名单提交. ``just generate`` 由 Justfile 编排.
 
-``pyproject.toml`` 是产品版本的唯一手写源; ``CHANGELOG.md`` 对应版本节是 GitHub Release 正文的唯一手写源. 对外入口是 ``just bump`` (Justfile 编排预定义命令).
+产品版本由 ``pyproject.toml`` 提供, 自定义镜像版本由 ``_custom_version.py`` 提供; ``CHANGELOG.md`` 对应版本节提供发布说明. 对外入口是 ``just bump``.
 
 用法 (由 Justfile 调用)::
 
     uv run python scripts/bump_version.py precheck patch [--dry-run]
     uv run python scripts/bump_version.py commit
 
-对外入口: ``just bump patch`` / ``just bump-dry patch``.
+对外入口: ``just bump patch`` / ``just bump custom`` / ``just bump-dry custom``.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -23,7 +24,9 @@ from typing import Literal
 ROOT = Path(__file__).resolve().parents[1]
 
 BumpKind = Literal["major", "minor", "patch"]
-BUMP_CHOICES: tuple[BumpKind, ...] = ("major", "minor", "patch")
+BUMP_CHOICES = ("major", "minor", "patch", "custom")
+CUSTOM_VERSION_PATH = "src/amane/_custom_version.py"
+_CUSTOM_VERSION = re.compile(r'(?m)^VERSION = "([^"]*)"$')
 
 # 整段 bump 管线结束后只允许这些相对路径出现在 git 变更里; 以 ``/`` 结尾的是目录前缀.
 ALLOWED_PATHS: frozenset[str] = frozenset(
@@ -38,6 +41,7 @@ ALLOWED_PATHS: frozenset[str] = frozenset(
 
 # precheck 时允许已写好、尚未提交的 changelog; 其它脏文件仍拒绝.
 PREBUMP_ALLOWED_PATHS: frozenset[str] = frozenset({"CHANGELOG.md"})
+CUSTOM_ALLOWED_PATHS = frozenset({"CHANGELOG.md", CUSTOM_VERSION_PATH, "web/openapi.json", "web/src/client/"})
 
 
 class BumpError(Exception):
@@ -141,6 +145,28 @@ def print_plan(current: str, new: str) -> None:
     print(f"tag: {tag_name(new)}")  # noqa: T201
 
 
+def custom_versions(root: Path) -> tuple[str, str]:
+    source = (root / CUSTOM_VERSION_PATH).read_text(encoding="utf-8")
+    matches = _CUSTOM_VERSION.findall(source)
+    if len(matches) != 1:
+        raise BumpError("自定义版本文件必须包含唯一 VERSION 声明")
+    current = matches[0]
+    base = read_uv_version(root)
+    previous = re.fullmatch(rf"{re.escape(base)}-custom\.(\d+)", current)
+    number = int(previous[1]) + 1 if previous else 1
+    return current, f"{base}-custom.{number}"
+
+
+def update_version(root: Path, kind: str) -> None:
+    if kind != "custom":
+        read_uv_version(root, bump=_parse_kind(kind))
+        return
+    _, version = custom_versions(root)
+    path = root / CUSTOM_VERSION_PATH
+    source = _CUSTOM_VERSION.sub(f'VERSION = "{version}"', path.read_text(encoding="utf-8"))
+    path.write_text(source, encoding="utf-8", newline="\n")
+
+
 def require_changelog(root: Path, version: str) -> None:
     script = Path(__file__).resolve().parent / "changelog.py"
     path = root / "CHANGELOG.md"
@@ -162,10 +188,13 @@ def require_prebump_clean(changed: frozenset[str]) -> None:
         raise BumpError(f"工作区不干净, 拒绝 bump: {listing}")
 
 
-def precheck(root: Path, kind: BumpKind, *, dry_run: bool) -> str:
+def precheck(root: Path, kind: str, *, dry_run: bool) -> str:
     require_prebump_clean(git_changed_paths(root))
-    current = read_uv_version(root)
-    new = read_uv_version(root, bump=kind, dry_run=True)
+    if kind == "custom":
+        current, new = custom_versions(root)
+    else:
+        current = read_uv_version(root)
+        new = read_uv_version(root, bump=_parse_kind(kind), dry_run=True)
     if new == current:
         raise BumpError(f"版本未变化: {current}")
     tag = tag_name(new)
@@ -178,20 +207,22 @@ def precheck(root: Path, kind: BumpKind, *, dry_run: bool) -> str:
     return new
 
 
-def commit_release(root: Path) -> None:
-    version = read_uv_version(root)
+def commit_release(root: Path, kind: str = "patch") -> None:
+    version = custom_versions(root)[0] if kind == "custom" else read_uv_version(root)
     tag = tag_name(version)
     if tag_exists(root, tag):
         raise BumpError(f"tag 已存在: {tag}")
     require_changelog(root, version)
     changed = git_changed_paths(root)
-    unexpected = extra_paths(changed)
+    allowed = CUSTOM_ALLOWED_PATHS if kind == "custom" else ALLOWED_PATHS
+    unexpected = extra_paths(changed, allowed)
     if unexpected:
         listing = ", ".join(sorted(unexpected))
         raise BumpError(f"bump 改动了白名单以外的文件, 已中止提交: {listing}")
-    to_add = allowed_changed(changed)
-    if "pyproject.toml" not in to_add:
-        raise BumpError("uv version 未改 pyproject.toml")
+    to_add = allowed_changed(changed, allowed)
+    required = CUSTOM_VERSION_PATH if kind == "custom" else "pyproject.toml"
+    if required not in to_add:
+        raise BumpError(f"版本文件未修改: {required}")
     git(root, "add", "--", *to_add)
     git(root, "commit", "-m", commit_message(version))
     git(root, "tag", "-a", tag, "-m", tag)
@@ -205,14 +236,19 @@ def main(argv: list[str] | None = None) -> int:
     pre.add_argument("kind", choices=BUMP_CHOICES, help="要升高的 semver 段")
     pre.add_argument("--dry-run", action="store_true", help="只预览, 不写文件")
 
-    sub.add_parser("commit", help="按白名单 git add / commit / tag")
+    update = sub.add_parser("update", help="更新产品版本或自定义镜像版本")
+    update.add_argument("kind", choices=BUMP_CHOICES)
+    commit = sub.add_parser("commit", help="按白名单 git add / commit / tag")
+    commit.add_argument("kind", choices=BUMP_CHOICES, nargs="?", default="patch")
 
     args = parser.parse_args(argv)
     try:
         if args.step == "precheck":
-            precheck(ROOT, _parse_kind(args.kind), dry_run=args.dry_run)
+            precheck(ROOT, args.kind, dry_run=args.dry_run)
+        elif args.step == "update":
+            update_version(ROOT, args.kind)
         elif args.step == "commit":
-            commit_release(ROOT)
+            commit_release(ROOT, args.kind)
         else:
             raise BumpError(f"未知步骤: {args.step}")
     except BumpError as e:
