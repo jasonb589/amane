@@ -1,0 +1,55 @@
+name: tmp-fmtweb
+
+on:
+  push:
+    tags: ["fmtw-*"]
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11"
+
+jobs:
+  fmt:
+    name: oxfmt + oxlint --fix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: custom
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Setup just
+        uses: extractions/setup-just@v4
+
+      - name: install web deps
+        run: just _web-install-ci
+
+      - name: fix web
+        run: just fix-web
+
+      - name: commit and push
+        run: |
+          git config user.name "jasonb589"
+          git config user.email "jasonb589@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "already clean"
+          else
+            git diff --cached --stat
+            git commit -m "chore: oxfmt + oxlint --fix"
+            git push origin HEAD:custom
+          fi
