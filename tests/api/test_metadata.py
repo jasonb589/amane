@@ -350,6 +350,40 @@ class TestMetadataHttp:
         assert orphan_resp.status_code == 200
         assert (moved_dir / "poster.jpg").is_file()
 
+        # 回写使用现存视频位置与海报模板, 不按 video_template 再次计算移动位置.
+        await repo.update_library(library.id, poster_template="{video_dir}/{video_name}-poster.jpg")
+        custom = await client.post(
+            f"metadata/{meta.id}/crop-poster", json={"left": 421, "top": 0, "right": 800, "bottom": 538}
+        )
+        assert custom.status_code == 200
+        assert (linked_dir / "CROP-010-poster.jpg").is_file()
+
+        missing_dir = tmp_path / "missing-source"
+        await repo.create_media_file(library_id=library.id, path=str(missing_dir / "CROP-010.mp4"), metadata_id=meta.id)
+        links = tmp_path / "files" / "links"
+        await repo.update_library(
+            library.id,
+            path=str(linked_dir),
+            link_template=str(links / "{number}" / "{video_name}.strm"),
+            poster_template="{link_dir}/{link_name}-poster.jpg",
+        )
+        linked = await client.post(
+            f"metadata/{meta.id}/crop-poster", json={"left": 421, "top": 0, "right": 800, "bottom": 538}
+        )
+        assert linked.status_code == 200
+        assert (links / "CROP-010" / "CROP-010-poster.jpg").is_file()
+        assert not missing_dir.exists()
+
+        # 非法模板与指向媒体本身的模板不应改变视频或写入边界外.
+        for template in ("../escaped-poster.jpg", "{video_dir}/{video_name}.mp4"):
+            await repo.update_library(library.id, poster_template=template)
+            rejected = await client.post(
+                f"metadata/{meta.id}/crop-poster", json={"left": 421, "top": 0, "right": 800, "bottom": 538}
+            )
+            assert rejected.status_code == 200
+            assert (linked_dir / "CROP-010.mp4").read_bytes() == b"x"
+            assert not (tmp_path / "escaped-poster.jpg").exists()
+
     @pytest.mark.asyncio(loop_scope="function")
     async def test_locks_http(self, client: AsyncClient, repo: Repository):
         meta = await repo.upsert_metadata(number="LOCK-101", title="X")

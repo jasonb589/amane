@@ -136,6 +136,32 @@ def _resolve_link_path(
     return link
 
 
+def resolve_existing_poster_path(
+    library: Library,
+    metadata: Metadata,
+    source_path: Path,
+    *,
+    file_info: FileInfo | None = None,
+    safe_dirs: Sequence[Path] | None = (),
+    actor_genders: Mapping[str, ActorGender] | None = None,
+) -> Path:
+    """海报回写使用现存视频位置, 不重新应用视频移动模板."""
+    base_path = Path(library.path)
+    if not is_descendant(source_path, base_path):
+        raise ValueError(f"媒体文件不在所属媒体库内: {source_path}")
+    ctx = TemplateContext.from_metadata(
+        metadata,
+        ext=source_path.suffix.lstrip("."),
+        source_path=source_path,
+        file_info=file_info,
+        actor_genders=actor_genders,
+        library_root=base_path,
+    )
+    ctx.apply_video(source_path, base_path)
+    ctx.apply_link(_resolve_link_path(library, ctx, base_path, safe_dirs))
+    return PathEngine(library.poster_template or POSTER_TEMPLATE_DEFAULT).resolve(ctx, base_path, safe_dirs)
+
+
 def resolve_subtitle_path(
     library: Library,
     metadata: Metadata,

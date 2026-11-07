@@ -1,4 +1,7 @@
-from collections.abc import Sequence
+import shutil
+import tempfile
+from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, cast
 
@@ -8,17 +11,21 @@ from pydantic import TypeAdapter
 
 from ...aggregate import compute_merge_updates
 from ...db.embeddings import EmbeddingKind
-from ...db.models import Metadata, MetadataSortField, SavedQueryEntity, SortOrder, TaskType
+from ...db.models import Library, MediaFile, Metadata, MetadataSortField, SavedQueryEntity, SortOrder, TaskType
 from ...db.repo_types import WriteMode
 from ...db.repos.media import file_phase_of
+from ...enums import ActorGender
 from ...handlers import ScrapePayload
 from ...media import manual_crop_image
 from ...media.resource_store import internal_url_hash
+from ...organize import resolve_existing_poster_path
 from ...parsing import FilePhaseSummary as ParsedFilePhase
-from ...parsing import summarize_file_phases
+from ...parsing import parse_file_info, summarize_file_phases
 from ...semantic import SemanticUnavailable
 from ...utils.dates import normalize_calendar_date
 from ...utils.model import to_resp
+from ...utils.path import path_key
+from ...utils.threads import in_thread
 from ..deps import RepoDep, RuntimeDep
 from ..models import (
     CommentResponse,
@@ -350,41 +357,68 @@ async def delete_metadata(metadata_id: int, repo: RepoDep) -> None:
 
 
 async def _write_poster_into_libraries(repo: RepoDep, runtime: RuntimeDep, metadata: Metadata, poster_url: str) -> int:
-    """把裁好的海报写回片库目录的 ``poster.jpg``; 返回写入的目录数.
-
-    优先写该元数据**已关联**的文件所在目录; 一条关联都没有时 (文件被整理走、旧记录已删),
-    按番号在库里找回同名文件, 写它现在的目录 —— 否则手工裁切只改数据库,
-    目录里的海报永远是旧的, 而整理任务又因为没关联文件不会再写一次.
-    """
+    """按媒体库模板回写裁切海报; 无关联文件时按精确番号匹配."""
     hash_ = internal_url_hash(poster_url)
-    if hash_ is None:
+    if hash_ is None or metadata.id is None:
         return 0
     found = await runtime.resource_store.get_by_url_hash(hash_)
     if found is None:
         return 0
-    local = found[1]
-    try:
-        data = local.read_bytes()
-    except OSError:
-        logger.warning("poster read failed", path=str(local))
+    linked = await repo.get_media_by_metadata_id(metadata.id)
+    if not linked and metadata.number:
+        same = await repo.list_media_files(search=metadata.number, limit=None)
+        linked = [f for f in same if f.number == metadata.number]
+    if not linked:
         return 0
 
-    directories: list[Path] = []
-    linked = await repo.list_media_files(metadata_ids=[metadata.id], limit=None)
-    directories.extend(Path(f.path).parent for f in linked)
-    if not directories and metadata.number:
-        same = await repo.list_media_files(search=metadata.number, limit=None)
-        directories.extend(Path(f.path).parent for f in same if f.number == metadata.number)
+    libraries = {library_id: await repo.get_library(library_id) for library_id in {f.library_id for f in linked}}
+    targets = [(media, library) for media in linked if (library := libraries.get(media.library_id)) is not None]
+    actor_genders = {actor.name: actor.gender for actor in await repo.get_actors_by_names(metadata.actors)}
+    return await _copy_cropped_posters(found[1], metadata, targets, runtime.safe_dirs, actor_genders)
 
-    written = 0
-    for directory in dict.fromkeys(directories):
+
+@in_thread
+def _copy_cropped_posters(
+    local: Path,
+    metadata: Metadata,
+    targets: Sequence[tuple[MediaFile, Library]],
+    safe_dirs: Sequence[Path] | None,
+    actor_genders: Mapping[str, ActorGender],
+) -> int:
+    written: set[str] = set()
+    for media, library in targets:
+        source = Path(media.path)
+        temporary: Path | None = None
         try:
-            directory.mkdir(parents=True, exist_ok=True)
-            (directory / "poster.jpg").write_bytes(data)
-            written += 1
-        except OSError:
-            logger.warning("poster write-back failed", directory=str(directory))
-    return written
+            if not source.is_file():
+                continue
+            poster = resolve_existing_poster_path(
+                library,
+                metadata,
+                source,
+                file_info=parse_file_info(media.path, has_external_subtitle=media.has_external_subtitle),
+                safe_dirs=safe_dirs,
+                actor_genders=actor_genders,
+            )
+            key = path_key(poster)
+            if key in written:
+                continue
+            if poster.exists() and poster.samefile(source):
+                raise ValueError("海报模板不能指向媒体文件")
+            poster.parent.mkdir(parents=True, exist_ok=True)
+            # 临时文件与目标同目录, 写入失败不会截断现存海报.
+            with local.open("rb") as original, tempfile.NamedTemporaryFile(dir=poster.parent, delete=False) as output:
+                temporary = Path(output.name)
+                shutil.copyfileobj(original, output)
+            temporary.replace(poster)
+            written.add(key)
+        except (OSError, ValueError) as exc:
+            logger.warning("poster write-back failed", path=media.path, error=str(exc))
+        finally:
+            if temporary is not None:
+                with suppress(OSError):
+                    temporary.unlink(missing_ok=True)
+    return len(written)
 
 
 @router.post("/{metadata_id}/crop-poster")
@@ -397,7 +431,7 @@ async def crop_poster_from_thumb(
     """从封面 (thumb) 按像素框裁切海报, 写入派生 Resource 并更新 poster_urls.
 
     先按 EXIF 转正、再顺时针旋转 ``req.rotation``, 框相对旋转后的图像.
-    裁好后同时尝试把结果写回片库目录的 ``poster.jpg`` (见 ``_write_poster_into_libraries``).
+    裁切结果按媒体库海报模板写回现存媒体文件对应的位置.
     """
     metadata = await repo.get_metadata(metadata_id)
     if metadata is None:

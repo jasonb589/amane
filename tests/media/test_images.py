@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 from PIL import Image
 
+import amane.media.images as images_module
 from amane.enums import WatermarkCorner, WatermarkKind
 from amane.media import (
     CropRotation,
@@ -68,6 +69,15 @@ class TestCropPoster:
     def test_crop_poster_missing_source_returns_false(self, tmp_path: Path):
         result = crop_poster(tmp_path / "nonexistent.jpg", tmp_path / "poster.jpg")
         assert result is False
+
+    def test_face_crop_without_opencv_preserves_fallback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(images_module, "cv2", None)
+        source = tmp_path / "source.jpg"
+        result = tmp_path / "poster.jpg"
+        Image.new("RGB", (800, 538), "blue").save(source)
+        assert crop_poster(source, result, mode="face")
+        with Image.open(result) as poster:
+            assert poster.size == (376, 538)
 
 
 class TestValidateCropBox:

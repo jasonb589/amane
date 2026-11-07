@@ -5,12 +5,26 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import structlog
 from PIL import Image, ImageOps
 
 from ..enums import WatermarkCorner, WatermarkKind
 from ..parsing import ContentType, FileInfo, Mosaic, shows_uncensored
 from .watermarks import load_stamp
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    # OpenCV 5 已移除 Haar API; 4.x 仍作为 YuNet 不可用时的可选后备.
+    from cv2 import CascadeClassifier  # ty: ignore[unresolved-import]
+    from cv2.data import haarcascades
+except ImportError:
+    CascadeClassifier = None
+    haarcascades = ""
 
 logger = structlog.get_logger()
 
@@ -139,12 +153,10 @@ def needs_upscale(
     return max(size) < max_dim_threshold
 
 
-def resolve_crop_mode(modes: Mapping[object, object] | None, content_type: object | None) -> str:
+def resolve_crop_mode(modes: Mapping[ContentType, str] | None, content_type: ContentType | None) -> str:
     """从 ``scraping.poster_crop_mode`` 取该内容类型的裁剪方式; 缺省 ``right`` (与旧行为一致)."""
     if modes and content_type is not None:
         value = modes.get(content_type)
-        if value is None:
-            value = modes.get(str(content_type))
         if value is not None:
             return str(value)
     return "right"
@@ -167,10 +179,7 @@ def _face_model_path() -> Path | None:
 
 def detect_face_box(image_path: Path) -> tuple[int, int, int, int] | None:
     """最大人脸的 (left, top, right, bottom); 缺 opencv / 没检出 / 出错一律 None."""
-    try:
-        import cv2
-        import numpy as np
-    except Exception:  # 镜像未装 opencv: 该功能自动退化
+    if cv2 is None:
         return None
     try:
         with Image.open(image_path) as img:
@@ -182,12 +191,9 @@ def detect_face_box(image_path: Path) -> tuple[int, int, int, int] | None:
         boxes: list[tuple[int, int, int, int]] = []
 
         model = _face_model_path()
-        factory = getattr(cv2, "FaceDetectorYN_create", None) or getattr(
-            getattr(cv2, "FaceDetectorYN", None), "create", None
-        )
-        if model is not None and factory is not None:
+        if model is not None:
             try:
-                detector = factory(str(model), "", (width, height), 0.6, 0.3, 5000)
+                detector = cv2.FaceDetectorYN.create(str(model), "", (width, height), 0.6, 0.3, 5000)
                 detector.setInputSize((width, height))
                 _, faces = detector.detect(arr)
                 for face in faces if faces is not None else []:
@@ -196,9 +202,8 @@ def detect_face_box(image_path: Path) -> tuple[int, int, int, int] | None:
             except Exception as e:
                 logger.debug("yunet detect failed", path=str(image_path), error=str(e))
 
-        if not boxes:
-            cascade_dir = getattr(getattr(cv2, "data", None), "haarcascades", "") or ""
-            cascade = cv2.CascadeClassifier(str(cascade_dir) + "haarcascade_frontalface_default.xml")
+        if not boxes and CascadeClassifier is not None:
+            cascade = CascadeClassifier(str(Path(haarcascades) / "haarcascade_frontalface_default.xml"))
             if not cascade.empty():
                 gray = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
                 min_side = max(24, min(width, height) // 10)
@@ -243,7 +248,7 @@ def crop_poster(
     *,
     mode: str = "right",
     poster_ratio: float = _DEFAULT_POSTER_RATIO,
-    jpeg_quality: float = _DEFAULT_JPEG_QUALITY,
+    jpeg_quality: int = _DEFAULT_JPEG_QUALITY,
 ) -> bool:
     """按 ``mode`` 从封面生成海报.
 
