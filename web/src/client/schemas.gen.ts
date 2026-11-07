@@ -3433,6 +3433,18 @@ export const HotSettingsSchema = {
                         use_browser: 'auto',
                         use_proxy: true
                     },
+                    javtxt: {
+                        cookie: {},
+                        languages: [
+                            'zh',
+                            'ja',
+                            'en'
+                        ],
+                        official_routes: {},
+                        rate_limit: 2,
+                        use_browser: 'auto',
+                        use_proxy: true
+                    },
                     kin8: {
                         cookie: {},
                         languages: [
@@ -8586,6 +8598,7 @@ export const ScrapingConfigSchema = {
                         'javbus',
                         'javdb',
                         'javlibrary',
+                        'javtxt',
                         'kin8',
                         'mgstage',
                         'official',
@@ -8631,6 +8644,7 @@ export const ScrapingConfigSchema = {
                         'javbus',
                         'javdb',
                         'javlibrary',
+                        'javtxt',
                         'kin8',
                         'mgstage',
                         'official',
@@ -8676,6 +8690,7 @@ export const ScrapingConfigSchema = {
                         'javbus',
                         'javdb',
                         'javlibrary',
+                        'javtxt',
                         'kin8',
                         'mgstage',
                         'official',
@@ -9358,6 +9373,7 @@ export const SiteNameSchema = {
         'javbus',
         'javdb',
         'javlibrary',
+        'javtxt',
         'kin8',
         'mgstage',
         'minnano',
