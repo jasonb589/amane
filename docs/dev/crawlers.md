@@ -15,7 +15,7 @@ CrawlerFactory (缓存实例)
 
 外部影片插件在同一个 `CrawlerFactory` 中按来源 ID 延迟创建: 插件返回的 provider 经适配后满足影片爬虫的 `fetch()` 协议, 统一进入聚合、限速、HTTP 记录和站点结果摘要. 第三方来源 ID 规则见 [plugins.md](plugins.md).
 
-爬虫实例由工厂缓存并发复用, 单次请求状态不得写入实例; 可变索引的扩展须串行化. `SiteConfig` 在构造期合并 profile 与用户配置, 子类使用 `self.base_url` / `self.cookies`; 配置变化时重建工厂.
+爬虫实例由工厂缓存并发复用, 单次请求状态不得写入实例; 可变索引的扩展须串行化. `SiteConfig` 在构造期合并 profile 与用户配置, 子类使用 `self.base_url` / `self.cookies` / `self.headers`; 配置变化时重建工厂. `src/amane/crawlers/sites/caribbean.py::CaribbeanCrawler` 与 `src/amane/crawlers/sites/kin8.py::Kin8Crawler` 的检索、详情请求与连通性探测使用同一份配置会话, 验证页仍按拦截失败上报.
 
 - 演员站与影片站共用 HttpClient / 限速; 实现位于 `crawlers/actor/`, 只注册 `actor_registry` (可以不在影片 `registry`). **双料站**指同一 `SiteName` 在影片 / 演员注册表各有一个类并共用 `site_config`; 不允许在 `site_roles` 中手写双料名单.
 - gFriends 额外依赖 `data_dir` (Filetree 缓存) 与 `actor_scraping.gfriends_repo`.
@@ -71,7 +71,7 @@ CrawlerFactory (缓存实例)
 
 ### 拦截判定
 
-模式表在 `net/errors.py::classify_block` (正文启发式优先, 失败响应正文次之, HTTP 状态兜底). `get_html` 是 HTML 站的入口, 表单 POST 用 `post_html`: 该路径只直连 (浏览器渲染只提供 GET), 拦截判定与 `get_html` 相同; 爬虫不得自行判定拦截、不得 import Recorder — 来源 outcome 只在 `invoke_source` 写入, 见 [observability.md](observability.md).
+模式表在 `net/errors.py::classify_block` (正文启发式优先, 失败响应正文次之, HTTP 状态兜底). 明确的维护公告优先归类为站点维护, `src/amane/net/http.py::WebClient` 停止该失败响应的重试与指纹轮换, 保留失败结果. `get_html` 是 HTML 站的入口, 表单 POST 用 `post_html`: 该路径只直连 (浏览器渲染只提供 GET), 拦截判定与 `get_html` 相同; 爬虫不得自行判定拦截、不得 import Recorder — 来源 outcome 只在 `invoke_source` 写入, 见 [observability.md](observability.md).
 
 ## 限速
 

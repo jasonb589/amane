@@ -82,6 +82,7 @@
     "not_found": "站点未找到该内容",
     "rate_limited": "请求过于频繁",
     "server_error": "站点服务器错误",
+    "site_maintenance": "站点维护中，服务暂时停止",
     "timeout": "请求超时",
     "network": "网络错误",
     "cloudflare_challenge": "Cloudflare 人机验证",

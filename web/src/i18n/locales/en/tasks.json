@@ -96,6 +96,7 @@
     "not_found": "Content not found on the site",
     "rate_limited": "Rate limited",
     "server_error": "Site server error",
+    "site_maintenance": "Site offline for maintenance",
     "timeout": "Request timed out",
     "network": "Network error",
     "cloudflare_challenge": "Cloudflare challenge",

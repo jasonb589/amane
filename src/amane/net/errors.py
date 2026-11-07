@@ -5,6 +5,7 @@ WebClient / 爬虫 / 插件 / Recorder 共用这一组类型, 避免 crawlers �
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -44,6 +45,8 @@ class FailureReason(StrEnum):
     NOT_FOUND = "not_found"
     RATE_LIMITED = "rate_limited"
     SERVER_ERROR = "server_error"
+    SITE_MAINTENANCE = "site_maintenance"
+    """站点明确公告停止服务或紧急维护; 与状态码无关, 不进行短时间重试."""
     TIMEOUT = "timeout"
     NETWORK = "network"
     CLOUDFLARE_CHALLENGE = "cloudflare_challenge"
@@ -152,6 +155,14 @@ def classify_block(text: str, *, failure: RequestFailure | None = None) -> Failu
 
 def _classify_text(text: str) -> FailureReason | None:
     lower = text.lower()
+    if re.search(r"<(?:title|h1)\b[^>]*>\s*メンテナンスのお知らせ\s*</(?:title|h1)>", text) and (
+        "緊急メンテナンスでサービスを停止" in text or "offline for emergency maintenance" in lower
+    ):
+        return FailureReason.SITE_MAINTENANCE
+    if re.search(r"<(?:title|h[12])\b[^>]*>\s*service temporarily unavailable\s*</(?:title|h[12])>", lower) and (
+        "offline for emergency maintenance" in lower
+    ):
+        return FailureReason.SITE_MAINTENANCE
     if "not available in your region" in lower or "お住まいの地域からはご利用になれません" in text:
         return FailureReason.GEO_RESTRICTED
     if "banned your access" in lower:

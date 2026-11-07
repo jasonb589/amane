@@ -87,6 +87,7 @@
       "api_error": "API error",
       "rate_limited": "Rate limited",
       "server_error": "Server 5xx",
+      "site_maintenance": "Site offline for maintenance",
       "timeout": "Timeout",
       "network": "Network error",
       "cloudflare_challenge": "Cloudflare challenge",

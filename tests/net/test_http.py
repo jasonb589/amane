@@ -219,6 +219,23 @@ class TestRequestAttempts:
 
         assert len(session.calls) == expected_calls
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [403, 406, 503])
+    async def test_explicit_maintenance_does_not_retry_or_rotate(
+        self, monkeypatch: pytest.MonkeyPatch, status: int
+    ) -> None:
+        notice = b"<h2>Service Temporarily Unavailable</h2><p>Offline for emergency maintenance. No ETA yet.</p>"
+        session = _StubSession(_StubResponse(status=status, content=notice), _StubResponse(status=200))
+        client = _blocked_client(monkeypatch, session, max_retries=3)
+
+        with pytest.raises(RequestError) as error:
+            await client.request("GET", "https://www.kin8tengoku.com")
+
+        assert error.value.reason is FailureReason.SITE_MAINTENANCE
+        assert error.value.http_status == status
+        assert len(session.calls) == 1
+        assert client._fingerprints.select("www.kin8tengoku.com") == _IMPERSONATE_OPTIONS[0]
+
 
 async def _no_sleep(_seconds: float) -> None:
     return None

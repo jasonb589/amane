@@ -87,6 +87,7 @@
       "api_error": "接口报错",
       "rate_limited": "被限流",
       "server_error": "服务端 5xx",
+      "site_maintenance": "站点维护中，服务暂时停止",
       "timeout": "超时",
       "network": "网络错误",
       "cloudflare_challenge": "Cloudflare 挑战",

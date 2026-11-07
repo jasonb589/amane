@@ -3,7 +3,14 @@
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from amane.net.errors import FailureKind, FailureReason, RequestFailure, classify_request_error, parse_detail
+from amane.net.errors import (
+    FailureKind,
+    FailureReason,
+    RequestFailure,
+    classify_block,
+    classify_request_error,
+    parse_detail,
+)
 
 
 class _Leaf(BaseModel):
@@ -62,3 +69,31 @@ class TestClassifyRequestError:
     )
     def test_kind_and_status_mapping(self, failure: RequestFailure, expected: FailureReason):
         assert classify_request_error(failure) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "<title>メンテナンスのお知らせ</title><p>現在、緊急メンテナンスでサービスを停止しています。</p>",
+            FailureReason.SITE_MAINTENANCE,
+        ),
+        (
+            "<h2 lang=en>Service Temporarily Unavailable</h2><p>Offline for emergency maintenance. No ETA yet.</p>",
+            FailureReason.SITE_MAINTENANCE,
+        ),
+        (
+            "<h1>メンテナンスのお知らせ</h1><p>Offline for emergency maintenance.</p>",
+            FailureReason.SITE_MAINTENANCE,
+        ),
+        ("<title>作品</title><p>メンテナンスのお知らせ: 来週実施予定</p>", None),
+        ("<h1>メンテナンスのお知らせ</h1><p>完了しました。</p>", None),
+        ("<title>作品</title><p>Offline for emergency maintenance.</p>", None),
+        ("<h1>Service Temporarily Unavailable</h1><p>Please try again.</p>", None),
+        ("<title>作品</title><script>const title = 'メンテナンスのお知らせ';</script>", None),
+    ],
+)
+def test_maintenance_requires_active_service_notice(text: str, expected: FailureReason | None) -> None:
+    assert classify_block(text) is expected
+    failure = RequestFailure(kind=FailureKind.HTTP_STATUS, status=403, message="HTTP 403", body=text.encode())
+    assert classify_request_error(failure) is (expected or FailureReason.HTTP_ERROR)

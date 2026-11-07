@@ -218,16 +218,14 @@ def parse_detail(text: str, number: str, url: str) -> MediaMetadata | None:
 class CaribbeanCrawler(Crawler):
     @classmethod
     def profile(cls) -> CrawlerProfile:
-        # 连通性探测指向站点首页的「进入」页: 根域名只回 EUC-JP 的 年齢認証 门页 (HTTP 200),
-        # 会一直被网络检测判成「年龄验证拦截」, 而真实内容页 (/moviepages/...) 并不需要过门.
-        return CrawlerProfile(name=SiteName.CARIBBEAN, base_url=BASE_URL, urls=[f"{BASE_URL}/index2.htm"])
+        return CrawlerProfile(name=SiteName.CARIBBEAN, base_url=BASE_URL)
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
         if query.content_type not in _CONTENT_TYPES:
             return None
         for number in number_variants(query.number):
             url = f"{self.base_url}/moviepages/{number}/index.html"
-            text = await self.client.get_html(url, encoding=_ENCODING)
+            text = await self.client.get_html(url, encoding=_ENCODING, cookies=self.cookies, headers=self.headers)
             if text and is_detail_page(text):
                 return url
         return None
@@ -236,7 +234,7 @@ class CaribbeanCrawler(Crawler):
         match = _DETAIL_PATH.search(url)
         if match is None:
             return None
-        text = await self.client.get_html(url, encoding=_ENCODING)
+        text = await self.client.get_html(url, encoding=_ENCODING, cookies=self.cookies, headers=self.headers)
         if not text:
             return None
         return parse_detail(text, match["number"], url)

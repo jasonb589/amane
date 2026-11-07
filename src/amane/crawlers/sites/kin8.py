@@ -48,14 +48,14 @@ class Kin8Crawler(Crawler):
         if detail_id is None:
             return None
         url = f"{self.base_url}/movie/{detail_id}"
-        text = await self.client.get_html(url)
+        text = await self.client.get_html(url, cookies=self.cookies, headers=self.headers)
         if text and "title" in text.lower():
             return url
         return None
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         """配信日在首屏是骨架屏占位, 水合后才由客户端填入, 因此不解析 `release`."""
-        text = await self.client.get_html(url)
+        text = await self.client.get_html(url, cookies=self.cookies, headers=self.headers)
         if not text:
             return None
 

@@ -17,7 +17,7 @@ from curl_cffi import CurlError
 from curl_cffi.requests import AsyncSession, BrowserTypeLiteral, Response
 
 from .egress import EgressPolicy, ensure_http_scheme
-from .errors import FailureKind, RequestError, RequestFailure
+from .errors import FailureKind, FailureReason, RequestError, RequestFailure, classify_request_error
 from .recording import get_bound_http_recorder, skip_body_recording
 from .redact import redact_text, redact_url
 
@@ -409,6 +409,9 @@ class WebClient:
                     message=f"HTTP {resp.status_code}",
                     body=_failure_body(resp),
                 )
+                # 维护公告已经解释失败, 轮换指纹或立即重试不能恢复站点服务.
+                if classify_request_error(failure) is FailureReason.SITE_MAINTENANCE:
+                    break
                 should_retry = resp.status_code in _RETRYABLE_STATUS_CODES
 
             except CurlError as e:
