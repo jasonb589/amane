@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 
 from pydantic import ConfigDict, Field, ValidationError, field_validator
 
-from ...net.errors import FailureReason, SourceError, parse_detail
+from ...net.errors import FailureReason, RequestError, SourceError, parse_detail
 from ..base import Crawler
 from ..models import FetchOptions, MediaMetadata, ResponseModel, SearchQuery, film_actors
 
@@ -38,6 +38,7 @@ class _WorksAcf(ResponseModel):
     plot: str | None = Field(default=None, alias="作品紹介文")
     runtime: str | None = Field(default=None, alias="収録時間")
     release: str | None = Field(default=None, alias="発売日（表示用）")
+    sample: int | str | None = Field(default=None, alias="サンプル動画")
 
 
 def _only_strings(value: Any) -> Any:
@@ -69,6 +70,15 @@ class _WorksPost(ResponseModel):
     title: _Rendered | None = None
     acf: _WorksAcf = Field(default_factory=_WorksAcf)
     images: _WorksImages = Field(default_factory=_WorksImages, alias="acf_custom_images")
+
+
+class _MediaPost(ResponseModel):
+    """附件 (``サンプル動画`` 指向的那条 media): 只要 mp4 地址."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    source_url: str | None = None
+    guid: _Rendered | None = None
 
 
 def slugify(number: str) -> str:
@@ -165,6 +175,8 @@ class WordPressWorksCrawler(Crawler):
         actors = split_actors(acf.actors)
         raw_title = acf.title or (post.title.rendered if post.title else None) or ""
 
+        trailer_urls = await self._trailer_urls(acf.sample)
+
         return MediaMetadata(
             number=number_from_slug(post.slug),
             title=strip_actor_suffix(raw_title, actors) or None,
@@ -177,5 +189,27 @@ class WordPressWorksCrawler(Crawler):
             poster_urls=[post.images.sub] if post.images.sub else [],
             thumb_urls=[post.images.main] if post.images.main else [],
             extrafanart=post.images.gallery,
+            trailer_urls=trailer_urls,
             source_url=self._page_url(post.slug),
         )
+
+    def _media_url(self, media_id: int) -> str:
+        return f"{self.base_url}{self.rest_prefix}/wp-json/wp/v2/media/{media_id}"
+
+    async def _trailer_urls(self, sample: int | str | None) -> list[str]:
+        """预告片: ACF 的 ``サンプル動画`` 只是附件 ID, 再查一次 media 才拿到 mp4; 取不到就算了."""
+        if isinstance(sample, str) and sample.startswith("http"):
+            return [sample]
+        try:
+            media_id = int(sample) if sample is not None else 0
+        except (TypeError, ValueError):
+            return []
+        if media_id <= 0:
+            return []
+        try:
+            data = await self.client.get_json(self._media_url(media_id))
+            media = _MediaPost.model_validate(data)
+        except (RequestError, SourceError, ValidationError):
+            return []
+        url = media.source_url or (media.guid.rendered if media.guid else None)
+        return [url] if url else []

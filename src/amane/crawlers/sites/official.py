@@ -345,6 +345,11 @@ class OfficialCrawler(Crawler):
             '//div[contains(@class,"p-slider")]//img[contains(@class,"swiper-lazy")]/@data-src'
         ).get()
 
+        # 官网作品页把预告片直接写在 <video src> 里 (与 dmm 同一个 CDN 的样片), 不额外请求.
+        trailer_url = html.xpath('//div[contains(@class,"video")]//video/@src').get() or html.xpath(
+            "//video/@src"
+        ).get()
+
         series = extract_text(
             html, '//div[@class="th"][contains(text(),"シリーズ")]/following-sibling::div[@class="item"]//a/text()'
         )
@@ -361,6 +366,7 @@ class OfficialCrawler(Crawler):
             tags=tags,
             series=series or None,
             thumb_urls=[thumb_url] if thumb_url else [],
+            trailer_urls=[trailer_url] if trailer_url else [],
             source_url=url,
         )
 

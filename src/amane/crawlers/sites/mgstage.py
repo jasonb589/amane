@@ -37,6 +37,13 @@ _IMAGE_PREFIX = re.compile(r"^(?:cap_t1_\d+|cap_e_\d+|pb_e|pb_p|pf_e|pf_o\d+)_")
 #: 剧照序号, 用来确定这一部到底有几张 (页面不写总数).
 _CAPTURE_INDEX = re.compile(r"/cap_e_(?P<idx>\d+)_[^/]+\.jpg")
 
+#: 预告片: 详情页只放一个播放器 pid, 要再问一次回放器接口才拿得到地址.
+_SAMPLE_PID = re.compile(r"/sampleplayer/sampleplayer\.html/(?P<pid>[0-9A-Za-z_-]+)")
+_SAMPLE_PLAYER = "https://www.mgstage.com/sampleplayer/sampleplayer.php?pid={pid}"
+
+#: 回放器回包里的 ``var movie = 'https://feature.mgstage.com/.../*.mp4'``.
+_TRAILER_MP4 = re.compile(r"https?://[^'\"\s\\]+\.mp4")
+
 
 def image_dir(page_text: str) -> tuple[str, str] | None:
     """页面里任一图片地址 → (目录, 文件名主干); 取不到返回 ``None``.
@@ -170,6 +177,8 @@ class MGStageCrawler(Crawler):
             )
         )
 
+        trailer_urls = await self._trailer_urls(text)
+
         return MediaMetadata(
             number=number,
             title=title,
@@ -184,9 +193,24 @@ class MGStageCrawler(Crawler):
             poster_urls=poster_urls,
             thumb_urls=thumb_urls,
             extrafanart=extrafanart,
+            trailer_urls=trailer_urls,
             source_url=url,
             external_id=url,
         )
+
+    async def _trailer_urls(self, page_text: str) -> list[str]:
+        """预告片: 详情页不给直链, 按 pid 再问一次回放器; 拿不到就当没有, 不影响其余字段."""
+        match = _SAMPLE_PID.search(page_text)
+        if match is None:
+            return []
+        try:
+            payload = await self.client.get_text(
+                _SAMPLE_PLAYER.format(pid=match.group("pid")), cookies=self.cookies
+            )
+        except RequestError:
+            return []
+        found = _TRAILER_MP4.search(payload)
+        return [found.group(0)] if found else []
 
     @staticmethod
     def _parse_runtime(text: str) -> int | None:
