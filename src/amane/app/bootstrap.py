@@ -23,6 +23,7 @@ from ..library import InventoryStore
 from ..llm import TranslationCache, TranslationCoalescer
 from ..media import ResourceStore
 from ..observability import setup_logging
+from ..parsing.file_info import set_escape_strings
 from ..playback import PlaybackFactory, PlaybackState
 from ..plugins.manager import PluginManager
 from ..release import ReleaseChecker
@@ -111,6 +112,8 @@ async def start_app(config: ConfigManager | None = None) -> AppSession:
     config = config if config is not None else ConfigManager.with_cold()
     cold = config.cold
     hot = config.hot
+    # worker 与监控服务启动前安装规则, 避免首次扫描使用空的进程默认值.
+    set_escape_strings(hot.watcher.escape_strings)
 
     # 事件总线须先于日志, 以便日志转发到 WS
     event_bus = EventBus()

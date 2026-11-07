@@ -1,6 +1,7 @@
 import contextlib
 import importlib
 import os
+import re
 import tempfile
 import tomllib
 from copy import copy
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
+import structlog
 import tomli_w
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,6 +44,8 @@ from ..sr import SrPreset
 from ..utils.model import kv
 
 SAFE_DIRS_ALLOW_ALL: Literal["ALLOW_ALL"] = "ALLOW_ALL"
+
+logger = structlog.get_logger()
 
 LANG_METADATA_FIELD_SET: frozenset[MetadataField] = frozenset(
     {
@@ -639,8 +643,23 @@ class WatcherConfig(BaseModel):
         default_factory=lambda: [".mp4", ".mkv", ".avi", ".wmv", ".flv", ".mov", ".ts", ".iso", ".strm"]
     )
 
-    escape_strings: list[str] = Field(default_factory=list)
+    escape_strings: list[str] = Field(default_factory=list, json_schema_extra={"x-long": True})
     """解析番号前从文件名中移除的字符串 (文件名垃圾信息过滤); ``r:`` 开头的按正则处理, 忽略大小写."""
+
+    @field_validator("escape_strings")
+    @classmethod
+    def _validate_escape_strings(cls, patterns: list[str], info: ValidationInfo) -> list[str]:
+        normalized = list(dict.fromkeys(pattern.strip() for pattern in patterns if pattern.strip()))
+        for index, pattern in enumerate(normalized, start=1):
+            if pattern.startswith("r:"):
+                try:
+                    re.compile(pattern[2:], re.IGNORECASE)
+                except re.error as exc:
+                    if info.context and info.context.get("preserve_legacy_filename_filters"):
+                        logger.warning("invalid saved filename filter ignored", index=index, error=exc.msg)
+                        continue
+                    raise ValueError(f"文件名过滤第 {index} 条正则无效: {exc.msg}") from exc
+        return normalized
 
 
 class NotifyMethod(StrEnum):
@@ -1079,7 +1098,8 @@ class ConfigManager:
             default_content = HotSettings().model_dump(mode="json", exclude_none=True, exclude_defaults=True)
             cls._write_toml(config_path, default_content)
 
-        hot = HotSettings(**toml_data)
+        # 解析器会忽略无效正则; 保留旧配置供界面修正, 不使升级后的启动失败.
+        hot = HotSettings.model_validate(toml_data, context={"preserve_legacy_filename_filters": True})
 
         return cls(cold=cold, hot=hot)
 
@@ -1103,7 +1123,9 @@ class ConfigManager:
             return self._hot.model_copy(deep=True)
         current = self._hot.model_dump()
         merged = _deep_merge(current, patch)
-        return HotSettings(**merged)
+        watcher_patch = patch.get("watcher")
+        validates_filters = isinstance(watcher_patch, dict) and "escape_strings" in watcher_patch
+        return HotSettings.model_validate(merged, context={"preserve_legacy_filename_filters": not validates_filters})
 
     def _persist(self, hot: HotSettings) -> None:
         """临时文件 + os.replace."""

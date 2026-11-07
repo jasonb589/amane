@@ -22,7 +22,7 @@ from amane.config import (
     WatermarkConfig,
     WorkerConfig,
 )
-from amane.config.manager import LANG_METADATA_FIELD_SET
+from amane.config.manager import LANG_METADATA_FIELD_SET, WatcherConfig
 from amane.enums import (
     ApiType,
     BrowserBackendName,
@@ -34,6 +34,31 @@ from amane.enums import (
     WatermarkKind,
 )
 from amane.parsing import ContentType
+
+
+@pytest.mark.parametrize("pattern", ["r:[", "r:(", "r:*"])
+def test_invalid_filename_regex_is_rejected(pattern: str) -> None:
+    with pytest.raises(ValidationError, match="文件名过滤第 1 条正则无效"):
+        WatcherConfig(escape_strings=[pattern])
+
+
+def test_filename_filters_preserve_regex_commas_and_normalize_entries() -> None:
+    filters = WatcherConfig(escape_strings=[" 4k688.com@ ", "489155.com@", r"r:\d{2,6}\.com@", "", "4k688.com@"])
+    assert filters.escape_strings == ["4k688.com@", "489155.com@", r"r:\d{2,6}\.com@"]
+
+
+def test_invalid_legacy_filename_filter_does_not_block_startup_or_unrelated_edit(tmp_path: Path) -> None:
+    cold = ColdSettings(data_dir=tmp_path)
+    cold.config_path.write_text('[watcher]\nescape_strings = ["r:[", "4k688.com@"]\n', encoding="utf-8")
+    manager = ConfigManager.with_cold(cold)
+    assert manager.hot.watcher.escape_strings == ["r:[", "4k688.com@"]
+    manager.update({"worker": {"concurrency": 3}})
+    assert manager.hot.worker.concurrency == 3
+    with pytest.raises(ValidationError, match="文件名过滤第 1 条正则无效"):
+        manager.update({"watcher": {"escape_strings": ["r:["]}})
+    manager.update({"watcher": {"escape_strings": ["4k688.com@"]}})
+    assert ConfigManager.with_cold(cold).hot.watcher.escape_strings == ["4k688.com@"]
+
 
 # ---------------------------------------------------------------------------
 # ColdSettings

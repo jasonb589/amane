@@ -4,12 +4,18 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import pytest
+from httpx2 import ASGITransport, AsyncClient
 
 from amane.config import HotSettings
-from tests.api.conftest import hot_for_tests
+from amane.config.manager import WatcherConfig
+from amane.handlers.models import RefreshPayload
+from amane.handlers.refresh import RefreshHandler
+from amane.parsing import parse_file_info
+from amane.parsing.file_info import set_escape_strings
+from tests.api.conftest import hot_for_tests, make_app
 
 if TYPE_CHECKING:
-    from httpx2 import AsyncClient
+    from pathlib import Path
 
 
 class TestConfigHttp:
@@ -131,3 +137,51 @@ class TestConfigRebuild:
         assert resp.status_code == 200
         assert runtime.browser is rebuilt
         assert rebuilt._closed is False
+
+
+@pytest.mark.asyncio
+async def test_persisted_filename_filters_apply_before_first_scan_and_after_rebuild(tmp_path: Path) -> None:
+    patterns = ["4k688.com@", "489155.com@"]
+    files = tmp_path / "files"
+    app = make_app(
+        HotSettings(watcher=WatcherConfig(escape_strings=patterns)), tmp_path / "data", tmp_path / "logs", files
+    )
+    source = files / "4K688.com@ABC-123.mp4"
+    source.write_bytes(b"video")
+    western = files / "489155.com@BLACKED..17.04.15.AJ.APPLEGATE.4K-C.mp4"
+    western.write_bytes(b"video")
+    set_escape_strings([])
+    try:
+        async with app.router.lifespan_context(app):
+            runtime = app.state.runtime
+            # 不经配置PATCH即可生效, 对应服务重启后第一次扫描.
+            assert parse_file_info(source).number == "ABC-123"
+            assert parse_file_info(source).definition is None
+            assert parse_file_info(western).number == "Blacked.17.04.15"
+            assert parse_file_info(western).definition == "4K"
+            await runtime.stop_workers(closing=False)
+            library = await runtime.repo.create_library(name="filters", path=str(files), min_file_size=0)
+            assert library.id is not None
+            result = await RefreshHandler(runtime.repo).handle(RefreshPayload(library_id=library.id, path=str(files)))
+            assert result.result is not None and result.result.added == 2
+            assert {followup.payload["number"] for followup in result.followups} == {
+                "ABC-123",
+                "Blacked.17.04.15",
+            }
+            media = await runtime.repo.list_media_files(library_id=library.id, limit=None)
+            assert {item.path: item.definition for item in media} == {
+                str(source): None,
+                str(western): "4K",
+            }
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test/api/") as client:
+                before = await client.get("config")
+                assert before.json()["watcher"]["escape_strings"] == patterns
+                invalid = await client.patch("config", json={"watcher": {"escape_strings": ["r:["]}})
+                assert invalid.status_code == 422
+                assert (await client.get("config")).json()["watcher"]["escape_strings"] == patterns
+                updated = await client.patch("config", json={"watcher": {"escape_strings": [*patterns, "PREFIX-"]}})
+                assert updated.status_code == 200
+                assert parse_file_info("PREFIX-ABC-123.mp4").number == "ABC-123"
+            assert source.name == "4K688.com@ABC-123.mp4" and source.is_file()
+    finally:
+        set_escape_strings([])

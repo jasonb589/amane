@@ -48,6 +48,8 @@ RateLimiters → WebClient → HttpClient → CrawlerFactory
 
 `watcher.use_polling` / `media_extensions` / `debounce_seconds` 在 `start_app` 构造时一次性注入, **不随 rebuild 更新**, 修改 TOML 后须重启; Library 级的 `automation` / `ingest` / `cloud_path` / 路径 / `trailer_pattern` 等由 libraries 路由热更新, 与这三项无关. 契约见 [watcher.md](watcher.md).
 
+`watcher.escape_strings` 由 `src/amane/app/bootstrap.py::start_app` 在启动 worker / watcher 前安装, 热更新经 `src/amane/app/runtime.py::AppRuntime._rebuild`. 过滤只影响 `src/amane/parsing/file_info.py::parse_file_info` 的识别输入, `raw_name` 保留实际文件名; schema 按行拆分以保留正则逗号. `src/amane/config/manager.py::ConfigManager` 读取旧 TOML 或修改其他字段时保留无效正则供界面修正, 警告后忽略其解析效果; 显式提交过滤列表则严格校验, 无效正则返回 422.
+
 Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 worker `retire()` (停止认领并退出主循环), 新 worker 立即开始认领; 旧 worker 的已认领任务继续运行, 清零后由后台释放其持有的 r18 句柄与浏览器池, 连续变更可同时存在多个退役 worker. 配置 PATCH、插件启用 / 禁用、插件安装 / 卸载 / 重新扫描都经由 `AppRuntime.apply_rebuild()`, 串行化这段替换. 归属以认领开始时刻为准: 变更发生时尚未结算的认领属于旧 worker, 每次退役至多带走一个旧配置任务.
 
 **r18 只读引擎**: 只在 `hot.r18` 实际变化时重建. 旧引擎由 `R18Handle` 标记所有权, 等使用它的退役 worker 排空且无其它 worker 引用后由后台关闭; `AppRuntime.stop_workers()` 在关闭时负责当前句柄. 契约见 [task-system.md](task-system.md).

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
+from structlog.testing import capture_logs
 
 from amane.aggregate import AggregatedMetadata
 from amane.config import HotSettings, ScrapingConfig
@@ -17,6 +18,7 @@ from amane.handlers import CacheKind, RefreshHandler, RefreshPayload, ScanMode, 
 from amane.library import CleanupInventory, InventorySource, InventoryStore, LibraryFileKind, LibraryHit, scan_inventory
 from amane.observability import Recorder
 from amane.parsing import ContentType
+from amane.parsing.file_info import set_escape_strings
 from amane.plugins.models import SourceDescriptor
 
 if TYPE_CHECKING:
@@ -744,6 +746,62 @@ class TestRefreshHandler:
         assert kept_after is not None
         assert kept_after.has_external_subtitle is True
         assert kept_after.updated_at == kept_before.updated_at
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_scan_refreshes_filtered_path_phase(self, repo: Repository, tmp_path: Path):
+        """过滤规则变更后只修正扫描命中的相位, 保留真实 4K 与用户绑定, 不计入字幕变化."""
+        selected = tmp_path / "selected"
+        selected.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        paths = [
+            selected / "4K688.com@ABC-123.mp4",
+            selected / "4K688.com@ABC-124_4Ks.mp4",
+            outside / "4K688.com@ABC-125.mp4",
+        ]
+        library = await repo.create_library(name="t", path=str(tmp_path), write_nfo=False)
+        assert library.id is not None
+        metadata = await repo.upsert_metadata("MANUAL-123", content_type=ContentType.CENSORED)
+        assert metadata.id is not None
+        set_escape_strings([])
+        try:
+            existing = []
+            for path in paths:
+                path.write_bytes(b"\x00" * 100)
+                media = await repo.create_media_file(
+                    library_id=library.id,
+                    path=str(path),
+                    number=metadata.number,
+                    metadata_id=metadata.id,
+                    status=MediaFileStatus.SCRAPED,
+                )
+                assert media.definition == "4K"
+                existing.append(media)
+
+            set_escape_strings(["4k688.com@"])
+            with capture_logs() as records:
+                result = await RefreshHandler(repo=repo).handle(
+                    RefreshPayload(library_id=library.id, path=str(selected), scrape=set())
+                )
+
+            assert result.success is True
+            assert result.result is not None
+            assert result.result.added == result.result.removed == result.result.scrape == 0
+            assert next(record for record in records if record["event"] == "scan completed")["subtitles"] == 0
+            for before, expected in zip(existing, [None, "4K", "4K"], strict=True):
+                assert before.id is not None
+                after = await repo.get_media_file(before.id)
+                assert after is not None
+                assert after.definition == expected
+                assert after.number == metadata.number
+                assert after.metadata_id == metadata.id
+                assert after.status is MediaFileStatus.SCRAPED
+                assert after.path == before.path
+                assert after.has_external_subtitle is False
+                if expected == "4K":
+                    assert after.updated_at == before.updated_at
+        finally:
+            set_escape_strings([])
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_unscoped_scan_writes_cleanup_inventory(self, repo: Repository, tmp_path: Path):

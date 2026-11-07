@@ -640,7 +640,7 @@
       },
       "escape_strings": {
         "label": "Filename Junk Filters",
-        "description": "Strings removed from the filename before parsing the number; entries starting with r: are treated as regexes"
+        "description": "One filter per line, case-insensitive. Prefix regular expressions with r:. Filters affect parsing, not the original filename; templates using the raw name retain it."
       }
     },
     "notify": {

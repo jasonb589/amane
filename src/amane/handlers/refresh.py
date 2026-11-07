@@ -6,7 +6,7 @@ import structlog
 
 from ..db import TaskType
 from ..library import MEDIA_EXTENSIONS, InventoryStore, LibraryHit, LibraryScan, OrphanScan, scan_inventory
-from ..parsing import parse_file_info
+from ..parsing import file_phase_from_path, parse_file_info
 from ..utils.path import nfc_path
 from ..utils.threads import path_exists, path_is_dir
 from ._common import register_media_file
@@ -106,7 +106,7 @@ class RefreshHandler(TaskHandler[RefreshPayload, RefreshResult]):
                         existing_by_path[path_key] = media
                         added += 1
                     else:
-                        subtitles += await self._sync_external_subtitle(existing_by_path[path_key], hit)
+                        subtitles += await self._sync_file_phase(existing_by_path[path_key], hit)
                 if added:
                     logger.info("new files discovered", path=payload.path, count=added)
 
@@ -158,13 +158,17 @@ class RefreshHandler(TaskHandler[RefreshPayload, RefreshResult]):
 
         return TaskResult(True, result=RefreshResult(added=added, removed=removed, scrape=scrape), followups=followups)
 
-    async def _sync_external_subtitle(self, media: MediaFile, hit: LibraryHit) -> int:
-        """按本次遍历所见回写已登记行的外挂字幕标记; 未变化返回 0.
-
-        标记的其它写入点是视频登记与换 path, 二者都不覆盖存量行, 因此库扫描是存量行唯一的补齐途径.
-        """
-        if media.has_external_subtitle == hit.has_companion_subtitle:
+    async def _sync_file_phase(self, media: MediaFile, hit: LibraryHit) -> int:
+        """只刷新本次遍历命中的路径相位与外挂字幕, 返回外挂字幕变化数."""
+        phase = file_phase_from_path(media.path)
+        subtitle_changed = media.has_external_subtitle != hit.has_companion_subtitle
+        if (
+            not subtitle_changed
+            and media.mosaic == phase["mosaic"]
+            and media.has_subtitle_in_name == phase["has_subtitle"]
+            and media.definition == phase["definition"]
+        ):
             return 0
         assert media.id is not None
-        await self._repo.update_media_file(media.id, has_external_subtitle=hit.has_companion_subtitle)
-        return 1
+        await self._repo.update_media_file(media.id, path=media.path, has_external_subtitle=hit.has_companion_subtitle)
+        return int(subtitle_changed)

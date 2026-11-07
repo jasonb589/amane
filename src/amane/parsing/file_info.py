@@ -264,7 +264,7 @@ _DEFAULT_ESCAPE_STRINGS: list[str] = []
 def set_escape_strings(patterns: list[str] | None) -> None:
     """设置解析番号前从文件名中移除的字符串 (全局默认; ``r:`` 前缀按正则处理, 忽略大小写).
 
-    由 runtime 在热配置重建时调用; 显式传 ``escape_strings`` 的调用点不受影响.
+    由应用在启动及热配置重建时调用; 显式传 ``escape_strings`` 的调用点不受影响.
     """
     global _DEFAULT_ESCAPE_STRINGS
     _DEFAULT_ESCAPE_STRINGS = [p for p in (patterns or []) if p]
