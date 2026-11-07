@@ -1,4 +1,8 @@
 {
+  "nfoSync": {
+    "result": "元数据已保存；NFO 同步成功 {{written}} 个，跳过 {{skipped}} 个，失败 {{failed}} 个。",
+    "unlocated": "元数据已保存；未找到可同步的 NFO。旧版移出媒体库且未保留位置的文件，需要将目标目录加入媒体库并扫描。"
+  },
   "semantic": {
     "toggle": "语义",
     "back": "返回",

@@ -7,6 +7,7 @@ from ...db import Metadata
 from ...db.embeddings import EmbeddingKind
 from ...enums import ActorGender, MetadataField
 from ...handlers import CacheKind
+from ...media.nfo_sync import NfoSyncResult
 from ...parsing import ContentType, Mosaic
 from ...utils.model import anyof_extras, create_partial_model, kv
 from .comments import CommentResponse
@@ -57,6 +58,7 @@ class MetadataResponse(BaseModel):
     field_sources: dict = {}
     raw: dict = {}
     locked_fields: list[MetadataField] = []
+    nfo_sync: NfoSyncResult | None = None
 
     @field_validator("locked_fields", mode="before")
     @classmethod

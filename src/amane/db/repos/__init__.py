@@ -7,6 +7,7 @@ from .feeds import FeedsRepoMixin
 from .libraries import LibrariesRepoMixin
 from .media import MediaRepoMixin
 from .metadata import MetadataRepoMixin
+from .nfo import NfoRepoMixin
 from .schedules import SchedulesRepoMixin
 from .tasks import TasksRepoMixin
 
@@ -17,6 +18,7 @@ __all__ = [
     "LibrariesRepoMixin",
     "MediaRepoMixin",
     "MetadataRepoMixin",
+    "NfoRepoMixin",
     "RepositoryMixinBase",
     "SchedulesRepoMixin",
     "TasksRepoMixin",

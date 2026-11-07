@@ -17,6 +17,7 @@ from ...db.repos.media import file_phase_of
 from ...enums import ActorGender
 from ...handlers import ScrapePayload
 from ...media import manual_crop_image
+from ...media.nfo_sync import sync_metadata_nfos
 from ...media.resource_store import internal_url_hash
 from ...organize import resolve_existing_poster_path
 from ...parsing import FilePhaseSummary as ParsedFilePhase
@@ -318,7 +319,9 @@ async def get_metadata(metadata_id: int, repo: RepoDep) -> MetadataDetailRespons
 
 
 @router.patch("/{metadata_id}")
-async def update_metadata(metadata_id: int, req: PartialMetadata, repo: RepoDep) -> MetadataResponse:
+async def update_metadata(
+    metadata_id: int, req: PartialMetadata, repo: RepoDep, runtime: RuntimeDep
+) -> MetadataResponse:
     updates = cast("MetadataFields", {k: v for k, v in req.model_dump().items() if v is not None})
     if not updates:
         raise HTTPException(status_code=422, detail="没有需要修改的字段")
@@ -331,11 +334,15 @@ async def update_metadata(metadata_id: int, req: PartialMetadata, repo: RepoDep)
             updates["release"] = normalized
         else:
             raise HTTPException(status_code=422, detail="发行日期必须为 YYYY-MM-DD")
+    previous = await repo.get_metadata(metadata_id)
+    if previous is None:
+        raise HTTPException(status_code=404, detail="影片不存在")
     metadata = await repo.update_metadata(metadata_id, mode=WriteMode.MANUAL, **updates)
     if metadata is None:
         raise HTTPException(status_code=404, detail="影片不存在")
     logger.info("metadata updated", metadata_id=metadata_id, fields=list(updates.keys()))
-    return to_resp(MetadataResponse, metadata)
+    synced = await sync_metadata_nfos(repo, metadata, previous, runtime.safe_dirs)
+    return to_resp(MetadataResponse, metadata).model_copy(update={"nfo_sync": synced})
 
 
 @router.put("/{metadata_id}/locks")
@@ -472,7 +479,7 @@ async def crop_poster_from_thumb(
 
 
 @router.post("/{metadata_id}/merge")
-async def merge_metadata(metadata_id: int, req: MergeRequest, repo: RepoDep) -> MetadataResponse:
+async def merge_metadata(metadata_id: int, req: MergeRequest, repo: RepoDep, runtime: RuntimeDep) -> MetadataResponse:
     if not req.selections:
         raise HTTPException(status_code=400, detail="未提供选择项")
 
@@ -493,4 +500,5 @@ async def merge_metadata(metadata_id: int, req: MergeRequest, repo: RepoDep) -> 
     updated = await repo.update_metadata(metadata_id, mode=WriteMode.MANUAL, **cast("MetadataFields", updates))
     assert updated is not None
     logger.info("metadata merged", metadata_id=metadata_id, selections=req.selections)
-    return to_resp(MetadataResponse, updated)
+    synced = await sync_metadata_nfos(repo, updated, metadata, runtime.safe_dirs)
+    return to_resp(MetadataResponse, updated).model_copy(update={"nfo_sync": synced})

@@ -336,6 +336,20 @@ def metadata_number_predicate(number: str) -> ColumnElement[bool]:
     return col(Metadata.number).collate("NOCASE") == number
 
 
+class NfoOutput(SQLModel, table=True):
+    """整理产物位置, 独立于可能被删除的库内媒体索引."""
+
+    __tablename__ = "nfo_outputs"  # type: ignore[assignment]
+
+    id: int | None = Field(default=None, primary_key=True)
+    metadata_id: int = Field(foreign_key="metadata.id", index=True)
+    library_id: int = Field(foreign_key="libraries.id", index=True)
+    video_path: str
+    nfo_path: str
+    path_key: str = Field(unique=True, index=True)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
 class Task(SQLModel, table=True):
     __tablename__ = "tasks"  # type: ignore[assignment]
 

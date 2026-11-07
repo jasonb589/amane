@@ -22,6 +22,7 @@ from ..models import (
     MetadataSortField,
     MetadataTag,
     MetadataUserTag,
+    NfoOutput,
     Publisher,
     Series,
     SortOrder,
@@ -541,6 +542,10 @@ class MetadataRepoMixin(RepositoryMixinBase):
                     update(MediaFile)
                     .where(col(MediaFile.metadata_id) == source_id)
                     .values(metadata_id=target_id, updated_at=now)
+                )
+                # 保留 NFO 位置; 既有文件的番号仍须与后续回写目标匹配, 跨番号合并不隐式授权覆盖.
+                await session.exec(
+                    update(NfoOutput).where(col(NfoOutput.metadata_id) == source_id).values(metadata_id=target_id)
                 )
                 source_tag_ids = set(
                     (

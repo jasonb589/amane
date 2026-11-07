@@ -36,6 +36,7 @@ from ..models import (
     MetadataDirector,
     MetadataTag,
     MetadataUserTag,
+    NfoOutput,
     Publisher,
     Series,
     SortOrder,
@@ -649,6 +650,7 @@ async def cascade_delete_metadata(session: AsyncSession, metadata: Metadata) -> 
     await session.exec(sqla_delete(MetadataTag).where(col(MetadataTag.metadata_id) == metadata_id))
     await session.exec(sqla_delete(MetadataUserTag).where(col(MetadataUserTag.metadata_id) == metadata_id))
     await session.exec(sqla_delete(Comment).where(col(Comment.metadata_id) == metadata_id))
+    await session.exec(sqla_delete(NfoOutput).where(col(NfoOutput.metadata_id) == metadata_id))
     await session.delete(metadata)
 
 

@@ -1,15 +1,13 @@
 """测试 NFO 附属文件生成"""
 
+import errno
 import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from amane.db.models import Metadata
 from amane.media import write_nfo
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 @pytest.fixture
@@ -65,3 +63,35 @@ async def test_write_nfo_plot_is_plain_text(tmp_path: Path):
     root = ET.fromstring(content)
     assert root.findtext("plot") == "结尾 ]]> 之后 & <标签>\n\n第二段"
     assert root.findtext("outline") == root.findtext("plot")
+
+
+@pytest.mark.asyncio
+async def test_language_qualified_source_ids_keep_nfo_parseable(tmp_path: Path) -> None:
+    metadata = Metadata(number="ABC-001", external_ids={"r18dev:jp": "abc00001", "dmm": "123"})
+    nfo = tmp_path / "ABC-001.nfo"
+    assert await write_nfo(metadata, nfo)
+    root = ET.parse(nfo).getroot()
+    assert root.findtext("dmmid") == "123"
+    assert root.find("uniqueid[@type='r18dev:jp']").text == "abc00001"  # type: ignore[union-attr]
+    assert await write_nfo(metadata, nfo, expected_number="ABC-001")
+    nfo.write_text("<movie><num>ABC-001</num><r18dev:jpid>old</r18dev:jpid></movie>", encoding="utf-8")
+    assert await write_nfo(metadata, nfo, expected_number="ABC-001")
+    assert ET.parse(nfo).findtext("num") == "ABC-001"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing", [False, True])
+async def test_nfo_write_on_mount_that_rejects_chmod(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool
+) -> None:
+    nfo = tmp_path / "ABC-001.nfo"
+    if existing:
+        nfo.write_text("<movie><num>ABC-001</num><title>Original</title></movie>", encoding="utf-8")
+
+    def deny_chmod(path: Path, mode: int) -> None:
+        raise PermissionError(errno.EPERM, "Operation not permitted", str(path))
+
+    monkeypatch.setattr(Path, "chmod", deny_chmod)
+    assert await write_nfo(Metadata(number="ABC-001", title="Edited"), nfo, expected_number="ABC-001")
+    assert ET.parse(nfo).findtext("title") == "ABC-001 Edited"
+    assert list(tmp_path.iterdir()) == [nfo]

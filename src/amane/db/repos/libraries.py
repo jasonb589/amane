@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Unpack
 
+from sqlalchemy import delete
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -18,7 +19,7 @@ from ...library import (
 from ...organize.path_templates import VIDEO_TEMPLATE_DEFAULT, normalize_link_template, validate_path_template
 from ...organize.strm_content import normalize_strm_content_template, validate_strm_content_template
 from ...utils.path import resolved_path
-from ..models import Library, MediaFile
+from ..models import Library, MediaFile, NfoOutput
 from ..repo_types import LibraryUpdates
 from .base import RepositoryMixinBase
 
@@ -169,6 +170,7 @@ class LibrariesRepoMixin(RepositoryMixinBase):
             media_files = list(result.all())
             for mf in media_files:
                 await session.delete(mf)
+            await session.exec(delete(NfoOutput).where(col(NfoOutput.library_id) == library_id))
             # 未声明 ORM relationship, UoW 不会排序删除顺序; 须先 flush 子表.
             await session.flush()
             await session.delete(lib)

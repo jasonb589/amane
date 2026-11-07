@@ -268,8 +268,19 @@ export function MergeDialog({ metadata, opened, onClose, onMerged }: MergeDialog
 
   const mergeMutation = useMutation({
     ...mergeMetadataMutation(),
-    onSuccess: () => {
-      notifications.show({ message: t("common:toast.metadataUpdated"), color: "teal" });
+    onSuccess: (updated) => {
+      const sync = updated.nfo_sync;
+      notifications.show({
+        message: sync
+          ? sync.unlocated
+            ? t("nfoSync.unlocated")
+            : t("nfoSync.result", sync)
+          : t("common:toast.metadataUpdated"),
+        color:
+          sync && ((sync.failed ?? 0) > 0 || (sync.skipped ?? 0) > 0 || sync.unlocated)
+            ? "orange"
+            : "teal",
+      });
       setSelections({});
       onMerged();
       onClose();

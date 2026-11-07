@@ -25,6 +25,7 @@ class Repository(
     repos.LibrariesRepoMixin,
     repos.MediaRepoMixin,
     repos.MetadataRepoMixin,
+    repos.NfoRepoMixin,
     repos.SchedulesRepoMixin,
     repos.TasksRepoMixin,
 ):
@@ -35,6 +36,7 @@ class Repository(
         self._media_hook: MediaChangeHook | None = None
         # SQLite DEFERRED: 两个 session 的 SELECT 都在写锁前看到空表. 入队互斥检查与 INSERT 同锁.
         self._task_insert_lock = asyncio.Lock()
+        self.nfo_sync_lock = asyncio.Lock()
 
     @property
     def embeddings(self) -> EmbeddingStore | None:

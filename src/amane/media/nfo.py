@@ -1,17 +1,20 @@
 """Kodi ``<movie>`` NFO, 供 Emby / Jellyfin / Kodi 读取."""
 
 import re
+import stat
+import tempfile
+import xml.etree.ElementTree as ET
+from contextlib import suppress
 from io import StringIO
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-import aiofiles
 import structlog
 
 from ..utils.text import strip_illegal_xml_chars
+from ..utils.threads import in_thread
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from ..db.models import Metadata
 
 
@@ -35,98 +38,130 @@ def _escape_xml(text: str) -> str:
     return escaped
 
 
-async def write_nfo(metadata: Metadata, nfo_path: Path) -> bool:
-    try:
-        nfo_path.parent.mkdir(parents=True, exist_ok=True)
+def render_nfo(metadata: Metadata) -> str:
+    code = StringIO()
+    code.write('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n')
+    code.write("<movie>\n")
 
-        code = StringIO()
-        code.write('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n')
-        code.write("<movie>\n")
+    if metadata.plot:
+        # 长文本按纯文本写出: 转义后 "]]>" 不可能出现, CDATA 只带来非法 XML 的风险.
+        plot_escaped = _escape_xml(metadata.plot)
+        code.write(f"  <plot>{plot_escaped}</plot>\n")
+        code.write(f"  <outline>{plot_escaped}</outline>\n")
 
-        if metadata.plot:
-            # 长文本按纯文本写出: 转义后 "]]>" 不可能出现, CDATA 只带来非法 XML 的风险.
-            plot_escaped = _escape_xml(metadata.plot)
-            code.write(f"  <plot>{plot_escaped}</plot>\n")
-            code.write(f"  <outline>{plot_escaped}</outline>\n")
+    if metadata.release:
+        code.write(f"  <premiered>{metadata.release}</premiered>\n")
+        code.write(f"  <releasedate>{metadata.release}</releasedate>\n")
+        year_match = re.match(r"(\d{4})", metadata.release)
+        if year_match:
+            code.write(f"  <year>{year_match.group(1)}</year>\n")
 
-        if metadata.release:
-            code.write(f"  <premiered>{metadata.release}</premiered>\n")
-            code.write(f"  <releasedate>{metadata.release}</releasedate>\n")
-            year_match = re.match(r"(\d{4})", metadata.release)
-            if year_match:
-                code.write(f"  <year>{year_match.group(1)}</year>\n")
+    code.write(f"  <num>{_escape_xml(metadata.number)}</num>\n")
 
-        code.write(f"  <num>{_escape_xml(metadata.number)}</num>\n")
+    if metadata.title:
+        code.write(f"  <title>{_escape_xml(metadata.number)} {_escape_xml(metadata.title)}</title>\n")
+        code.write(f"  <originaltitle>{_escape_xml(metadata.number)} {_escape_xml(metadata.title)}</originaltitle>\n")
+        code.write(f"  <sorttitle>{_escape_xml(metadata.number)} {_escape_xml(metadata.title)}</sorttitle>\n")
 
-        if metadata.title:
-            code.write(f"  <title>{_escape_xml(metadata.number)} {_escape_xml(metadata.title)}</title>\n")
-            code.write(
-                f"  <originaltitle>{_escape_xml(metadata.number)} {_escape_xml(metadata.title)}</originaltitle>\n"
-            )
-            code.write(f"  <sorttitle>{_escape_xml(metadata.number)} {_escape_xml(metadata.title)}</sorttitle>\n")
+    code.write("  <mpaa>JP-18+</mpaa>\n")
 
-        code.write("  <mpaa>JP-18+</mpaa>\n")
+    if metadata.actors:
+        for actor in metadata.actors:
+            code.write("  <actor>\n")
+            code.write(f"    <name>{_escape_xml(actor)}</name>\n")
+            code.write("    <type>Actor</type>\n")
+            code.write("  </actor>\n")
 
-        if metadata.actors:
-            for actor in metadata.actors:
-                code.write("  <actor>\n")
-                code.write(f"    <name>{_escape_xml(actor)}</name>\n")
-                code.write("    <type>Actor</type>\n")
-                code.write("  </actor>\n")
+    if metadata.score is not None:
+        code.write(f"  <rating>{metadata.score}</rating>\n")
+        code.write(f"  <criticrating>{int(metadata.score * 10)}</criticrating>\n")
 
-        if metadata.score is not None:
-            code.write(f"  <rating>{metadata.score}</rating>\n")
-            code.write(f"  <criticrating>{int(metadata.score * 10)}</criticrating>\n")
+    if metadata.runtime is not None:
+        code.write(f"  <runtime>{metadata.runtime}</runtime>\n")
 
-        if metadata.runtime is not None:
-            code.write(f"  <runtime>{metadata.runtime}</runtime>\n")
+    if metadata.series:
+        code.write(f"  <series>{_escape_xml(metadata.series)}</series>\n")
+        code.write("  <set>\n")
+        code.write(f"    <name>{_escape_xml(metadata.series)}</name>\n")
+        code.write("  </set>\n")
 
-        if metadata.series:
-            code.write(f"  <series>{_escape_xml(metadata.series)}</series>\n")
-            code.write("  <set>\n")
-            code.write(f"    <name>{_escape_xml(metadata.series)}</name>\n")
-            code.write("  </set>\n")
+    if metadata.studio:
+        code.write(f"  <studio>{_escape_xml(metadata.studio)}</studio>\n")
+        code.write(f"  <maker>{_escape_xml(metadata.studio)}</maker>\n")
 
-        if metadata.studio:
-            code.write(f"  <studio>{_escape_xml(metadata.studio)}</studio>\n")
-            code.write(f"  <maker>{_escape_xml(metadata.studio)}</maker>\n")
+    if metadata.publisher:
+        code.write(f"  <publisher>{_escape_xml(metadata.publisher)}</publisher>\n")
+        code.write(f"  <label>{_escape_xml(metadata.publisher)}</label>\n")
 
-        if metadata.publisher:
-            code.write(f"  <publisher>{_escape_xml(metadata.publisher)}</publisher>\n")
-            code.write(f"  <label>{_escape_xml(metadata.publisher)}</label>\n")
+    if metadata.tags:
+        for tag in metadata.tags:
+            if tag:
+                code.write(f"  <tag>{_escape_xml(tag)}</tag>\n")
+                code.write(f"  <genre>{_escape_xml(tag)}</genre>\n")
 
-        if metadata.tags:
-            for tag in metadata.tags:
-                if tag:
-                    code.write(f"  <tag>{_escape_xml(tag)}</tag>\n")
-                    code.write(f"  <genre>{_escape_xml(tag)}</genre>\n")
+    if metadata.poster_url:
+        code.write(f"  <poster>{_escape_xml(metadata.poster_url)}</poster>\n")
 
-        if metadata.poster_url:
-            code.write(f"  <poster>{_escape_xml(metadata.poster_url)}</poster>\n")
+    if metadata.thumb_url:
+        code.write(f"  <cover>{_escape_xml(metadata.thumb_url)}</cover>\n")
 
-        if metadata.thumb_url:
-            code.write(f"  <cover>{_escape_xml(metadata.thumb_url)}</cover>\n")
+    if metadata.trailer_url:
+        code.write(f"  <trailer>{_escape_xml(metadata.trailer_url)}</trailer>\n")
 
-        if metadata.trailer_url:
-            code.write(f"  <trailer>{_escape_xml(metadata.trailer_url)}</trailer>\n")
+    if metadata.directors:
+        for director in metadata.directors:
+            code.write(f"  <director>{_escape_xml(director)}</director>\n")
 
-        if metadata.directors:
-            for director in metadata.directors:
-                code.write(f"  <director>{_escape_xml(director)}</director>\n")
-
-        if metadata.external_ids:
-            for site, ext_id in metadata.external_ids.items():
-                if ext_id:
+    if metadata.external_ids:
+        for site, ext_id in metadata.external_ids.items():
+            if ext_id:
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", site):
                     code.write(f"  <{site}id>{_escape_xml(str(ext_id))}</{site}id>\n")
+                else:
+                    code.write(f'  <uniqueid type="{_escape_xml(site)}">{_escape_xml(str(ext_id))}</uniqueid>\n')
 
-        code.write("</movie>\n")
+    code.write("</movie>\n")
+    return code.getvalue()
 
-        async with aiofiles.open(nfo_path, "w", encoding="UTF-8") as f:
-            await f.write(code.getvalue())
 
+@in_thread
+def write_nfo(
+    metadata: Metadata, nfo_path: Path, *, create_parent: bool = True, expected_number: str | None = None
+) -> bool:
+    """同目录临时文件原子替换; 编辑回写不重建目录且校验既有作品归属."""
+    temporary: Path | None = None
+    try:
+        if nfo_path.suffix.lower() != ".nfo" or nfo_path.is_symlink():
+            raise ValueError("NFO 路径必须是普通 .nfo 文件")
+        if create_parent:
+            nfo_path.parent.mkdir(parents=True, exist_ok=True)
+        if expected_number is not None and nfo_path.exists():
+            existing = nfo_path.read_text(encoding="utf-8-sig")
+            try:
+                previous = ET.fromstring(existing).findtext("num")
+            except ET.ParseError as exc:
+                # 旧版把 r18dev:jp 等来源写成无 namespace 声明的标签; 番号节点仍是完整 XML.
+                matches = re.findall(r"<num>[^<>]*</num>", existing)
+                if "unbound prefix" not in str(exc) or len(matches) != 1:
+                    raise
+                previous = ET.fromstring(matches[0]).text
+            if not previous or previous.casefold() != expected_number.casefold():
+                raise ValueError("现存 NFO 的番号不匹配")
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=nfo_path.parent, delete=False) as output:
+            temporary = Path(output.name)
+            output.write(render_nfo(metadata))
+            output.flush()
+        mode = stat.S_IMODE(nfo_path.stat().st_mode) if nfo_path.exists() else 0o644
+        # 网盘 / FUSE 挂载可能允许内容替换却拒绝 chmod; 权限复制失败不阻止 NFO 写入.
+        with suppress(OSError):
+            temporary.chmod(mode)
+        temporary.replace(nfo_path)
         logger.debug("nfo written", path=str(nfo_path))
         return True
-
-    except Exception:
+    except OSError, ValueError, ET.ParseError:
         logger.exception("nfo write failed", path=str(nfo_path))
         return False
+    finally:
+        if temporary is not None:
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)

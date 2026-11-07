@@ -83,6 +83,7 @@ async def execute_file_operations(
     safe_dirs: Sequence[Path] | None = (),
     watermark_dir: Path | None = None,
     actor_genders: dict[str, ActorGender] | None = None,
+    repo: Repository | None = None,
 ) -> FileOperationsResult:
     """``file_info`` 由渲染路径的那一次 ``parse_file_info`` 产出, 必须带上 ``has_external_subtitle``.
 
@@ -158,9 +159,27 @@ async def execute_file_operations(
         if link_result.outcome is not PlaceOutcome.PLACED:
             return FileOperationsResult(outcome=PlaceOutcome.FAILED, dest=org_result.dest, error=link_result.error)
 
-    # 写入 NFO.
+    # 视频移动成功后, NFO 失败仍须继续处理源目录字幕.
+    nfo_error: str | None = None
     if org_result.outcome is PlaceOutcome.PLACED and org_result.dest and write_nfo:
-        await write_nfo_file(metadata, paths.nfo)
+        written = False
+        if repo is not None and metadata.id is not None and library is not None and library.id is not None:
+            async with repo.nfo_sync_lock:
+                owner = await repo.get_nfo_output(paths.nfo)
+                if owner is not None and owner.metadata_id != metadata.id:
+                    nfo_error = "NFO 输出位置已属于其他影片"
+                else:
+                    latest = await repo.get_metadata(metadata.id)
+                    if latest is None:
+                        nfo_error = "NFO 所属影片已删除"
+                    elif not await repo.remember_nfo_output(metadata.id, library.id, org_result.dest, paths.nfo):
+                        nfo_error = "NFO 输出位置已属于其他影片"
+                    else:
+                        written = await write_nfo_file(latest, paths.nfo)
+        else:
+            written = await write_nfo_file(metadata, paths.nfo)
+        if not written and nfo_error is None:
+            nfo_error = "NFO 写入失败"
 
     # 字幕按模板落到 video_dest 侧.
     subtitle_conflicts: list[SubtitleConflict] = []
@@ -179,6 +198,13 @@ async def execute_file_operations(
             actor_genders=actor_genders,
         )
 
+    if nfo_error is not None:
+        return FileOperationsResult(
+            outcome=PlaceOutcome.FAILED,
+            dest=org_result.dest,
+            subtitle_conflicts=subtitle_conflicts,
+            error=nfo_error,
+        )
     if org_result.outcome is PlaceOutcome.PLACED:
         logger.debug("file operations done", number=metadata.number, dest=str(org_result.dest), mode=str(move_mode))
         return FileOperationsResult(
@@ -242,6 +268,7 @@ async def apply_file_operations(
         safe_dirs=safe_dirs,
         watermark_dir=watermark_dir,
         actor_genders=actor_genders,
+        repo=repo,
     )
 
 
