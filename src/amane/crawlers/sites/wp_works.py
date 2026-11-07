@@ -202,14 +202,14 @@ class WordPressWorksCrawler(Crawler):
             return [sample]
         try:
             media_id = int(sample) if sample is not None else 0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return []
         if media_id <= 0:
             return []
         try:
             data = await self.client.get_json(self._media_url(media_id))
             media = _MediaPost.model_validate(data)
-        except (RequestError, SourceError, ValidationError):
+        except RequestError, SourceError, ValidationError:
             return []
         url = media.source_url or (media.guid.rendered if media.guid else None)
         return [url] if url else []

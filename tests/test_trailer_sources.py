@@ -44,7 +44,7 @@ _MG_PAGE = (
     '<a href="/sampleplayer/sampleplayer.html/69a477c5-adb4-4f90-8780-903a5b17c5cb">サンプル</a>'
     "</p></div>"
 )
-_MG_PLAYER = '{"html": "<script>var movie = \'' + TRAILER + '\';</script>"}'
+_MG_PLAYER = '{"html": "<script>var movie = \'' + TRAILER + "';</script>\"}"
 
 
 def test_mgstage_trailer_from_sample_player() -> None:

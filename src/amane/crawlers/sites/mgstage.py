@@ -204,9 +204,7 @@ class MGStageCrawler(Crawler):
         if match is None:
             return []
         try:
-            payload = await self.client.get_text(
-                _SAMPLE_PLAYER.format(pid=match.group("pid")), cookies=self.cookies
-            )
+            payload = await self.client.get_text(_SAMPLE_PLAYER.format(pid=match.group("pid")), cookies=self.cookies)
         except RequestError:
             return []
         found = _TRAILER_MP4.search(payload)
