@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock
 import pytest
 from parsel import Selector
 
-from amane.crawlers.sites.dmm import DmmCrawler, _extrafanart_urls
-from amane.crawlers.sites.dmm_cdn import image_candidates, poster_candidates
+from amane.crawlers.sites.dmm import DmmCrawler, _cover_images, _cover_urls, _extrafanart_urls
+from amane.crawlers.sites.dmm_cdn import image_candidates, poster_candidates, thumb_candidates
 
 if TYPE_CHECKING:
     from amane.crawlers.http import HttpClient
@@ -29,16 +29,26 @@ if TYPE_CHECKING:
             [
                 "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/mide00845/mide00845pl.jpg",
                 "https://pics.dmm.co.jp/digital/video/mide00845/mide00845pl.jpg",
+                "https://pics.dmm.co.jp/digital/video/mide00845/mide00845pl.jpg?w=384",
             ],
             [
                 "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/mide00845/mide00845ps.jpg",
                 "https://pics.dmm.co.jp/digital/video/mide00845/mide00845ps.jpg",
+                "https://pics.dmm.co.jp/digital/video/mide00845/mide00845ps.jpg?w=147",
             ],
         ),
         (
             {"mediumUrl": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg?w=384"},
-            ["https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg"],
-            ["https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg"],
+            [
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg",
+                "https://pics.dmm.co.jp/digital/amateur/ako254/ako254jp.jpg",
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg?w=384",
+            ],
+            [
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg",
+                "https://pics.dmm.co.jp/digital/amateur/ako254/ako254jp.jpg",
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg?w=384",
+            ],
         ),
         (None, [], []),
     ],
@@ -104,16 +114,21 @@ async def test_digital_graphql_uses_full_size_image_candidates(
             "https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/118abf295/118abf295pl.jpg",
             ["https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/118abf295/118abf295pl.jpg"],
         ),
-        # 缩放查询串返回缩略图, 高清与标准地址都去掉.
+        # 原图与可逆的标准副本在前, 来源缩放地址保留为最后兜底.
         (
             "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg?w=384&h=288&t=margin&f=webp",
-            ["https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg"],
+            [
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg",
+                "https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497pl.jpg",
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg?w=384&h=288&t=margin&f=webp",
+            ],
         ),
         (
             "https://pics.dmm.co.jp/mono/movie/adult/118abf295/118abf295pl.jpg?w=384&h=288",
             [
                 "https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/118abf295/118abf295pl.jpg",
                 "https://pics.dmm.co.jp/mono/movie/adult/118abf295/118abf295pl.jpg",
+                "https://pics.dmm.co.jp/mono/movie/adult/118abf295/118abf295pl.jpg?w=384&h=288",
             ],
         ),
         ("https://javdb.com/cover.jpg", ["https://javdb.com/cover.jpg"]),
@@ -144,7 +159,10 @@ def test_image_candidates(image_url: str, expected: list[str]) -> None:
         # 已在高清 CDN 上的封面同样只换成 ps 形态.
         (
             "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg",
-            ["https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497ps.jpg"],
+            [
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497ps.jpg",
+                "https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497ps.jpg",
+            ],
         ),
         (
             "https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/118abf295/118abf295pl.jpg?w=384&h=288&t=margin&f=webp",
@@ -158,6 +176,119 @@ def test_image_candidates(image_url: str, expected: list[str]) -> None:
 )
 def test_poster_candidates(cover_url: str, expected: list[str]) -> None:
     assert poster_candidates(cover_url) == expected
+
+
+@pytest.mark.parametrize(
+    ("image_url", "expected"),
+    [
+        (
+            "//pics.dmm.co.jp/digital/video/ssis00497/ssis00497ps.jpg",
+            [
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg",
+                "https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497pl.jpg",
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497ps.jpg",
+                "https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497ps.jpg",
+            ],
+        ),
+        ("https://other.example/coverps.jpg?w=147", ["https://other.example/coverps.jpg?w=147"]),
+        ("https://pics.dmm.co.jp.evil.example/coverps.jpg", ["https://pics.dmm.co.jp.evil.example/coverps.jpg"]),
+        ("", []),
+    ],
+)
+def test_thumb_candidates_only_promote_dmm_package_images(image_url: str, expected: list[str]) -> None:
+    assert thumb_candidates(image_url) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["digital", "fanza_tv"])
+@pytest.mark.parametrize("available", ["small", "large"])
+async def test_api_missing_package_variant_uses_known_counterpart(source: str, available: str) -> None:
+    large = "https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497pl.jpg"
+    small = "https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497ps.jpg"
+    if source == "digital":
+        package = {"mediumUrl": small} if available == "small" else {"largeUrl": large}
+        response = {"data": {"ppvContent": {"title": "作品", "packageImage": package}}}
+        url = "https://video.dmm.co.jp/av/content/?id=ssis00497"
+    else:
+        package = {"packageImage": small} if available == "small" else {"packageLargeImage": large}
+        response = {"data": {"fanzaTvPlus": {"content": {"title": "作品", **package}}}}
+        url = "https://tv.dmm.co.jp/vod/detail/?content=ssis00497"
+    client = SimpleNamespace(post_json=AsyncMock(return_value=response))
+    crawler = DmmCrawler(cast("HttpClient", client))
+    meta = await crawler._scrape(url)
+    assert meta is not None
+    assert meta.thumb_urls[:2] == [
+        "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg",
+        large,
+    ]
+    assert meta.poster_urls == [
+        "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497ps.jpg",
+        small,
+    ]
+    if available == "small":
+        assert meta.thumb_urls[-1] == small
+
+
+@pytest.mark.asyncio
+async def test_dmm_tv_preserves_distinct_key_visual_and_package_images() -> None:
+    package = "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg?w=384"
+    portrait = "https://tv-images.example/key-visual.jpg?signature=retained"
+    client = SimpleNamespace(
+        post_json=AsyncMock(
+            return_value={"data": {"video": {"titleName": "作品", "packageImage": package, "keyVisualImage": portrait}}}
+        )
+    )
+    meta = await DmmCrawler(cast("HttpClient", client))._scrape("https://tv.dmm.com/vod/detail/?seasonId=123")
+    assert meta is not None
+    assert meta.thumb_urls == [
+        "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssis00497/ssis00497pl.jpg",
+        "https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497pl.jpg",
+        package,
+    ]
+    assert meta.poster_urls == [portrait]
+
+
+def test_html_cover_candidates_keep_main_gallery_and_metadata_sources() -> None:
+    html = Selector(
+        text=(
+            '<script type="application/ld+json">{"@type":"Product","image":['
+            '{"@type":"ImageObject","contentUrl":"https://pics.dmm.co.jp/mono/movie/adult/118abf295/118abf295ps.jpg"},'
+            "null,1]}</script>"
+            '<meta property="og:image" content="https://pics.dmm.co.jp/digital/video/abf00295/abf00295pl.jpg">'
+            '<div id="sample-image-block"><img data-lazy="https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/'
+            '118abf295/118abf295pl.jpg?w=384">'
+            '<img src="https://pics.dmm.co.jp/digital/video/abf00295/abf00295jp-1.jpg"></div>'
+        )
+    )
+    covers = _cover_urls(html)
+    assert covers == [
+        "https://pics.dmm.co.jp/mono/movie/adult/118abf295/118abf295ps.jpg",
+        "https://pics.dmm.co.jp/digital/video/abf00295/abf00295pl.jpg",
+        "https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/118abf295/118abf295pl.jpg?w=384",
+    ]
+    thumbs, posters = _cover_images(covers)
+    assert thumbs[0] == "https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/118abf295/118abf295pl.jpg"
+    assert posters[0] == "https://awsimgsrc.dmm.co.jp/pics_dig/mono/movie/118abf295/118abf295ps.jpg"
+    assert len(thumbs) == len(set(thumbs))
+    assert len(posters) == len(set(posters))
+    assert all("jp-1" not in url for url in [*thumbs, *posters])
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        '<script type="application/ld+json">[1,2,3]</script>',
+        '<script type="application/ld+json">{"image":null}</script>',
+        '<script type="application/ld+json">{"image":{"invalid":"value"}}</script>',
+        '<script type="application/ld+json">broken</script>',
+        '<script type="application/ld+json">{"@type":"Organization","image":"https://pics.dmm.co.jp/logo.jpg"}'
+        "</script>",
+        '<div id="sample-image-block"><a href="https://example.com/wrongpl.jpg">別の商品</a>'
+        '<img src="https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497jp-1.jpg"></div>',
+    ],
+)
+def test_html_cover_candidates_ignore_invalid_metadata_and_samples(markup: str) -> None:
+    assert _cover_urls(Selector(text=markup)) == []
 
 
 @pytest.mark.parametrize(

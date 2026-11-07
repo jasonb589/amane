@@ -1,8 +1,10 @@
 """DMM 图片 CDN 的域名与路径规则, 由 DMM 详情页与 r18 dump 两个来源共用.
 
-两个 CDN 存放同一份文件, 差别只在路径: pics 的 mono 地址在 cid 前多一层被忽略的分类目录
-(adult / amateur / japanese), aws 只接受省去该层的规范路径; 其余分类 (e-book 等) 没有副本.
+pics 的 mono 地址在 cid 前多一层分类目录, aws 省去该层; aws 副本的像素可能高于标准地址,
+但并非每部作品都有高清副本. digital 路径可以双向换域名, mono 缺失的分类目录不能反向推断.
 """
+
+from urllib.parse import urlsplit, urlunsplit
 
 PICS_CDN = "https://pics.dmm.co.jp"
 HIGH_RES_CDN = "https://awsimgsrc.dmm.co.jp/pics_dig"
@@ -14,14 +16,27 @@ _DIGITAL_HIGH_RES_PREFIXES = ("digital/video/", "digital/amateur/")
 _MONO_MOVIE_PREFIX = "mono/movie/"
 
 
+def _normal_url(url: str) -> str:
+    return f"https:{url}" if url.startswith("//") else url
+
+
 def _strip_transform(url: str) -> str:
     """去掉图床的缩放查询串; 非 DMM 图床的地址原样返回.
 
     高清图床按查询串返回缩放后的缩略图, 标准图床忽略查询串, 两处一律去掉.
     """
-    if not url.startswith((f"{PICS_CDN}/", f"{HIGH_RES_CDN}/")):
+    url = _normal_url(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
         return url
-    return url.split("?", 1)[0].split("#", 1)[0]
+    if (
+        parts.scheme not in ("http", "https")
+        or parts.netloc not in ("pics.dmm.co.jp", "awsimgsrc.dmm.co.jp")
+        or (parts.netloc == "awsimgsrc.dmm.co.jp" and not parts.path.startswith("/pics_dig/"))
+    ):
+        return url
+    return urlunsplit(("https", parts.netloc, parts.path, "", ""))
 
 
 def _canonical_path(rel_path: str) -> str:
@@ -32,6 +47,7 @@ def _canonical_path(rel_path: str) -> str:
 
 def high_res_url(pics_url: str) -> str | None:
     """pics 绝对地址 → aws 绝对地址; 非 pics 域名或该分类无 aws 副本时返回 None."""
+    pics_url = _strip_transform(pics_url)
     if not pics_url.startswith(f"{PICS_CDN}/"):
         return None
     rel_path = pics_url[len(PICS_CDN) + 1 :]
@@ -45,20 +61,35 @@ def high_res_url(pics_url: str) -> str | None:
 def image_candidates(image_url: str) -> list[str]:
     """图片地址 → 高清候选在前、标准地址兜底的候选列表.
 
-    已是高清地址时不重复推导. aws 通常分辨率更高, 但老片与标准地址同尺寸、少量条目反而更小,
-    因此标准地址必须保留; aws 缺图返回 404, pics 缺图返回 302 到 now_printing 占位图,
-    两者都由下载期按序回退.
+    digital 路径在两个 CDN 上相同, 已是 aws 地址也补充 pics 副本. mono 地址缺失分类目录,
+    不反向推导. 来源给出的缩放地址保留为最后候选, 下载后由管线比较实际像素.
     """
+    if not image_url:
+        return []
     url = _strip_transform(image_url)
+    urls = [url]
     if url.startswith(f"{HIGH_RES_CDN}/"):
-        return [url]
-    high_res = high_res_url(url)
-    return [high_res, url] if high_res else [url]
+        rel_path = url[len(HIGH_RES_CDN) + 1 :]
+        if rel_path.startswith(_DIGITAL_HIGH_RES_PREFIXES):
+            urls.append(f"{PICS_CDN}/{rel_path}")
+    elif high_res := high_res_url(url):
+        urls.insert(0, high_res)
+    urls.append(_normal_url(image_url))
+    return list(dict.fromkeys(urls))
+
+
+def thumb_candidates(image_url: str) -> list[str]:
+    """已知 DMM 海报缩略图补充 pl 横版封面; 原始图片仍保留为兜底."""
+    url = _strip_transform(image_url)
+    if url.startswith((f"{PICS_CDN}/", f"{HIGH_RES_CDN}/")) and url.endswith(_POSTER_SUFFIX):
+        cover = f"{url.removesuffix(_POSTER_SUFFIX)}{_THUMB_SUFFIX}"
+        return list(dict.fromkeys([*image_candidates(cover), *image_candidates(image_url)]))
+    return image_candidates(image_url)
 
 
 def poster_candidates(cover_url: str) -> list[str]:
     """封面地址 (pl 形态) → 竖版海报候选; 不是 pl 形态时返回空."""
     url = _strip_transform(cover_url)
-    if not url.endswith(_THUMB_SUFFIX):
+    if not url.startswith((f"{PICS_CDN}/", f"{HIGH_RES_CDN}/")) or not url.endswith(_THUMB_SUFFIX):
         return []
     return image_candidates(f"{url.removesuffix(_THUMB_SUFFIX)}{_POSTER_SUFFIX}")

@@ -2,10 +2,11 @@
 
 import json
 import re
+import time
 from collections.abc import Sequence
 from difflib import SequenceMatcher
 from enum import StrEnum
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from parsel import Selector
 from pydantic import ValidationError
@@ -16,7 +17,7 @@ from ...parsing.file_info import ContentType
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
 from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
-from ..parsing import CSSSelector, extract_all_texts, extract_text
+from ..parsing import CSSSelector, extract_all_texts, extract_text, is_same_number
 from .dmm_api import (
     DigitalResponse,
     DmmTvResponse,
@@ -26,7 +27,7 @@ from .dmm_api import (
     dmm_tv_payload,
     fanza_tv_payload,
 )
-from .dmm_cdn import image_candidates, poster_candidates
+from .dmm_cdn import image_candidates, poster_candidates, thumb_candidates
 
 
 class Category(StrEnum):
@@ -116,6 +117,76 @@ def _digital_extrafanart(images: Sequence[_DigitalSampleImage]) -> list[str]:
     return urls
 
 
+def _image_values(value: object) -> list[str]:
+    """JSON-LD image 的字符串、列表与 ImageObject 统一为地址列表."""
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, list):
+        return [url for item in value for url in _image_values(item)]
+    if isinstance(value, dict):
+        return _image_values(value.get("contentUrl") or value.get("url"))
+    return []
+
+
+def _cover_urls(html: Selector) -> list[str]:
+    """商品标记与样品块中的封面地址; 样品块只接受明确的 DMM pl 封面, 排除剧照."""
+    urls: list[str] = []
+    for text in html.xpath('//script[@type="application/ld+json"]/text()').getall():
+        try:
+            data = json.loads(text)
+        except ValueError:
+            continue
+        if isinstance(data, dict) and data.get("@type", "Product") in ("Product", "Movie", "VideoObject"):
+            urls.extend(_image_values(data.get("image")))
+    urls.extend(html.xpath('//meta[@property="og:image"]/@content').getall())
+    urls.extend(
+        raw
+        for raw in html.xpath(
+            "//*[@id='sample-image-block']//a/@href | "
+            "//*[@id='sample-image-block']//img/@data-lazy | "
+            "//*[@id='sample-image-block']//img/@src"
+        ).getall()
+        if poster_candidates(raw)
+    )
+    return list(dict.fromkeys(urls))
+
+
+def _cover_images(cover_urls: Sequence[str]) -> tuple[list[str], list[str]]:
+    """保留同一商品在各柜台给出的封面路径, 交由下载管线比较真实尺寸."""
+    thumbs = [url for cover in cover_urls for url in thumb_candidates(cover)]
+    posters = [url for thumb in thumbs for url in poster_candidates(thumb)]
+    return list(dict.fromkeys(thumbs)), list(dict.fromkeys(posters))
+
+
+def _catalog_number(number: str) -> str | None:
+    """柜台之间比较目录号时忽略 DMM 数字段的零填充, 不接受集数与版本尾标."""
+    match = re.fullmatch(r"(\d*[a-z]+)-?(\d+)", number, re.IGNORECASE)
+    return f"{match[1]}-{int(match[2])}" if match else None
+
+
+def _retail_cover_matches(url: str, cid: str) -> bool:
+    """补充页可能重定向到其它作品; 封面目录与文件必须同时属于选中的通販 CID."""
+    try:
+        parts = urlsplit(f"https:{url}" if url.startswith("//") else url)
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or parts.netloc.lower() not in (
+        "pics.dmm.co.jp",
+        "awsimgsrc.dmm.co.jp",
+    ):
+        return False
+    path = parts.path.lower()
+    prefix = "/pics_dig/mono/movie/" if parts.netloc.lower() == "awsimgsrc.dmm.co.jp" else "/mono/movie/"
+    if not path.startswith(prefix):
+        return False
+    segments = path.removeprefix(prefix).split("/")
+    return (
+        len(segments) >= 2
+        and segments[-2] == cid.lower()
+        and segments[-1] in (f"{cid.lower()}pl.jpg", f"{cid.lower()}ps.jpg")
+    )
+
+
 class DmmCrawler(Crawler):
     @classmethod
     def profile(cls) -> CrawlerProfile:
@@ -131,16 +202,20 @@ class DmmCrawler(Crawler):
         )
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        number = query.number
         if query.content_type is ContentType.HENTAI:
             # 里番没有番号: 改为按标题关键词搜索, 并要求抓到的标题与输入足够相似.
-            return await self._search_hentai(number)
-        number_lower = number.lower()
+            return await self._search_hentai(query.number)
+        candidates = await self._search_candidates(query)
+        return candidates[0] if candidates else None
+
+    async def _search_candidates(self, query: SearchQuery) -> list[str]:
+        """单次搜索已确认的详情候选, 保留柜台顺序供同番号封面补充使用."""
+        number_lower = query.number.lower()
 
         # 拆出前缀与数字.
         match = re.search(r"([a-z]+)-?(\d+)", number_lower)
         if not match:
-            return None
+            return []
         prefix = match.group(1)
         digits = match.group(2)
 
@@ -176,12 +251,70 @@ class DmmCrawler(Crawler):
         if not all_urls:
             if not any_ok and last_error is not None:
                 raise last_error
-            return None
+            return []
 
         # 选择键依次为分类优先级、与规范化检索番号完全相等、URL 字典序, 末位键消除 set 迭代顺序的影响.
         exact_ids = frozenset({number_00, number_no_00})
-        sorted_urls = sorted(all_urls, key=lambda u: self._selection_key(u, exact_ids), reverse=True)
-        return sorted_urls[0] if sorted_urls else None
+        return sorted(all_urls, key=lambda u: self._selection_key(u, exact_ids), reverse=True)
+
+    async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
+        if query.url:
+            return await self.fetch_from_url(query.url, options)
+        if query.content_type is ContentType.HENTAI:
+            return await super().fetch(query, options)
+        started = time.monotonic()
+        candidates = await self._search_candidates(query)
+        if not candidates:
+            self.logger.warning("search miss", number=query.number)
+            return None
+        primary_url = candidates[0]
+        self.logger.info("search hit", number=query.number, url=primary_url)
+        result = await self._scrape(primary_url, options)
+        if result is None:
+            self.logger.warning("scrape failed", number=query.number, url=primary_url)
+            return None
+        retail_url = self._retail_cover_url(query.number, result.number, candidates[1:])
+        if _parse_category(primary_url) is not Category.MONO and retail_url:
+            try:
+                text = await self.client.get_html(retail_url, cookies=self.cookies)
+            except SourceError as exc:
+                self.logger.debug("dmm supplemental cover failed", url=retail_url, reason=exc.reason)
+            else:
+                retail_cid = self._url_content_id(retail_url) or ""
+                covers = [
+                    cover for cover in _cover_urls(Selector(text=text)) if _retail_cover_matches(cover, retail_cid)
+                ]
+                thumbs, posters = _cover_images(covers)
+                result.thumb_urls = list(dict.fromkeys([*result.thumb_urls, *thumbs]))
+                result.poster_urls = list(dict.fromkeys([*result.poster_urls, *posters]))
+        self.logger.info(
+            "scrape ok", number=query.number, title=result.title, duration_s=round(time.monotonic() - started, 2)
+        )
+        return result
+
+    def _retail_cover_url(self, wanted: str, found: str, candidates: Sequence[str]) -> str | None:
+        """只接受同目录号且无版本尾标的同源通販候选; 不从查询号构造新页面."""
+        number = _catalog_number(wanted)
+        primary_number = _catalog_number(found)
+        if not number or not primary_number or not is_same_number(number, primary_number):
+            return None
+        for url in candidates:
+            try:
+                parts = urlsplit(url)
+            except ValueError:
+                continue
+            if parts.scheme not in ("https", "http") or parts.hostname not in ("www.dmm.co.jp", "www.dmm.com"):
+                continue
+            if _parse_category(url) is not Category.MONO:
+                continue
+            cid = self._url_content_id(url)
+            if not cid:
+                continue
+            stripped = re.sub(r"^[a-z]_\d+", "", self._strip_store_prefix(cid))
+            retail_number = _catalog_number(stripped)
+            if retail_number and is_same_number(number, retail_number):
+                return url
+        return None
 
     # ---- 里番 (hentai): 无番号, 按标题关键词搜索 ----
     _HENTAI_SEARCH_URL = "https://www.dmm.co.jp/search/=/searchstr={}/"
@@ -320,9 +453,9 @@ class DmmCrawler(Crawler):
 
     def _parse_search_results(self, html: Selector, prefix: str, digits: str) -> list[str]:
         # 详情 URL 嵌在 script 里, 同时试转义与非转义两种 JSON 写法.
-        raw_urls = set(html.re(r'detailUrl\\":\\"(.*?)\\"'))
+        raw_urls = set(html.re(r'detailUrl\\"\s*:\s*\\"(.*?)\\"'))
         if not raw_urls:
-            raw_urls = set(html.re(r'"detailUrl":"(.*?)"'))
+            raw_urls = set(html.re(r'"detailUrl"\s*:\s*"(.*?)"'))
 
         if not raw_urls:
             return []
@@ -336,8 +469,8 @@ class DmmCrawler(Crawler):
                 url = raw_url.encode("utf-8").decode("unicode_escape")
             except UnicodeDecodeError, ValueError:
                 url = raw_url
-            if re.search(rf"[^a-z]{re.escape(n_padded)}[^0-9]", url) or re.search(
-                rf"[^a-z]{re.escape(n_short)}[^0-9]", url
+            if re.search(rf"[^a-z]{re.escape(n_padded)}(?:[^0-9]|$)", url) or re.search(
+                rf"[^a-z]{re.escape(n_short)}(?:[^0-9]|$)", url
             ):
                 results.append(url)
 
@@ -405,8 +538,14 @@ class DmmCrawler(Crawler):
         # 素人条目只有 mediumUrl (jp.jpg), 没有 largeUrl; 这一张同时作封面与海报.
         package_image = data.packageImage
         thumb_url = (package_image.largeUrl or package_image.mediumUrl) if package_image else None
-        thumb_urls = image_candidates(thumb_url) if thumb_url else []
-        poster_urls = image_candidates(package_image.mediumUrl) if package_image and package_image.mediumUrl else []
+        thumb_urls = thumb_candidates(thumb_url) if thumb_url else []
+        poster_urls = (
+            image_candidates(package_image.mediumUrl)
+            if package_image and package_image.mediumUrl
+            else poster_candidates(thumb_url)
+            if thumb_url
+            else []
+        )
 
         number = self._cid_to_number(cid, retail=False)
 
@@ -527,23 +666,8 @@ class DmmCrawler(Crawler):
             "//td[contains(text(),'ジャンル')]/following-sibling::td/a/text()",
         )
 
-        # 封面: 优先 JSON-LD image, 再回退 og:image; 两者都只给标准 CDN 地址.
-        cover_url = ""
         json_ld_text = extract_text(html, '//script[@type="application/ld+json"]/text()')
-        if json_ld_text:
-            try:
-                ld = json.loads(json_ld_text)
-                img = ld.get("image", "")
-                cover_url = img if isinstance(img, str) else (img[0] if isinstance(img, list) and img else "")
-            except KeyError, TypeError, ValueError:
-                pass
-        if not cover_url:
-            cover_url = extract_text(html, '//meta[@property="og:image"]/@content') or ""
-        cover_url = cover_url.replace("ps.jpg", "pl.jpg")
-
-        # 页面只引用标准 CDN, 高清副本由 dmm_cdn 推导; 竖版海报取 ps 形态.
-        thumb_urls = image_candidates(cover_url) if cover_url else []
-        poster_urls = poster_candidates(cover_url)
+        thumb_urls, poster_urls = _cover_images(_cover_urls(html))
 
         extrafanart = _extrafanart_urls(html)
 
@@ -609,10 +733,7 @@ class DmmCrawler(Crawler):
         )
         tags = extract_all_texts(html, "//td[contains(text(),'ジャンル')]/following-sibling::td/a/text()")
 
-        # 页面只引用标准 CDN, 高清副本由 dmm_cdn 推导; 竖版海报取 ps 形态.
-        cover_url = extract_text(html, '//meta[@property="og:image"]/@content').replace("ps.jpg", "pl.jpg")
-        thumb_urls = image_candidates(cover_url) if cover_url else []
-        poster_urls = poster_candidates(cover_url)
+        thumb_urls, poster_urls = _cover_images(_cover_urls(html))
 
         extrafanart = _extrafanart_urls(html)
         plot = extract_text(html, CSSSelector(".clear p::text"))
@@ -668,6 +789,10 @@ class DmmCrawler(Crawler):
         runtime = int(play_info.duration / 60) if play_info and play_info.duration else None
 
         extrafanart = [sp.imageLarge for sp in data.samplePictures if sp.imageLarge]
+        thumb_urls = thumb_candidates(data.packageLargeImage or data.packageImage)
+        poster_urls = (
+            image_candidates(data.packageImage) if data.packageImage else poster_candidates(data.packageLargeImage)
+        )
 
         return MediaMetadata(
             number=cid,
@@ -680,8 +805,8 @@ class DmmCrawler(Crawler):
             tags=[g.name for g in data.genres if g.name],
             series=data.series.name if data.series else None,
             plot=data.description or None,
-            poster_urls=image_candidates(data.packageImage) if data.packageImage else [],
-            thumb_urls=image_candidates(data.packageLargeImage) if data.packageLargeImage else [],
+            poster_urls=poster_urls,
+            thumb_urls=thumb_urls,
             trailer_urls=[trailer_url] if trailer_url else [],
             score=data.reviewSummary.averagePoint if data.reviewSummary else None,
             directors=[d.name for d in data.directors if d.name],

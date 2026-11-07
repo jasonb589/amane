@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
+from PIL import Image
 
 from amane.config import HotSettings, ScrapingConfig
 from amane.crawlers.base import Crawler
@@ -209,7 +210,7 @@ async def test_dead_poster_url_reordered_before_persist(repo: Repository, fake_f
         if url == "https://img.example.com/p1.jpg":
             return False
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(b"fake image data")
+        Image.new("RGB", (600, 900)).save(dest, format="JPEG")
         return True
 
     mock_web_client = AsyncMock()
