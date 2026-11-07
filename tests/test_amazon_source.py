@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from html import escape
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -32,10 +34,9 @@ def test_profile_leaves_accept_language_to_fingerprint() -> None:
 
 def test_parse_results_reads_asin_image_and_alt() -> None:
     html = (
-        'data-asin="B00TEST001"><img alt="Diabolus 鬼哭 下巻 DVD" '
-        'src="https://m.media-amazon.com/images/I/81abc+-XYZ._AC_.jpg">'
-        'data-asin="B00TEST002"><img alt="別の商品" '
-        'src="https://m.media-amazon.com/images/I/71zzzQ.jpg">'
+        '<div data-asin="B00TEST001"><img alt="Diabolus 鬼哭 下巻 DVD" '
+        'src="https://m.media-amazon.com/images/I/81abc+-XYZ._AC_.jpg"></div><div data-asin="B00TEST002"><img '
+        'alt="別の商品" src="https://m.media-amazon.com/images/I/71zzzQ.jpg"></div>'
     )
     out = _parse_results(html)
     assert out[0] == ("B00TEST001", "81abc+-XYZ", "Diabolus 鬼哭 下巻 DVD")
@@ -45,8 +46,8 @@ def test_parse_results_reads_asin_image_and_alt() -> None:
 
 def test_parse_results_skips_blocks_without_image() -> None:
     html = (
-        'data-asin="B00TEST003"><span>没有图片的块</span>'
-        'data-asin="B00TEST004"><img alt="有图有真相的商品" src="https://m.media-amazon.com/images/I/71zzzQ.jpg">'
+        '<div data-asin="B00TEST003"><span>没有图片的块</span></div><div data-asin="B00TEST004"><img alt="有图有真相的商品" '
+        'src="https://m.media-amazon.com/images/I/71zzzQ.jpg"></div>'
     )
     out = _parse_results(html)
     assert [row[0] for row in out] == ["B00TEST004"]
@@ -82,8 +83,30 @@ def test_keywords_truncate_from_long_to_short_then_number() -> None:
     assert terms == [
         "禁欲の果て 3日間 相沢みなみ アイデアポケット",
         "禁欲の果て 3日間 相沢みなみ",
+        "IPZZ-034",
+    ]
+
+
+def test_keywords_use_full_budget_without_number() -> None:
+    assert _keywords("禁欲の果て 3日間 相沢みなみ アイデアポケット [DVD]", "") == [
+        "禁欲の果て 3日間 相沢みなみ アイデアポケット",
+        "禁欲の果て 3日間 相沢みなみ",
         "禁欲の果て 3日間",
     ]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("義母（前編）", "義母 前編"),
+        ("【作品の原題】主演名 [DVD]", "作品の原題 主演名"),
+        ("彼女との秘密（第2巻）", "彼女との秘密 第2巻"),
+        ("【限定特典あり】彼女との秘密 [DVD]", "彼女との秘密"),
+        ("【視聴期限なし】彼女との秘密（後編） [Blu-ray]", "彼女との秘密 後編"),
+    ],
+)
+def test_clean_preserves_meaningful_bracketed_title(raw: str, expected: str) -> None:
+    assert _clean(raw) == expected
 
 
 def test_keywords_drop_trailing_maker_name() -> None:
@@ -104,7 +127,10 @@ def test_keywords_keep_latin_title_whole() -> None:
     ("title", "number", "expected"),
     [
         ("彼女との秘密", "ABC-001", ["彼女との秘密", "ABC-001"]),
+        ("", "ABC-001", ["ABC-001"]),
         ("", "", []),
+        ("", "NOT A NUMBER", []),
+        ("", "12345", []),
         ("彼女との秘密 女優名", "ABC-001", ["彼女との秘密 女優名", "彼女との秘密", "ABC-001"]),
     ],
 )
@@ -124,6 +150,56 @@ def test_match_score_rejects_number_hit_on_goods_or_non_disc_listing() -> None:
     assert _match_score("IPZZ-034", "禁欲の果て", "IPZZ-034 桜空もも") == 0
 
 
+@pytest.mark.parametrize(
+    ("wanted", "found"),
+    [
+        ("", "ABC-0010 [DVD]"),
+        ("", "XABC-001 [DVD]"),
+        ("彼女との秘密", "彼女との秘密 ABC-0010 [DVD]"),
+        ("彼女との秘密", "彼女との秘密 ABC-002 [DVD]"),
+        ("彼女との秘密", "彼女との秘密 abc002 [DVD]"),
+        ("彼女との秘密 前編", "彼女との秘密 後編 [DVD]"),
+        ("彼女との秘密 上巻", "彼女との秘密 下巻 [DVD]"),
+        ("彼女との秘密 第1巻", "彼女との秘密 第2巻 [DVD]"),
+        ("彼女との秘密 前編 第1巻", "彼女との秘密 後編 第1巻 [DVD]"),
+        ("彼女との秘密 前編 第1巻", "彼女との秘密 前編 第2巻 [DVD]"),
+        ("彼女との秘密 上巻 第1話", "彼女との秘密 下巻 第1話 [DVD]"),
+        ("彼女との秘密 前編", "彼女との秘密 後編 ABC-001 [DVD]"),
+        ("彼女との秘密 第1巻", "彼女との秘密 第2巻 ABC-001 [DVD]"),
+        ("彼女との秘密", "彼女との秘密 ポストカード"),
+        ("彼女との秘密", "彼女との秘密 特典生写真"),
+        ("", "ABC-001 ポストカード"),
+        ("", "ABC-001 桜空もも"),
+    ],
+)
+def test_match_score_rejects_conflicting_products(wanted: str, found: str) -> None:
+    assert _match_score("ABC-001", wanted, found) == 0
+
+
+@pytest.mark.parametrize(
+    ("wanted", "found"),
+    [
+        ("", "ABC-001 [DVD]"),
+        ("", "abc001 [DVD]"),
+        ("", "ＡＢＣ－００１ [DVD]"),
+        ("彼女との秘密", "彼女との秘密 [DVD] 特典ポストカード付き"),
+        ("彼女との秘密 前編", "彼女との秘密 前編 [DVD]"),
+        ("彼女との秘密 第2巻", "彼女との秘密 第２巻 [DVD]"),
+        ("彼女との秘密 前編 第2巻", "彼女との秘密 前編 第２巻 [DVD]"),
+    ],
+)
+def test_match_score_keeps_compatible_disc_products(wanted: str, found: str) -> None:
+    assert _match_score("ABC-001", wanted, found) > 0
+
+
+def _card(asin: str, title: str, image_id: str = "81HITJP") -> str:
+    """生成独立的合成商品卡片, 用于解析边界测试."""
+    return (
+        f'<div data-asin="{asin}"><img class="s-image" alt="{escape(title, quote=True)}" '
+        f'src="https://m.media-amazon.com/images/I/{image_id}._AC_UL320_.jpg"></div>'
+    )
+
+
 class _StubClient:
     """按顺序应答: 元素为异常时抛出, 否则当页面正文."""
 
@@ -140,13 +216,169 @@ class _StubClient:
         return str(item)
 
 
+@pytest.mark.parametrize(
+    "page",
+    [
+        (
+            "<div data-asin='B00TEST001'><img class='s-image' alt='彼女との秘密 [DVD]' "
+            "src='https://m.media-amazon.com/images/I/81HITJP.jpg'></div>"
+        ),
+        (
+            '<div data-asin="B00TEST001"><h2><span>彼女との秘密 [DVD]</span></h2>'
+            '<img class="s-image" alt="" src="https://m.media-amazon.com/images/I/81HITJP.jpg"></div>'
+        ),
+        (
+            '<div data-asin="B00TEST001"><img alt="Amazonおすすめ" '
+            'src="https://m.media-amazon.com/images/I/71BADGE.jpg"><h2>彼女との秘密 [DVD]</h2>'
+            '<img class="s-image" alt="彼女との秘密 [DVD]" '
+            'src="https://m.media-amazon.com/images/I/81HITJP.jpg"></div>'
+        ),
+        (
+            '<div data-asin="B00TEST001"><h2>彼女との秘密 [DVD]</h2>'
+            '<img class="s-image" src="https://m.media-amazon.com/images/I/01RmK+J4pJL.gif" '
+            'data-src="https://m.media-amazon.com/images/I/81HITJP.jpg"></div>'
+        ),
+        (
+            '<div data-asin="B00TEST001"><h2>彼女との秘密 [DVD]</h2>'
+            '<img class="s-image" src="https://m.media-amazon.com/images/I/01RmK+J4pJL.gif" '
+            'srcset="https://m.media-amazon.com/images/I/81HITJP._AC_UL320_.jpg 1x, '
+            'https://m.media-amazon.com/images/I/81HITJP._AC_UL640_.jpg 2x"></div>'
+        ),
+    ],
+    ids=["single-quotes", "heading", "badge-before-cover", "lazy-data-src", "lazy-srcset"],
+)
+@pytest.mark.asyncio
+async def test_fetch_handles_card_layouts_with_one_request(page: str) -> None:
+    client = _StubClient([page])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("ABC-001", partial_result=AggregatedMetadata("ABC-001", title="彼女との秘密"))
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST001"
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/81HITJP.jpg"
+    assert len(client.calls) == 1
+
+
+def test_parse_results_preserves_long_product_title() -> None:
+    title = "彼女との秘密" + "ふたりだけの物語" * 30 + " [DVD]"
+    assert _parse_results(_card("B00TEST001", title)) == [("B00TEST001", "81HITJP", title)]
+
+
+def test_parse_results_keeps_title_without_adopting_unrelated_only_image() -> None:
+    page = (
+        '<div data-asin="B00TEST001"><h2>彼女との秘密 [DVD]</h2>'
+        '<img alt="Amazonおすすめ" src="https://m.media-amazon.com/images/I/71BADGE.jpg"></div>'
+    )
+    assert _parse_results(page) == [("B00TEST001", "", "彼女との秘密 [DVD]")]
+
+
+def test_parse_results_keeps_nested_product_images_with_their_asin() -> None:
+    page = (
+        '<div data-asin="B00TEST001"><h2>彼女との秘密 [DVD]</h2>'
+        '<div data-asin="B00TEST002"><h2>別の商品 [DVD]</h2>'
+        '<img class="s-image" src="https://m.media-amazon.com/images/I/81OTHER.jpg"></div></div>'
+    )
+    assert _parse_results(page) == [
+        ("B00TEST001", "", "彼女との秘密 [DVD]"),
+        ("B00TEST002", "81OTHER", "別の商品 [DVD]"),
+    ]
+
+
+@pytest.mark.parametrize("placeholder_first", [True, False])
+@pytest.mark.asyncio
+async def test_fetch_merges_duplicate_asin_without_losing_cover(placeholder_first: bool) -> None:
+    cards = [
+        _card("B00TEST001", "彼女との秘密 [DVD]", "01RmK+J4pJL"),
+        _card("B00TEST001", "彼女との秘密 [DVD]"),
+    ]
+    if not placeholder_first:
+        cards.reverse()
+    page = "".join(cards)
+    assert _parse_results(page) == [("B00TEST001", "81HITJP", "彼女との秘密 [DVD]")]
+    client = _StubClient([page])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("ABC-001", partial_result=AggregatedMetadata("ABC-001", title="彼女との秘密"))
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/81HITJP.jpg"
+    assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_scores_results_after_first_eight_cards() -> None:
+    page = "".join(_card(f"B00OTHER{i:02d}", f"無関係の商品{i} [DVD]", "71OTHER") for i in range(8))
+    page += _card("B00TEST009", "彼女との秘密 [DVD]")
+    client = _StubClient([page])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    query = SearchQuery("ABC-001", partial_result=AggregatedMetadata("ABC-001", title="彼女との秘密"))
+
+    meta = await crawler.fetch(query)
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST009"
+    assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_searches_number_when_prior_sources_have_no_title() -> None:
+    client = _StubClient([_card("B00TEST001", "ABC-001 [DVD]")])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+
+    meta = await crawler.fetch(SearchQuery("ABC-001"))
+
+    assert meta is not None
+    assert meta.external_id == "B00TEST001"
+    assert len(client.calls) == 1
+    assert parse_qs(urlsplit(client.calls[0]).query)["k"] == ["ABC-001"]
+
+
+@pytest.mark.parametrize("number", ["", "NOT A NUMBER", "RANDOMTITLE", "12345"])
+@pytest.mark.asyncio
+async def test_fetch_skips_invalid_number_without_title(number: str) -> None:
+    client = _StubClient([])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+
+    assert await crawler.fetch(SearchQuery(number)) is None
+    assert not client.calls
+
+
+@pytest.mark.parametrize(
+    ("title", "expected_terms"),
+    [
+        (
+            "禁欲の果て 3日間 相沢みなみ アイデアポケット",
+            ["禁欲の果て 3日間 相沢みなみ アイデアポケット", "禁欲の果て 3日間 相沢みなみ", "ABC-001"],
+        ),
+        (None, ["ABC-001"]),
+    ],
+)
+@pytest.mark.asyncio
+async def test_fetch_keeps_search_requests_within_keyword_budget(title: str | None, expected_terms: list[str]) -> None:
+    client = _StubClient(["<html><body>no results</body></html>"] * (2 * len(expected_terms)))
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    partial = AggregatedMetadata("ABC-001", title=title) if title else None
+
+    with pytest.raises(SourceError) as error:
+        await crawler.fetch(SearchQuery("ABC-001", partial_result=partial))
+
+    assert error.value.reason is FailureReason.NOT_LISTED
+    assert len(client.calls) == 2 * len(expected_terms)
+    assert [parse_qs(urlsplit(url).query)["k"][0] for url in client.calls] == [
+        term for term in expected_terms for _ in range(2)
+    ]
+
+
 @pytest.mark.asyncio
 async def test_fetch_retries_when_age_gate_blocks() -> None:
     """真正的 /age_check/ 是概率性的: 换一次请求就正常, 不该直接把整源判失败."""
     gate = '<form name="agecheck" action="/age_check/"><input class="driver-verify"></form>'
     page = (
-        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg">'
+        '<div data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg"></div>'
     )
     client = _StubClient([gate, page])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
@@ -186,12 +418,12 @@ def test_age_verification_modal_is_not_a_gate() -> None:
 @pytest.mark.asyncio
 async def test_fetch_falls_back_to_next_keyword_when_first_misses() -> None:
     """标题搜不到时按 主标题 / 番号 继续试, 不能一次没命中就放弃整源."""
-    miss = 'data-asin="B00OTHER01"><img alt="別の作品 [DVD]" src="https://m.media-amazon.com/images/I/71other.jpg">'
+    miss = '<div data-asin="B00OTHER01"><img alt="別の作品 [DVD]" src="https://m.media-amazon.com/images/I/71other.jpg"></div>'
     hit = (
-        'data-asin="B00TEST009"><img alt="義母 前編 アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/81HITJP.jpg">'
+        '<div data-asin="B00TEST009"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/81HITJP.jpg"></div>'
     )
-    client = _StubClient([miss, hit])
+    client = _StubClient([miss, miss, hit])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("JUFD-001", content_type=ContentType.CENSORED)
     query.partial_result = AggregatedMetadata(
@@ -203,15 +435,18 @@ async def test_fetch_falls_back_to_next_keyword_when_first_misses() -> None:
     assert meta is not None
     assert meta.external_id == "B00TEST009"
     assert meta.poster_urls[0] == "https://m.media-amazon.com/images/I/81HITJP.jpg"
-    assert len(client.calls) == 2
+    assert len(client.calls) == 3
+    terms = [parse_qs(urlsplit(url).query)["k"][0] for url in client.calls]
+    assert terms[0] == terms[1]
+    assert terms[2] != terms[0]
 
 
 def test_parse_results_keeps_placeholder_candidate_without_image() -> None:
     """成人卡片未加载时只给 60x40 占位图: 候选要留着 (靠标题命中), 图片留给详情页补."""
     html = (
-        'data-asin="B00ADULT01"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
-        'data-asin="B00OTHER02"><img alt="別の商品 [DVD]" src="https://m.media-amazon.com/images/I/71zzzQQ.jpg">'
+        '<div data-asin="B00ADULT01"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif"></div><div '
+        'data-asin="B00OTHER02"><img alt="別の商品 [DVD]" src="https://m.media-amazon.com/images/I/71zzzQQ.jpg"></div>'
     )
     out = _parse_results(html)
     assert [(row[0], row[1]) for row in out] == [("B00ADULT01", ""), ("B00OTHER02", "71zzzQQ")]
@@ -221,8 +456,8 @@ def test_parse_results_keeps_placeholder_candidate_without_image() -> None:
 async def test_fetch_reads_cover_from_detail_page_when_search_shows_placeholder() -> None:
     """结果页只给占位图时, 用 ASIN 去详情页拿 data-old-hires 的真封面."""
     search = (
-        'data-asin="B00ADULT09"><img alt="義母 前編 アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+        '<div data-asin="B00ADULT09"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif"></div>'
     )
     detail = (
         '<img id="landingImage" src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif" '
@@ -245,8 +480,8 @@ async def test_fetch_reads_cover_from_detail_page_when_search_shows_placeholder(
 async def test_fetch_falls_back_to_asin_main_image() -> None:
     """详情页回 JS 空壳 (200 但无原图) 时, 退到 /images/P/<ASIN>.jpg —— 实测 351x500 总是有货."""
     search = (
-        'data-asin="B00ADULT10"><img alt="義母 前編 アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+        '<div data-asin="B00ADULT10"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif"></div>'
     )
     shell = "<html><body><script>var hiRes=1</script>no product image</body></html>"
     client = _StubClient([search, shell, shell, shell])
@@ -267,8 +502,8 @@ async def test_fetch_falls_back_to_asin_main_image() -> None:
 async def test_fetch_retries_other_detail_entries_when_page_is_shell() -> None:
     """详情页回 JS 空壳时换入口重试, 命中原图就不该退到 351x500 的小图."""
     search = (
-        'data-asin="B00ADULT11"><img alt="義母 前編 アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+        '<div data-asin="B00ADULT11"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif"></div>'
     )
     shell = "<html><body>no product image</body></html>"
     full = '<img id="landingImage" data-old-hires="https://m.media-amazon.com/images/I/816fsRcEijL._AC_SL1500_.jpg">'
@@ -286,7 +521,8 @@ async def test_fetch_retries_other_detail_entries_when_page_is_shell() -> None:
 
 
 _MOBILE_MISS = (
-    'data-asin="B00MOBILE1"><img alt="別の作品 [DVD]" src="https://m.media-amazon.com/images/I/71mobile.jpg">'
+    '<div data-asin="B00MOBILE1"><img alt="別の作品 [DVD]" '
+    'src="https://m.media-amazon.com/images/I/71mobile.jpg"></div>'
 )
 """移动版页里只有一条无关条目: 用来把流程推到桌面版 (黑幕那块)."""
 
@@ -295,8 +531,8 @@ _MOBILE_MISS = (
 async def test_fetch_prefers_mobile_search_page() -> None:
     """移动版结果页直接给真封面 (没有黑幕占位图): 一个请求搞定, 不该再走桌面版."""
     mobile = (
-        'data-asin="B00MOB0001"><img alt="義母 前編 成咲優美" '
-        'src="https://m.media-amazon.com/images/I/81WvjXYyCrL._AC_UL320_.jpg">'
+        '<div data-asin="B00MOB0001"><img alt="義母 前編 成咲優美" '
+        'src="https://m.media-amazon.com/images/I/81WvjXYyCrL._AC_UL320_.jpg"></div>'
     )
     client = _StubClient([mobile])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
@@ -315,13 +551,13 @@ async def test_fetch_prefers_mobile_search_page() -> None:
 async def test_fetch_unlocks_black_curtain_for_adult_covers() -> None:
     """移动版没命中时回桌面版: 看到黑幕就点一次「Yes」, 跳回来的正文才有真封面."""
     curtain = (
-        '<span class="s-black-curtain-modal-content">Age Verification</span>'
-        'data-asin="B00CURTAIN"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+        '<span class="s-black-curtain-modal-content">Age Verification</span><div data-asin="B00CURTAIN"><img '
+        'alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif"></div>'
     )
     unlocked = (
-        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/91bhG1CxHUL._AC_UL320_.jpg">'
+        '<div data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/91bhG1CxHUL._AC_UL320_.jpg"></div>'
     )
     client = _StubClient([_MOBILE_MISS, curtain, "<html>ok</html>", unlocked])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
@@ -342,13 +578,12 @@ async def test_fetch_unlocks_black_curtain_for_adult_covers() -> None:
 async def test_fetch_uses_unlock_response_when_it_already_has_covers() -> None:
     """点「Yes」跳回来的那一页本身就带真封面: 直接吃掉, 不该再多发一次搜索请求."""
     curtain = (
-        '<span class="s-black-curtain">'
-        'data-asin="B00CURTAIN"><img alt="BEAUTY VENUS Ⅷ [DVD]" '
-        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+        '<span class="s-black-curtain"></span><div data-asin="B00CURTAIN"><img alt="BEAUTY VENUS Ⅷ [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif"></div>'
     )
     unlocked = (
-        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/91bhG1CxHUL._AC_UL320_.jpg">'
+        '<div data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/91bhG1CxHUL._AC_UL320_.jpg"></div>'
     )
     client = _StubClient([_MOBILE_MISS, curtain, unlocked])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
@@ -367,13 +602,12 @@ async def test_fetch_uses_unlock_response_when_it_already_has_covers() -> None:
 async def test_fetch_unlocks_black_curtain_only_once() -> None:
     """黑幕只点一次: 换检索词时不该每次都去打那个保存接口."""
     curtain = (
-        '<span class="s-black-curtain">'
-        'data-asin="B00CURTAIN"><img alt="べつの作品 [DVD]" '
-        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif">'
+        '<span class="s-black-curtain"></span><div data-asin="B00CURTAIN"><img alt="べつの作品 [DVD]" '
+        'src="https://m.media-amazon.com/images/I/01RmK+J4pJL._AC_UL80_.gif"></div>'
     )
     hit = (
-        'data-asin="B00TEST077"><img alt="義母 前編 アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/91ZYXW9HUL._AC_UL320_.jpg">'
+        '<div data-asin="B00TEST077"><img alt="義母 前編 アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/91ZYXW9HUL._AC_UL320_.jpg"></div>'
     )
     # 检索词1: 移动版无关 → 桌面版黑幕 → 解锁(正文没命中) → 重取还是黑幕; 检索词2: 移动版命中
     client = _StubClient([_MOBILE_MISS, curtain, "<html>ok</html>", curtain, hit])
@@ -414,8 +648,8 @@ def test_search_title_uses_japanese_number_as_title() -> None:
 @pytest.mark.asyncio
 async def test_fetch_searches_japanese_title_when_field_is_translated() -> None:
     page = (
-        'data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
-        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg">'
+        '<div data-asin="B00TEST001"><img alt="BEAUTY VENUS Ⅷ アイデアポケット [DVD]" '
+        'src="https://m.media-amazon.com/images/I/81ABCDE.jpg"></div>'
     )
     client = _StubClient([page])
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]

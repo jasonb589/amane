@@ -1,43 +1,22 @@
-"""Amazon.co.jp 高清海报源 (DVD 商品封面, 原生实现).
+"""Amazon.co.jp DVD 海报源, 只补充图片与来源标识.
 
-用**日文原题**在 amazon.co.jp 的 DVD 类目检索, 取商品主图并换成大尺寸地址,
-只补充 ``poster_urls`` —— 不返回标题 / 剧情, 因此不会抢其它站点的字段。
-
-"日文原题" 指第一段来源的裸结果 (``_search_title``): 聚合标题可能已经被
-``field_language.title`` 选成 / 译成中文, 拿译文搜日亚是 0 条.
-
-Amazon 的图片服务按地址后缀给尺寸: ``<ID>._SL1500_.jpg`` 长边 1500, 去掉后缀的
-``<ID>.jpg`` 通常是原图 (DVD 封面常见 1000~1800 宽)。这里两个都给出, 下载端按顺序取
-第一个成功的。
-
-命中判据与别处一致: 结果标题必须**包含**聚合标题 (忽略空格与标点), 或相似度达标;
-否则宁可返回 None, 也不给错封面。
-
-成人区的封面被「黑幕」挡着: 没点过「Are you over 18?」的会话, 结果页里的成人卡片只有
-60x40 的占位图. 所以先在**移动版搜索页**找 (那里不给占位图, 直接是真封面), 移动版没命中
-才回桌面版: 遇到黑幕弹窗就调一次它的保存接口并把**跳回来的正文**直接用掉.
-占位图 ID 在 ``_PLACEHOLDER_IDS`` 里显式跳过.
-
-注意: 这条源只对**日文标题**有意义 (有码 / 素人 / 里番的日文原名)。欧美条目在日亚上
-是另一套邦题, 命中率很低 —— 那是 theporndb 的活。
-
-检索词按 ``_keywords()`` 分级回退: **去噪后的整标题 → 逐段砍掉尾部 (厂商 / 女優名) → 番号**。
-DMM / FANZA 的商品标题常带促销与渠道噪声 (``【視聴期限なし】`` / ``オンラインコード版`` /
-``特典生写真`` / ``送料無料`` …), 原样丢给亚马逊会 0 结果; 而且亚马逊对长检索词几乎按
-"全词都得露脸" 处理, 多一个厂商名同样 0 结果 (实测 ``義母 前編 アイデアポケット`` 0 条,
-``義母 前編`` 13 条), 所以清洗之后还要从长到短逐级截短。番号只在标题全灭时兜底, 且必须同时
-命中碟片标记、不能是特典周边条目 —— 否则宁可返回 None。
+检索优先使用前序来源的日文原题; 聚合标题可能已经被翻译. 标题检索允许截短,
+匹配仍依据完整标题, 并为有效番号保留回退预算. 仅凭番号命中时必须确认碟片标记.
+图片限于匹配商品的主图, 原图与同 ASIN 的回退地址交由下载管线按实际像素选择.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import time
 import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, override
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
+
+from parsel import Selector
 
 from ...enums import SiteName
 from ...net.errors import FailureReason, SourceError
@@ -55,24 +34,27 @@ _SEARCH_URL = SITE + "/s?k={term}&i=dvd"
 #: 所以先走它; 桌面版只在移动版没命中时兜底.
 _MOBILE_SEARCH_URL = SITE + "/gp/aw/s?k={term}&i=dvd"
 
-# 结果块以 data-asin 分隔; 块内取第一张图与第一段 alt 文本 (alt 就是商品名).
-_ASIN_SPLIT_RE = re.compile(r'data-asin="([A-Z0-9]{10})"')
-_IMAGE_RE = re.compile(r"m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})")
-#: 详情页的真封面: 原图优先, 再退到主图 JSON 里的第一张.
-_OLD_HIRES_RE = re.compile(r'data-old-hires="https://m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})')
-_DYNAMIC_IMAGE_RE = re.compile(r'data-a-dynamic-image="([^"]{0,4000})')
-_LANDING_IMAGE_RE = re.compile(
-    r'id="landingImage"[^>]*?src="https://m\.media-amazon\.com/images/I/([A-Za-z0-9%+_-]{6,})'
+_ASIN_RE = re.compile(r"[A-Z0-9]{10}")
+_IMAGE_PATH_RE = re.compile(
+    r"/images/I/([A-Za-z0-9+_-]{6,})(?:\._[A-Za-z0-9,+_-]+_)?\.(?:jpg|jpeg|png|webp|gif)", re.IGNORECASE
 )
-_ALT_RE = re.compile(r'alt="([^"]{4,200})"')
+_IMAGE_HOSTS = frozenset(
+    {
+        "m.media-amazon.com",
+        "images-na.ssl-images-amazon.com",
+        "images-fe.ssl-images-amazon.com",
+        "images-eu.ssl-images-amazon.com",
+        "ecx.images-amazon.com",
+    }
+)
+_GALLERY_RE = re.compile(r"""["']colorImages["']\s*:\s*\{\s*["']initial["']\s*:\s*""")
 _NOISE_RE = re.compile(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+")
 _MIN_RATIO = 0.6
-_MAX_CANDIDATES = 8
 #: 亚马逊的占位图 ID (60x40 的 loading gif / 1x1 透明图). 成人区卡片在年龄门确认前只有它们,
 #: 取下来就是一张废图 —— 见到就当这个候选没有封面.
 _PLACEHOLDER_IDS = frozenset({"01RmK+J4pJL", "01mI9NDJJTL"})
 _MAX_KEYWORDS = 3
-"""检索词最多试几个: 整标题 → 逐段截短, 每个词各自带年龄门重试."""
+"""标题与番号共用的检索词预算."""
 
 #: DMM / FANZA 商品标题里的促销与渠道噪声: 原样搜亚马逊会把正经条目挤出结果页.
 _NOISE_TOKENS = (
@@ -94,8 +76,12 @@ _NOISE_TOKENS = (
     "中古",
 )
 _BRACKET_RE = re.compile(r"【[^】]*】|\[[^\]]*\]|〔[^〕]*〕|（[^）]*）|\([^)]*\)|《[^》]*》|〈[^〉]*〉")
+_FORMAT_RE = re.compile(r"DVD|Blu-?ray|ブルーレイ|BD|4K|HD", re.IGNORECASE)
+_PROMO_NOTE_RE = re.compile(r"視聴期限|期間限定|限定特典|特典.*(?:付|あり)|送料無料|オンラインコード|ダウンロード版")
 _SEPARATOR_RE = re.compile(r"[|｜/／]+")
 _CJK_RE = re.compile("[\u3040-\u30ff\u4e00-\u9fff]")
+_NUMBER_RE = re.compile(r"(?<![a-z0-9_])([0-9]{0,3}[a-z]{2,12})[- ]?([0-9]{2,7})(?![a-z0-9_])", re.IGNORECASE)
+_VOLUME_RE = re.compile(r"([前後上下])\s*[編篇巻]|(?:第\s*)?([0-9]+)\s*([巻話章])")
 #: 真正的年龄门: 跳转 ``/age_check/`` 或带 ``driver-verify`` 的表单. 成人分区结果页里那个
 #: ``Age Verification`` 只是 18 禁弹窗 (``black-curtain-popover``) 的标题, 不能当拦截判据.
 _GATE_RE = re.compile(r'driver-verify|/age_check/|name="agecheck"', re.IGNORECASE)
@@ -122,9 +108,15 @@ _UNLOCK_LIMIT = 2
 """一次刮削里最多点几次黑幕弹窗的「Yes」: 每次多一个请求, 两次还没真封面就不再试."""
 
 
+def _clean_bracket(match: re.Match[str]) -> str:
+    text = match.group()[1:-1].strip()
+    # 括号也承载作品名与卷次, 仅格式与促销备注可以整段排除.
+    return " " if _FORMAT_RE.fullmatch(text) or _PROMO_NOTE_RE.search(text) else f" {text} "
+
+
 def _clean(title: str) -> str:
-    """去掉标题里的括号备注、促销词与分隔符, 只留可以拿去检索的部分."""
-    text = _BRACKET_RE.sub(" ", title or "")
+    """清除促销与渠道备注, 保留括号内的作品名和卷次."""
+    text = _BRACKET_RE.sub(_clean_bracket, unicodedata.normalize("NFKC", title or ""))
     for token in _NOISE_TOKENS:
         text = text.replace(token, " ")
     text = _SEPARATOR_RE.sub(" ", text)
@@ -132,13 +124,11 @@ def _clean(title: str) -> str:
 
 
 def _keywords(title: str, number: str) -> list[str]:
-    """检索词, 由强到弱: 整标题 → 逐段砍掉尾部 → 番号; 按比对用的归一化形态去重.
-
-    亚马逊对长检索词接近 "全词都要露脸": ``義母 前編 アイデアポケット`` 是 0 条,
-    ``義母 前編`` 是 13 条 —— 多带一个厂商名就整页空白. 所以从长到短逐级截短, 但砍掉的
-    那一段必须含日文 (纯拉丁标题砍半只会搜到别的卷).
-    """
+    """标题由长至短, 为有效番号保留一个槽位; 纯拉丁标题不截短."""
     tokens = _clean(title).split()
+    number = unicodedata.normalize("NFKC", number or "").strip()
+    number_term = number if _NUMBER_RE.fullmatch(number) else ""
+    title_budget = _MAX_KEYWORDS - bool(number_term)
     terms: list[str] = []
     seen: set[str] = set()
     for size in range(len(tokens), 0, -1):
@@ -150,11 +140,10 @@ def _keywords(title: str, number: str) -> list[str]:
             continue
         seen.add(norm)
         terms.append(term)
-        if len(terms) >= _MAX_KEYWORDS:
-            return terms
-    number = (number or "").strip()
-    if len(terms) < _MAX_KEYWORDS and len(_norm(number)) >= 4 and _norm(number) not in seen:
-        terms.append(number)
+        if len(terms) >= title_budget:
+            break
+    if number_term and _norm(number_term) not in seen:
+        terms.append(number_term)
     return terms
 
 
@@ -167,10 +156,23 @@ def _norm(text: str) -> str:
     return _NOISE_RE.sub("", unicodedata.normalize("NFKC", text or "").lower())
 
 
+def _volumes(title: str) -> dict[str, set[str]]:
+    values: dict[str, set[str]] = {}
+    for part, digits, unit in _VOLUME_RE.findall(unicodedata.normalize("NFKC", title)):
+        key = ("前後" if part in {"前", "後"} else "上下") if part else unit
+        values.setdefault(key, set()).add(part or str(int(digits)))
+    return values
+
+
+def _volume_conflict(wanted: str, found: str) -> bool:
+    left, right = _volumes(wanted), _volumes(found)
+    return any(left[key].isdisjoint(right[key]) for key in left.keys() & right.keys())
+
+
 def _title_matches(wanted: str, found: str) -> bool:
-    """包含即算命中; 否则看相似度 (副标题差异不该判错)."""
-    left, right = _norm(wanted), _norm(found)
-    if len(left) < 4 or len(right) < 4:
+    """包含即算命中; 否则比较相似度, 明确卷次冲突时拒绝."""
+    left, right = _norm(_clean(wanted)), _norm(_clean(found))
+    if len(left) < 4 or len(right) < 4 or _volume_conflict(wanted, found):
         return False
     if left in right or right in left:
         return True
@@ -183,17 +185,29 @@ def _match_score(number: str, wanted: str, found: str) -> float:
     标题命中按相似度计分; 只剩番号命中时给底分, 并且必须带碟片标记、不是特典周边 ——
     同一番号在亚马逊上还有一堆生写真 / ポストカード 条目, 取它们的图就是错封面.
     """
-    number_norm = _norm(number)
-    found_norm = _norm(found)
+    if _volume_conflict(wanted, found):
+        return 0.0
+    number_match = _NUMBER_RE.fullmatch(unicodedata.normalize("NFKC", number).strip())
+    number_hit = False
+    if number_match is not None:
+        prefix, digits = number_match.groups()
+        numbers = _NUMBER_RE.findall(unicodedata.normalize("NFKC", found))
+        same_prefix = [value for stem, value in numbers if stem.casefold() == prefix.casefold()]
+        number_hit = digits in same_prefix
+        if same_prefix and not number_hit:
+            return 0.0
+    if _GOODS_RE.search(found) and not _DISC_RE.search(found):
+        return 0.0
+    found_norm = _norm(_clean(found))
     titled = _title_matches(wanted, found)
     score = 0.0
-    if len(number_norm) >= 4 and number_norm in found_norm:
+    if number_hit:
         # 番号也在标题里: 里番/素人的番号位就是作品名, 这时按标题命中算, 不套碟片规则.
         if not titled and (not _DISC_RE.search(found) or _GOODS_RE.search(found)):
             return 0.0
         score = _NUMBER_ONLY_SCORE
     if titled:
-        score += SequenceMatcher(None, _norm(wanted), found_norm).ratio()
+        score += SequenceMatcher(None, _norm(_clean(wanted)), found_norm).ratio()
     return score
 
 
@@ -227,25 +241,85 @@ def _search_title(partial: AggregatedMetadata | None, number: str = "") -> str:
 
 
 def _parse_results(html: str) -> list[tuple[str, str, str]]:
-    """搜索结果页 → [(asin, image_id, title)]; 按出现顺序, 最多 ``_MAX_CANDIDATES`` 条.
-
-    成人卡片的缩略图现在是懒加载: 未加载时给的是 60x40 占位 gif. 这类候选不丢弃, 只是把
-    ``image_id`` 记成空串 —— 命中之后再从详情页取真封面.
-    """
-    blocks = _ASIN_SPLIT_RE.split(html)
-    results: list[tuple[str, str, str]] = []
-    # split 后结构: [前缀, asin1, 块1, asin2, 块2, ...]
-    for index in range(1, len(blocks) - 1, 2):
-        asin, block = blocks[index], blocks[index + 1]
-        title = _ALT_RE.search(block)
-        if title is None:
+    """解析整页商品卡片; 标题和图片必须属于同一 ASIN, 占位图交由详情页补充."""
+    results: dict[str, tuple[str, str, str]] = {}
+    for card in Selector(text=html).css("[data-asin]"):
+        asin = card.attrib.get("data-asin", "")
+        if not _ASIN_RE.fullmatch(asin):
             continue
-        image = _IMAGE_RE.search(block)
-        image_id = "" if image is None or image.group(1) in _PLACEHOLDER_IDS else image.group(1)
-        results.append((asin, image_id, title.group(1)))
-        if len(results) >= _MAX_CANDIDATES:
-            break
-    return results
+        headings = [
+            node for node in card.css("h2") if node.xpath("ancestor::*[@data-asin][1]/@data-asin").get() == asin
+        ]
+        title = next(
+            (node.xpath("normalize-space(.)").get("") for node in headings if node.xpath("normalize-space(.)").get()),
+            "",
+        )
+        images = [node for node in card.css("img") if node.xpath("ancestor::*[@data-asin][1]/@data-asin").get() == asin]
+        product_images = [node for node in images if "s-image" in node.attrib.get("class", "").split()]
+        if not product_images:
+            # 无专用样式时, 仅采用标题相符的图片, 或卡片唯一的图片.
+            product_images = [node for node in images if title and _title_matches(title, node.attrib.get("alt", ""))]
+            if not product_images and len(images) == 1 and (not title or not images[0].attrib.get("alt", "").strip()):
+                product_images = images
+        if not title:
+            title = next(
+                (node.attrib.get("alt", "").strip() for node in product_images if node.attrib.get("alt", "").strip()),
+                "",
+            )
+        if not title:
+            continue
+        image_id = next((image for node in product_images if (image := _image_on_node(node))), "")
+        previous = results.get(asin)
+        if previous is None or (not previous[1] and image_id):
+            results[asin] = (asin, image_id, title)
+    return list(results.values())
+
+
+def _image_id(url: str) -> str | None:
+    """从 Amazon 图片 CDN 地址提取 ID; 只解码一次, 保留 ID 内的加号."""
+    try:
+        parsed = urlsplit(url.strip())
+    except ValueError:
+        return None
+    if (
+        parsed.scheme not in {"https", "http"}
+        or parsed.hostname not in _IMAGE_HOSTS
+        or parsed.username
+        or parsed.password
+    ):
+        return None
+    match = _IMAGE_PATH_RE.fullmatch(unquote(parsed.path))
+    if match is None or match[1] in _PLACEHOLDER_IDS:
+        return None
+    return match[1]
+
+
+def _image_on_node(node: Selector, *, original_only: bool = False) -> str | None:
+    if image := _image_id(node.attrib.get("data-old-hires", "")):
+        return image
+    try:
+        dynamic: object = json.loads(node.attrib.get("data-a-dynamic-image", "{}"))
+    except ValueError, RecursionError:
+        dynamic = None
+    best: tuple[int, str] | None = None
+    if isinstance(dynamic, dict):
+        for url, size in dynamic.items():
+            if not isinstance(url, str) or not isinstance(size, list) or len(size) != 2:
+                continue
+            if not all(type(edge) is int and edge > 0 for edge in size):
+                continue
+            image = _image_id(url)
+            if image and (best is None or size[0] * size[1] > best[0]):
+                best = (size[0] * size[1], image)
+    if best is not None:
+        return best[1]
+    if original_only:
+        return None
+    for attr in ("data-src", "data-lazy-src", "srcset", "data-srcset", "src"):
+        for candidate in node.attrib.get(attr, "").split():
+            if image := _image_id(candidate.rstrip(",")):
+                return image
+    return None
 
 
 def _poster_urls(image_id: str) -> list[str]:
@@ -292,16 +366,21 @@ class AmazonCrawler(Crawler):
         started = time.monotonic()
         state = _SearchState()
         title = _search_title(query.partial_result, query.number)
-        if len(_norm(title)) < 4:
+        terms = _keywords(title, query.number)
+        if not terms:
             return None
 
-        for term in _keywords(title, query.number):
+        for term in terms:
             hit = await self._lookup(term, title, query.number, state)
             if hit is None:
                 continue
             asin, image_id = hit
             # 结果页的成人卡片是懒加载占位图; 真封面从详情页或 ASIN 主图接口补.
-            poster_urls = _poster_urls(image_id) if image_id else await self._cover_urls(asin)
+            poster_urls = (
+                [*_poster_urls(image_id), f"https://m.media-amazon.com/images/P/{asin}.jpg"]
+                if image_id
+                else await self._cover_urls(asin)
+            )
             if not poster_urls:
                 continue
             # 与其它来源的 "scrape ok" 对齐: 日志里能直接看到日亚命中了哪一条、用的是原图还是兜底图.
@@ -444,14 +523,39 @@ class AmazonCrawler(Crawler):
 
 
 def _image_from_detail(html: str) -> str | None:
-    """详情页里的封面 ID; 没有返回 None."""
-    for pattern in (_OLD_HIRES_RE, _LANDING_IMAGE_RE):
-        match = pattern.search(html)
-        if match is not None and match.group(1) not in _PLACEHOLDER_IDS:
-            return match.group(1)
-    dynamic = _DYNAMIC_IMAGE_RE.search(html)
-    if dynamic is not None:
-        for match in _IMAGE_RE.finditer(dynamic.group(1)):
-            if match.group(1) not in _PLACEHOLDER_IDS:
-                return match.group(1)
+    """仅从商品主图及主图库取图, 不采用推荐商品或背面图片."""
+    page = Selector(text=html)
+    main_nodes = page.css("#landingImage, #imgBlkFront, #main-image")
+    for node in main_nodes:
+        if image := _image_on_node(node, original_only=True):
+            return image
+    for script_node in page.css("script"):
+        if script_node.xpath(
+            "ancestor::*[contains(@id, 'recommend') or contains(@id, 'similarities') or "
+            "contains(@id, 'sponsored') or contains(@id, 'desktop-dp-sims')]"
+        ):
+            continue
+        script = script_node.xpath("text()").get("")
+        for match in _GALLERY_RE.finditer(script):
+            try:
+                entries, _ = json.JSONDecoder().raw_decode(script[match.end() :])
+            except ValueError, RecursionError:
+                continue
+            if not isinstance(entries, list) or not entries:
+                continue
+            main = next(
+                (entry for entry in entries if isinstance(entry, dict) and entry.get("variant") == "MAIN"), None
+            )
+            # 未标注视角的旧图库只有单张时才可以确认是主图.
+            if main is None and len(entries) == 1 and isinstance(entries[0], dict) and not entries[0].get("variant"):
+                main = entries[0]
+            if main is None:
+                continue
+            for key in ("hiRes", "large"):
+                url = main.get(key)
+                if isinstance(url, str) and (image := _image_id(url)):
+                    return image
+    for node in main_nodes:
+        if image := _image_on_node(node):
+            return image
     return None
