@@ -405,8 +405,8 @@ class DmmCrawler(Crawler):
         # 素人条目只有 mediumUrl (jp.jpg), 没有 largeUrl; 这一张同时作封面与海报.
         package_image = data.packageImage
         thumb_url = (package_image.largeUrl or package_image.mediumUrl) if package_image else None
-        thumb_urls = [thumb_url] if thumb_url else []
-        poster_urls = [package_image.mediumUrl] if package_image and package_image.mediumUrl else []
+        thumb_urls = image_candidates(thumb_url) if thumb_url else []
+        poster_urls = image_candidates(package_image.mediumUrl) if package_image and package_image.mediumUrl else []
 
         number = self._cid_to_number(cid, retail=False)
 
@@ -680,8 +680,8 @@ class DmmCrawler(Crawler):
             tags=[g.name for g in data.genres if g.name],
             series=data.series.name if data.series else None,
             plot=data.description or None,
-            poster_urls=[data.packageImage] if data.packageImage else [],
-            thumb_urls=[data.packageLargeImage] if data.packageLargeImage else [],
+            poster_urls=image_candidates(data.packageImage) if data.packageImage else [],
+            thumb_urls=image_candidates(data.packageLargeImage) if data.packageLargeImage else [],
             trailer_urls=[trailer_url] if trailer_url else [],
             score=data.reviewSummary.averagePoint if data.reviewSummary else None,
             directors=[d.name for d in data.directors if d.name],
@@ -724,8 +724,8 @@ class DmmCrawler(Crawler):
             runtime=None,
             tags=[g.name for g in data.genres if g.name],
             plot=data.description or None,
-            poster_urls=[data.keyVisualImage] if data.keyVisualImage else [],
-            thumb_urls=[data.packageImage] if data.packageImage else [],
+            poster_urls=image_candidates(data.keyVisualImage) if data.keyVisualImage else [],
+            thumb_urls=image_candidates(data.packageImage) if data.packageImage else [],
             score=data.reviewSummary.averagePoint if data.reviewSummary else None,
             directors=directors,
             source_url=url,

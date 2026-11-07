@@ -122,6 +122,6 @@ Cloudflare managed challenge 只能执行 JS 越过, 因此受保护的来源由
 
 ## DMM 图片 CDN
 
-`pics` (标准) 与 `aws` (高清) 存同一份文件的两套路径: `mono/movie/` 下 pics 多一层被 CDN 忽略的分类目录 (`adult` / `japanese`), aws 只接受省去该层的路径, 其余分类 (e-book 等) 没有 aws 副本. 地址上的缩放查询串会让 aws 返回缩略图, 一律去掉; 规则在 `sites/dmm_cdn.py`, 由 DMM 详情页与 r18 dump 共用, 候选按高清在前、标准兜底排列.
+`pics` (标准) 与 `aws` (高清) 使用不同路径: `mono/movie/` 下 pics 的分类目录在 aws 中省略, 部分类别没有副本. DMM 的 HTML、GraphQL 与 r18 dump 统一使用 `sites/dmm_cdn.py` 去除缩放参数, 按高清在前、标准兜底提供候选; 高清域名不保证实际像素更大, 下载后仍须比较尺寸.
 
 **aws 地址多数柜台本来就给**: digital / FANZA TV 的接口直接返回, 月額 (見放題) 页面在样品图块里引用封面与剧照, 两者原样使用, 不再追加推导的地址. 只有通販 (mono) 与レンタル页面从不引用 aws, 高清地址在那里只能由 pics 地址推导; 检索优先选配信条目, 落到推导这一支的是没有配信条目的纯 DVD 片.

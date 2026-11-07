@@ -3,11 +3,57 @@
 分类目录改写、候选顺序与 cid 形态是 DMM 详情页与 r18 dump 共用的契约; 页面解析走 TOML 数据驱动.
 """
 
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
+from unittest.mock import AsyncMock
+
 import pytest
 from parsel import Selector
 
 from amane.crawlers.sites.dmm import DmmCrawler, _extrafanart_urls
 from amane.crawlers.sites.dmm_cdn import image_candidates, poster_candidates
+
+if TYPE_CHECKING:
+    from amane.crawlers.http import HttpClient
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("package", "expected_thumb", "expected_poster"),
+    [
+        (
+            {
+                "largeUrl": "https://pics.dmm.co.jp/digital/video/mide00845/mide00845pl.jpg?w=384",
+                "mediumUrl": "https://pics.dmm.co.jp/digital/video/mide00845/mide00845ps.jpg?w=147",
+            },
+            [
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/mide00845/mide00845pl.jpg",
+                "https://pics.dmm.co.jp/digital/video/mide00845/mide00845pl.jpg",
+            ],
+            [
+                "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/mide00845/mide00845ps.jpg",
+                "https://pics.dmm.co.jp/digital/video/mide00845/mide00845ps.jpg",
+            ],
+        ),
+        (
+            {"mediumUrl": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg?w=384"},
+            ["https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg"],
+            ["https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/ako254/ako254jp.jpg"],
+        ),
+        (None, [], []),
+    ],
+)
+async def test_digital_graphql_uses_full_size_image_candidates(
+    package: dict[str, str] | None, expected_thumb: list[str], expected_poster: list[str]
+) -> None:
+    client = SimpleNamespace(
+        post_json=AsyncMock(return_value={"data": {"ppvContent": {"title": "作品", "packageImage": package}}})
+    )
+    crawler = DmmCrawler(cast("HttpClient", client))
+    result = await crawler._scrape_digital("https://video.dmm.co.jp/av/content/?id=mide00845", {})
+    assert result is not None
+    assert result.thumb_urls == expected_thumb
+    assert result.poster_urls == expected_poster
 
 
 @pytest.mark.parametrize(

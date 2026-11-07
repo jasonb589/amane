@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 from typing import TYPE_CHECKING, cast
+from unittest.mock import AsyncMock
 
 import pytest
 import sqlalchemy.exc
@@ -161,6 +162,89 @@ async def test_small_candidate_falls_back_to_cropped_thumb(resource_store: Resou
     assert got is not None
     _, crop_path = got
     assert Image.open(crop_path).size == (376, 538)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("download_thumb", [True, False])
+async def test_crop_selects_high_resolution_cover_after_small_first_candidate(
+    resource_store: ResourceStore, tmp_path: Path, download_thumb: bool
+) -> None:
+    client = FakeClient(
+        {"https://s/small.jpg": (800, 538), "https://s/large.jpg": (2400, 1614), "https://s/poster.jpg": (352, 500)}
+    )
+    config = HotSettings()
+    if not download_thumb:
+        config.scraping.download_resources = [DownloadableResource.poster]
+    covers = ["https://s/small.jpg", "https://s/large.jpg"]
+    out = await materialize_images(
+        ["https://s/poster.jpg"], covers, [], resource_store, cast("WebClient", client), config, tmp_path
+    )
+    found = await resource_store.get_by_url_hash(out.poster_urls[0].rsplit("/", 1)[-1])
+    assert found is not None
+    with Image.open(found[1]) as image:
+        assert image.size == (1129, 1614)
+    assert found[0].meta["src"] == "https://s/large.jpg"
+    assert out.thumb_urls == (list(reversed(covers)) if download_thumb else covers)
+
+
+@pytest.mark.asyncio
+async def test_cover_quality_selection_ignores_invalid_images_and_preserves_equal_priority(
+    resource_store: ResourceStore, tmp_path: Path
+) -> None:
+    urls = ["https://s/invalid.jpg", "https://s/first.jpg", "https://s/equal.jpg"]
+    client = FakeClient({urls[1]: (1600, 1076), urls[2]: (1600, 1076)})
+    config = HotSettings()
+    config.scraping.download_resources = [DownloadableResource.thumb]
+    out = await materialize_images([], urls, [], resource_store, cast("WebClient", client), config, tmp_path)
+    assert out.thumb_urls == [urls[1], urls[2], urls[0]]
+
+
+@pytest.mark.asyncio
+async def test_cover_quality_selection_precedes_upscaling(
+    resource_store: ResourceStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upscaler = AsyncMock()
+    monkeypatch.setattr(pipeline_mod, "run_SR", upscaler)
+    urls = ["https://s/small.jpg", "https://s/large.jpg"]
+    client = FakeClient({urls[0]: (800, 538), urls[1]: (2400, 1614)})
+    config = HotSettings()
+    config.scraping.download_resources = [DownloadableResource.thumb]
+    config.sr.enabled = True
+    out = await materialize_images([], urls, [], resource_store, cast("WebClient", client), config, tmp_path)
+    assert out.thumb_urls == list(reversed(urls))
+    upscaler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_poster_only_quality_search_is_bounded(resource_store: ResourceStore, tmp_path: Path) -> None:
+    urls = [f"https://s/{index}.jpg" for index in range(20)]
+    client = FakeClient(dict.fromkeys(urls, (800, 538)))
+    config = HotSettings()
+    config.scraping.download_resources = [DownloadableResource.poster]
+    out = await materialize_images([], urls, [], resource_store, cast("WebClient", client), config, tmp_path)
+    assert out.poster_urls[0].startswith(pipeline_mod.RESOURCE_URL_PREFIX)
+    assert len(client.downloaded) == 6
+    assert out.thumb_urls == urls
+
+
+@pytest.mark.asyncio
+async def test_large_native_poster_does_not_trigger_unselected_cover_download(
+    resource_store: ResourceStore, tmp_path: Path
+) -> None:
+    client = FakeClient({"https://s/poster.jpg": (1055, 1500), "https://s/cover.jpg": (2400, 1614)})
+    config = HotSettings()
+    config.scraping.download_resources = [DownloadableResource.poster]
+    out = await materialize_images(
+        ["https://s/poster.jpg"],
+        ["https://s/cover.jpg"],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        config,
+        tmp_path,
+    )
+    assert out.poster_urls == ["https://s/poster.jpg"]
+    assert client.downloaded == ["https://s/poster.jpg"]
 
 
 @pytest.mark.asyncio

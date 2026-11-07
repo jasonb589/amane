@@ -51,6 +51,8 @@ def _internal_url(store: ResourceStore, locator_url: str) -> str:
 
 #: 海报候选最长边小于它就算「明显偏小」: 即使比例判定够高, 也比一比 thumb 裁出来的那张.
 _SMALL_POSTER_EDGE = 800
+# 未选择封面下载时, 裁切选源只额外探测有限数量, 避免将海报任务扩展成全部封面下载.
+_CROP_THUMB_LIMIT = 6
 
 
 def _success_first(urls: list[str], succeeded: set[str]) -> list[str]:
@@ -123,16 +125,17 @@ async def materialize_images(
     thumb_ok: set[str] = set()
     thumb_local: Path | None = None
     thumb_src: str | None = None
+    thumb_size: tuple[int, int] | None = None
     if DownloadableResource.thumb in kinds:
-        for url in thumb_urls:
+        for url in dict.fromkeys(thumb_urls):
             local = await store.acquire(url, client)
-            if local:
+            size = probe_size(local) if local else None
+            if local and size:
                 thumb_ok.add(url)
-                if thumb_local is None:
+                # 同一组候选已全部下载, 按真实像素选源, 不固定使用首个成功的小图.
+                if thumb_size is None or size[0] * size[1] > thumb_size[0] * thumb_size[1]:
                     thumb_local, thumb_src = local, url
-                    res = await store.get_by_url(url)
-                    if res:
-                        await _maybe_upscale(store, res, config, data_dir)
+                    thumb_size = size
 
     # 下载 poster; 候选偏矮则从 thumb 裁剪.
     poster_ok: set[str] = set()
@@ -141,11 +144,11 @@ async def materialize_images(
     poster_candidate_size: tuple[int, int] | None = None
     result_poster_urls = list(poster_urls)
     if DownloadableResource.poster in kinds:
-        for url in poster_urls:
+        for url in dict.fromkeys(poster_urls):
             local = await store.acquire(url, client)
-            if local:
+            size = probe_size(local) if local else None
+            if local and size:
                 poster_ok.add(url)
-                size = probe_size(local)
                 # 选像素面积最大的一张; 来源顺序只用于同尺寸时的先后.
                 if poster_candidate_local is None or (
                     size is not None
@@ -157,16 +160,22 @@ async def materialize_images(
                     poster_candidate_local, poster_candidate_url = local, url
                     poster_candidate_size = size
 
-        # 裁剪需要 thumb 本地文件; 若未选 thumb 下载, 为裁剪临时 acquire 首个 thumb.
+        # 未选择封面下载时, 仅为缺失或低清海报尝试有限数量的裁切源.
         mode = resolve_crop_mode(config.scraping.poster_crop_mode, content_type)
-        if thumb_local is None and thumb_urls and config.scraping.crop_poster and mode != "none":
-            for url in thumb_urls:
+        if (
+            thumb_local is None
+            and thumb_urls
+            and config.scraping.crop_poster
+            and mode != "none"
+            and (poster_candidate_size is None or max(poster_candidate_size) < _SMALL_POSTER_EDGE)
+        ):
+            for url in list(dict.fromkeys(thumb_urls))[:_CROP_THUMB_LIMIT]:
                 local = await store.acquire(url, client)
-                if local:
+                size = probe_size(local) if local else None
+                if local and size and (thumb_size is None or size[0] * size[1] > thumb_size[0] * thumb_size[1]):
                     thumb_local, thumb_src = local, url
-                    break
+                    thumb_size = size
 
-        thumb_size = probe_size(thumb_local) if thumb_local else None
         cand_size = poster_candidate_size
         # 候选明显偏小 (最长边 < 800, 例如日亚只剩 352x500 兜底图) 时, 即使比例判定「够高不裁」
         # 也把 thumb 裁一份来比面积: 裁出来的更大就用裁的, 更小仍保留原候选.
@@ -198,7 +207,6 @@ async def materialize_images(
 
             crop_res = await store.acquire_derived(thumb_src or "", "crop", args, crop_producer)
             if crop_res:
-                await _maybe_upscale(store, crop_res, config, data_dir)
                 crop_size = probe_size(store.full_path(crop_res))
                 # 由「候选偏小」触发的裁切要与原候选比面积: 裁出来更小就没必要换.
                 if not small_candidate or (
@@ -208,16 +216,17 @@ async def materialize_images(
                 ):
                     result_poster_urls = [_internal_url(store, crop_res.url)]
                     cropped = True
+                    await _maybe_upscale(store, crop_res, config, data_dir)
                 else:
                     result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
             else:
                 result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
         else:
             result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
-            if poster_candidate_url:
-                res = await store.get_by_url(poster_candidate_url)
-                if res:
-                    await _maybe_upscale(store, res, config, data_dir)
+        if not cropped and poster_candidate_url:
+            res = await store.get_by_url(poster_candidate_url)
+            if res:
+                await _maybe_upscale(store, res, config, data_dir)
 
         # 海报最终来自哪张、多大: 只靠结果页看不出来, 记一条便于定位是哪一环掉了.
         logger.info(
@@ -228,6 +237,12 @@ async def materialize_images(
             candidates=len(poster_urls),
             cropped=cropped,
         )
+
+    # 超分不能参与原图质量排序, 否则首个低清来源放大后会压过真实高清来源.
+    if DownloadableResource.thumb in kinds and thumb_src:
+        res = await store.get_by_url(thumb_src)
+        if res:
+            await _maybe_upscale(store, res, config, data_dir)
 
     # 下载预告片.
     trailer_ok: set[str] = set()
@@ -244,7 +259,9 @@ async def materialize_images(
 
     out = MaterializedImages(
         poster_urls=result_poster_urls,
-        thumb_urls=_success_first(thumb_urls, thumb_ok),
+        thumb_urls=_best_first(_success_first(thumb_urls, thumb_ok), thumb_src)
+        if DownloadableResource.thumb in kinds
+        else list(thumb_urls),
         trailer_urls=_success_first(trailer_urls, trailer_ok),
     )
     logger.debug(
