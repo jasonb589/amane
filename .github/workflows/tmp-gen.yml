@@ -1,0 +1,61 @@
+name: tmp-gen
+
+# 临时: 推 gen-* 标签即重生成 openapi + 前端 client 并推回 custom 分支, 用完删除.
+on:
+  push:
+    tags: ["gen-*"]
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11"
+
+jobs:
+  gen:
+    name: regenerate generated client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: custom
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Setup just
+        uses: extractions/setup-just@v4
+
+      - name: sync deps
+        run: just ci-sync
+
+      - name: generate
+        run: just generate
+
+      - name: commit and push
+        run: |
+          git config user.name "jasonb589"
+          git config user.email "jasonb589@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no drift"
+          else
+            git diff --cached --stat
+            git commit -m "chore: regenerate openapi + web client"
+            git push origin HEAD:custom
+          fi
