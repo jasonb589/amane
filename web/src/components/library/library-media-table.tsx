@@ -12,7 +12,14 @@ import {
   type MantineBreakpoint,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconDots, IconFolderDown, IconForms, IconLink, IconRefresh, IconTrash } from "@tabler/icons-react";
+import {
+  IconDots,
+  IconFolderDown,
+  IconForms,
+  IconLink,
+  IconRefresh,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
@@ -290,7 +297,11 @@ export function LibraryMediaTable({
     }
   }
 
-  async function handleUrlScrape(number: string, url: string, contentType: ContentType | undefined) {
+  async function handleUrlScrape(
+    number: string,
+    url: string,
+    contentType: ContentType | undefined,
+  ) {
     if (urlTarget == null) return;
     setUrlSaving(true);
     try {
@@ -604,7 +615,10 @@ export function LibraryMediaTable({
                         >
                           {t("actions.scrapeWithNumber")}
                         </Menu.Item>
-                        <Menu.Item leftSection={<IconLink size={14} />} onClick={() => setUrlTarget(item)}>
+                        <Menu.Item
+                          leftSection={<IconLink size={14} />}
+                          onClick={() => setUrlTarget(item)}
+                        >
                           {t("actions.scrapeWithUrl")}
                         </Menu.Item>
                         <Menu.Divider />

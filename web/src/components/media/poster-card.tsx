@@ -13,7 +13,6 @@ import { formatReleaseYearMonth } from "@/lib/format-release";
 import { proxyImageUrl } from "@/lib/utils";
 import classes from "./poster-card.module.css";
 
-
 interface PosterCardProps {
   item: MetadataResponse;
   /** 传入时按影片发行日标注演员当时年龄 (演员详情出演墙). */

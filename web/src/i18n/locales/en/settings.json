@@ -654,28 +654,73 @@
         "label": "Channels",
         "description": "One notification per channel; pick Telegram / Bark / WeCom and just fill in the token and body, or pick Custom HTTP and write url/body yourself",
         "$": {
-          "name": { "label": "Channel name", "description": "Used in logs and error messages only" },
-          "enabled": { "label": "Enable this channel", "description": "Turn off to mute it temporarily" },
-          "url": { "label": "Request URL", "description": "Custom HTTP only; accepts {variables}, e.g. https://api.telegram.org/bot<TOKEN>/sendMessage" },
+          "name": {
+            "label": "Channel name",
+            "description": "Used in logs and error messages only"
+          },
+          "enabled": {
+            "label": "Enable this channel",
+            "description": "Turn off to mute it temporarily"
+          },
+          "url": {
+            "label": "Request URL",
+            "description": "Custom HTTP only; accepts {variables}, e.g. https://api.telegram.org/bot<TOKEN>/sendMessage"
+          },
           "method": {
             "label": "Method",
             "description": "POST sends the body; GET only requests the url",
             "options": { "post": "POST", "get": "GET" }
           },
-          "headers": { "label": "Headers", "description": "Key/value pairs, e.g. Authorization: Bearer xxx" },
-          "body": { "label": "Body template", "description": "Custom HTTP only; when it starts with a brace, strings are JSON-escaped" },
+          "headers": {
+            "label": "Headers",
+            "description": "Key/value pairs, e.g. Authorization: Bearer xxx"
+          },
+          "body": {
+            "label": "Body template",
+            "description": "Custom HTTP only; when it starts with a brace, strings are JSON-escaped"
+          },
           "provider": {
             "label": "Service",
             "description": "Pick a built-in service and only fill the token and body - the URL and JSON are generated for you; Custom HTTP keeps the raw url/body",
-            "options": { "custom": "Custom HTTP", "telegram": "Telegram", "bark": "Bark", "wecom": "WeCom" },
-            "$": { "options": { "custom": "Custom HTTP", "telegram": "Telegram", "bark": "Bark", "wecom": "WeCom" } }
+            "options": {
+              "custom": "Custom HTTP",
+              "telegram": "Telegram",
+              "bark": "Bark",
+              "wecom": "WeCom"
+            },
+            "$": {
+              "options": {
+                "custom": "Custom HTTP",
+                "telegram": "Telegram",
+                "bark": "Bark",
+                "wecom": "WeCom"
+              }
+            }
           },
-          "token": { "label": "Token / Key", "description": "Telegram bot token; Bark device key; WeCom group robot key" },
-          "chat_id": { "label": "Chat / channel ID", "description": "Telegram only, e.g. -1001234567890" },
-          "text": { "label": "Message body", "description": "Plain-text template with {variables}: {type_label} {status} {number} {title} {library} {duration} {finished_at_local} {category_label} {plot} {actors} {tags} {studio} {release} {poster_url} {link} {log_tail} {count} {numbers} {batch} {error}; empty uses the built-in default" },
-          "parse_mode": { "label": "Parse mode", "description": "Telegram only: HTML or MarkdownV2; empty means plain text" },
-          "send_photo": { "label": "Send as photo", "description": "Telegram only: when poster_url exists, use sendPhoto with the body as caption" },
-          "test_send": { "label": "Send test", "description": "Send one real test message using the values above - no need to save first" },
+          "token": {
+            "label": "Token / Key",
+            "description": "Telegram bot token; Bark device key; WeCom group robot key"
+          },
+          "chat_id": {
+            "label": "Chat / channel ID",
+            "description": "Telegram only, e.g. -1001234567890"
+          },
+          "text": {
+            "label": "Message body",
+            "description": "Plain-text template with {variables}: {type_label} {status} {number} {title} {library} {duration} {finished_at_local} {category_label} {plot} {actors} {tags} {studio} {release} {poster_url} {link} {log_tail} {count} {numbers} {batch} {error}; empty uses the built-in default"
+          },
+          "parse_mode": {
+            "label": "Parse mode",
+            "description": "Telegram only: HTML or MarkdownV2; empty means plain text"
+          },
+          "send_photo": {
+            "label": "Send as photo",
+            "description": "Telegram only: when poster_url exists, use sendPhoto with the body as caption"
+          },
+          "test_send": {
+            "label": "Send test",
+            "description": "Send one real test message using the values above - no need to save first"
+          },
           "events": {
             "label": "Events",
             "description": "Tick the events to push; empty = all",
@@ -721,9 +766,18 @@
               }
             }
           },
-          "require": { "label": "Required variables", "description": "Skip this channel when any listed variable is empty (e.g. poster_url for photo channels)" },
-          "throttle_seconds": { "label": "Quiet window (s)", "description": "Collect consecutive events into one: the timer restarts on every new event and the message goes out after this many quiet seconds; 0 = one message per event" },
-          "max_wait_seconds": { "label": "Max merge wait (s)", "description": "Upper bound while a pipeline keeps running; 0 = no limit. Use {batch} in the body to print a summary like 共 N 项: numbers" },
+          "require": {
+            "label": "Required variables",
+            "description": "Skip this channel when any listed variable is empty (e.g. poster_url for photo channels)"
+          },
+          "throttle_seconds": {
+            "label": "Quiet window (s)",
+            "description": "Collect consecutive events into one: the timer restarts on every new event and the message goes out after this many quiet seconds; 0 = one message per event"
+          },
+          "max_wait_seconds": {
+            "label": "Max merge wait (s)",
+            "description": "Upper bound while a pipeline keeps running; 0 = no limit. Use {batch} in the body to print a summary like 共 N 项: numbers"
+          },
           "timeout": { "label": "Timeout", "description": "Per-request timeout (seconds)" }
         }
       }

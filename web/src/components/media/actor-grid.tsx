@@ -159,7 +159,13 @@ interface ActorPosterWallProps {
   selectActive: boolean;
 }
 
-function ActorPosterWall({ items, restoreKey, selected, onToggleSelect, selectActive }: ActorPosterWallProps) {
+function ActorPosterWall({
+  items,
+  restoreKey,
+  selected,
+  onToggleSelect,
+  selectActive,
+}: ActorPosterWallProps) {
   const cols = useMatches(GRID_COLS);
   const rows = useMemo(() => toRows(items, cols), [items, cols]);
   const virtuosoRef = useRef<VirtuosoHandle>(null);

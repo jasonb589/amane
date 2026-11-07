@@ -1,6 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-import { listMediaQueryKey, listMetadataQueryKey, listTasksQueryKey } from "@/client/@tanstack/react-query.gen";
+import {
+  listMediaQueryKey,
+  listMetadataQueryKey,
+  listTasksQueryKey,
+} from "@/client/@tanstack/react-query.gen";
 import { assertNever, exhaustiveTuple, isOneOf } from "@/lib/exhaustive";
 import { isRecord } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connection";

@@ -93,7 +93,10 @@ export function ObjectArrayField({
                         {collapsible && (
                           <IconChevronRight
                             size={14}
-                            style={{ transform: expanded ? "rotate(90deg)" : undefined, flexShrink: 0 }}
+                            style={{
+                              transform: expanded ? "rotate(90deg)" : undefined,
+                              flexShrink: 0,
+                            }}
                           />
                         )}
                         <Text size="sm" fw={500}>

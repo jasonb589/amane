@@ -72,7 +72,10 @@ function ScrapeUrlForm({
           error={trimmedNumber === "" ? t("scrapeUrl.numberRequired") : undefined}
         />
       </Input.Wrapper>
-      <Input.Wrapper label={t("scrapeUrl.contentType")} description={t("scrapeUrl.contentTypeHint")}>
+      <Input.Wrapper
+        label={t("scrapeUrl.contentType")}
+        description={t("scrapeUrl.contentTypeHint")}
+      >
         <EnumToggle
           fullWidth
           options={CONTENT_TYPE_OPTIONS}
@@ -90,7 +93,9 @@ function ScrapeUrlForm({
         <Button
           loading={saving}
           disabled={trimmedNumber === "" || !urlValid}
-          onClick={() => onSubmit(trimmedNumber, trimmedUrl, contentType === "" ? undefined : contentType)}
+          onClick={() =>
+            onSubmit(trimmedNumber, trimmedUrl, contentType === "" ? undefined : contentType)
+          }
         >
           {t("scrapeUrl.submit")}
         </Button>

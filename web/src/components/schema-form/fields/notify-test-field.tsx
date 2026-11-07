@@ -21,7 +21,10 @@ function readPath(root: unknown, path: string): unknown {
   if (!path) {
     return root;
   }
-  const parts = path.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
+  const parts = path
+    .replace(/\[(\d+)\]/g, ".$1")
+    .split(".")
+    .filter(Boolean);
   let node: unknown = root;
   for (const part of parts) {
     if (node === null || typeof node !== "object") {

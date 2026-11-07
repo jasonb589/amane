@@ -16,7 +16,6 @@ import { ageFromBirthday } from "@/lib/format-birthday";
 import { proxyImageUrl } from "@/lib/utils";
 import classes from "./actor-card.module.css";
 
-
 interface ActorCardProps {
   item: ActorResponse;
   /** 选中态 (演员海报视图多选). */
