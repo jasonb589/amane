@@ -653,7 +653,7 @@ export const setMetadataLocksMutation = (options?: Partial<Options<SetMetadataLo
  * 从封面 (thumb) 按像素框裁切海报, 写入派生 Resource 并更新 poster_urls.
  *
  * 先按 EXIF 转正、再顺时针旋转 ``req.rotation``, 框相对旋转后的图像.
- * 裁好后同时尝试把结果写回片库目录的 ``poster.jpg`` (见 ``_write_poster_into_libraries``).
+ * 裁切结果按媒体库海报模板写回现存媒体文件对应的位置.
  */
 export const cropPosterFromThumbMutation = (options?: Partial<Options<CropPosterFromThumbData>>): UseMutationOptions<CropPosterFromThumbResponse, CropPosterFromThumbError, Options<CropPosterFromThumbData>> => {
     const mutationOptions: UseMutationOptions<CropPosterFromThumbResponse, CropPosterFromThumbError, Options<CropPosterFromThumbData>> = {

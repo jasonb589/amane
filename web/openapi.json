@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Amane API",
-    "version": "0.25.0-custom.20"
+    "version": "0.25.0-custom.21"
   },
   "paths": {
     "/api/health": {
@@ -1689,7 +1689,7 @@
           "metadata"
         ],
         "summary": "Crop Poster From Thumb",
-        "description": "从封面 (thumb) 按像素框裁切海报, 写入派生 Resource 并更新 poster_urls.\n\n先按 EXIF 转正、再顺时针旋转 ``req.rotation``, 框相对旋转后的图像.\n裁好后同时尝试把结果写回片库目录的 ``poster.jpg`` (见 ``_write_poster_into_libraries``).",
+        "description": "从封面 (thumb) 按像素框裁切海报, 写入派生 Resource 并更新 poster_urls.\n\n先按 EXIF 转正、再顺时针旋转 ``req.rotation``, 框相对旋转后的图像.\n裁切结果按媒体库海报模板写回现存媒体文件对应的位置.",
         "operationId": "crop_poster_from_thumb",
         "parameters": [
           {
