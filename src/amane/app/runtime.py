@@ -575,7 +575,7 @@ def build_handlers(
     # 经 _rebuild() 热重载; 代理沿用 network.proxy.
     # 译文缓存与并发合并状态是会话级, 热重载时复用同一实例.
     translator = build_translator(
-        enabled=hot.llm.enabled,
+        enabled=hot.llm.enabled or hot.llm.translate_western_tags,
         api_type=hot.llm.api_type,
         api_key=hot.llm.api_key,
         base_url=hot.llm.base_url,

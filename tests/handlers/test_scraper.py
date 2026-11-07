@@ -13,7 +13,7 @@ from amane.aggregate import AggregatedMetadata
 from amane.config import HotSettings, ScrapingConfig
 from amane.crawlers.models import MediaMetadata
 from amane.db.models import MediaFileStatus, Task, TaskStatus, TaskType
-from amane.enums import MetadataField, SiteName
+from amane.enums import Language, MetadataField, SiteName
 from amane.handlers import CacheKind, RefreshHandler, RefreshPayload, ScanMode, ScrapeHandler, ScrapePayload
 from amane.library import CleanupInventory, InventorySource, InventoryStore, LibraryFileKind, LibraryHit, scan_inventory
 from amane.observability import Recorder
@@ -590,13 +590,13 @@ class TestScrapeTranslation:
     @pytest.mark.asyncio(loop_scope="function")
     async def test_translator_applied_to_title(self, repo: Repository, factory, resource_store):
         """配置 translator + field_language 时, 标题被翻译后再持久化."""
-        from amane.enums import Language, MetadataField
 
         class StubTranslator:
             async def translate(self, text, target, field, *, use_cache=True):
                 return f"[{target}]{text}"
 
         config = HotSettings()
+        config.llm.enabled = True
         config.scraping.field_language = {MetadataField.TITLE: Language.ZH_CN}
         config.llm.translate_fields = [MetadataField.TITLE]
         h = ScrapeHandler(
@@ -616,13 +616,13 @@ class TestScrapeTranslation:
     @pytest.mark.asyncio(loop_scope="function")
     async def test_translator_failure_keeps_original(self, repo: Repository, factory, resource_store):
         """translator 抛异常时降级保留原值, 刮削不失败 (失败即跳过)."""
-        from amane.enums import Language, MetadataField
 
         class BrokenTranslator:
             async def translate(self, text, target, field, *, use_cache=True):
                 raise RuntimeError("llm down")
 
         config = HotSettings()
+        config.llm.enabled = True
         config.scraping.field_language = {MetadataField.TITLE: Language.ZH_CN}
         h = ScrapeHandler(
             repo=repo,

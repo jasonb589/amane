@@ -6,16 +6,23 @@ from typing import TYPE_CHECKING
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 
-from amane.config import HotSettings
+from amane.config import ConfigManager, HotSettings
 from amane.config.manager import WatcherConfig
+from amane.db.models import TaskType
 from amane.handlers.models import RefreshPayload
 from amane.handlers.refresh import RefreshHandler
+from amane.handlers.scrape import ScrapeHandler
+from amane.llm import LLMTranslator
 from amane.parsing import parse_file_info
 from amane.parsing.file_info import set_escape_strings
 from tests.api.conftest import hot_for_tests, make_app
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from fastapi import FastAPI
+
+    from amane.app.runtime import AppRuntime
 
 
 class TestConfigHttp:
@@ -78,6 +85,51 @@ class TestConfigRebuild:
         new_concurrency = app.state.runtime.worker._concurrency
         assert new_concurrency == 3
         assert new_concurrency != old_concurrency
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_western_tag_translation_schema_persistence_and_hot_reload(
+        self, client: AsyncClient, app: FastAPI
+    ) -> None:
+        runtime: AppRuntime = app.state.runtime
+        schema = (await client.get("config/schema")).json()
+        properties = schema["$defs"]["LLMConfig"]["properties"]
+        assert properties["translate_western_tags"]["type"] == "boolean"
+        assert properties["translate_western_tags"]["default"] is False
+        assert properties["western_tags_language"]["default"] == "zh_cn"
+        assert not properties["translate_western_tags"].get("x-hidden", False)
+
+        original = (await client.get("config")).json()
+        response = await client.patch(
+            "config",
+            json={
+                "llm": {
+                    "translate_western_tags": True,
+                    "western_tags_language": "zh_tw",
+                    "api_key": "test-only-key",
+                    "model": "test-only-model",
+                }
+            },
+        )
+        assert response.status_code == 200
+        updated = response.json()
+        assert updated["llm"]["enabled"] is False
+        assert updated["llm"]["translate_fields"] == original["llm"]["translate_fields"]
+        assert updated["scraping"] == original["scraping"]
+        handler = runtime.worker._handlers[TaskType.SCRAPE]
+        assert isinstance(handler, ScrapeHandler)
+        assert isinstance(handler._translator, LLMTranslator)
+        reloaded = ConfigManager.with_cold(runtime.config.cold)
+        assert reloaded.hot.llm.translate_western_tags is True
+        assert reloaded.hot.llm.western_tags_language == "zh_tw"
+
+        invalid = await client.patch("config", json={"llm": {"western_tags_language": "invalid"}})
+        assert invalid.status_code == 422
+        assert (await client.get("config")).json() == updated
+        disabled = await client.patch("config", json={"llm": {"translate_western_tags": False}})
+        assert disabled.status_code == 200
+        rebuilt = runtime.worker._handlers[TaskType.SCRAPE]
+        assert isinstance(rebuilt, ScrapeHandler)
+        assert rebuilt._translator is None
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_update_preserves_worker_functionality(self, client: AsyncClient, safe_path):

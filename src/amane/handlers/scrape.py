@@ -12,6 +12,7 @@ from ..enums import ActorGender, MetadataField
 from ..media import materialize_images
 from ..observability import current
 from ..observability.models import SiteOutcomeKind
+from ..parsing import VR_TAGS, ContentType
 from ..plugins.models import SourceDescriptor, SourceTrait
 from ..utils.threads import path_exists
 from ._common import ensure_oshash, finalize_media_file, register_media_file
@@ -67,11 +68,12 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
         progress_total = len(SCALAR_FIELDS) + _PROGRESS_POST_STEPS
         rec = current()
 
-        # 启用 metadata 缓存时读取 raw 快照.
+        # 条目类型与字段锁始终以现存记录为准; raw 仅在 metadata 缓存启用时复用.
         use_metadata_cache = CacheKind.metadata in payload.use_cache
-        db_data = await self._repo.get_metadata_by_number(payload.number) if use_metadata_cache else None
-        if db_data is not None and db_data.raw:
-            rec.write_raw_cache(db_data.raw)
+        existing = await self._repo.get_metadata_by_number(payload.number)
+        cached_raw = existing.raw if existing is not None and use_metadata_cache else None
+        if cached_raw:
+            rec.write_raw_cache(cached_raw)
 
         # 校验 content_type 路由; 无资格站点则失败.
         route = self._config.scraping.content_routes.get(content_type)
@@ -120,7 +122,7 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             crawlers,
             field_priority,
             field_language,
-            db_data.raw if db_data else None,
+            cached_raw,
             on_progress=_on_fetch_progress,
             multi_lang_sites=self._multi_language_sources,
             deferred_sites=frozenset(name for name in crawlers if name in self._partial_sources),
@@ -148,7 +150,13 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
 
         # 翻译文本字段; 失败不阻断刮削.
         if self._translator is not None:
-            await self._translate_metadata(result.metadata, field_language, CacheKind.trans in payload.use_cache)
+            await self._translate_metadata(
+                result.metadata,
+                field_language,
+                CacheKind.trans in payload.use_cache,
+                content_type=existing.content_type if existing is not None else content_type,
+                locked_fields=existing.locked_fields if existing is not None else (),
+            )
 
         # 物化到 Resource; 失败保留原始 URL.
         poster_out = result.metadata.poster_urls
@@ -341,13 +349,20 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             return []
 
     async def _translate_metadata(
-        self, metadata: AggregatedMetadata, field_language: FieldLanguage, use_cache: bool
+        self,
+        metadata: AggregatedMetadata,
+        field_language: FieldLanguage,
+        use_cache: bool,
+        *,
+        content_type: ContentType,
+        locked_fields: Sequence[str],
     ) -> None:
-        """就地翻译 ``llm.translate_fields`` 中的文本标量. 单字段失败不影响其余, 全程不抛.
+        """按通用字段设置与独立欧美标签设置翻译. 单字段失败不影响其余.
         ``use_cache`` 为 False 时跳过译文缓存读取, 但仍刷新缓存.
         """
         assert self._translator is not None
-        fields = self._config.llm.translate_fields
+        llm = self._config.llm
+        fields = llm.translate_fields if llm.enabled else []
         if MetadataField.TITLE in fields and metadata.title:
             translated = await self._translate_field(metadata.title, field_language, MetadataField.TITLE, use_cache)
             if translated:
@@ -356,11 +371,19 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             translated = await self._translate_field(metadata.plot, field_language, MetadataField.PLOT, use_cache)
             if translated:
                 metadata.plot = translated
-        if MetadataField.TAGS in fields and metadata.tags:
+        western_tags = llm.translate_western_tags and content_type == ContentType.WESTERN
+        if western_tags and MetadataField.TAGS in locked_fields:
+            return
+        if (western_tags or MetadataField.TAGS in fields) and metadata.tags:
+            tag_language = {MetadataField.TAGS: llm.western_tags_language} if western_tags else field_language
             # 标签是列表: 逐条翻译 (每条独立缓存, 第二次起直接命中), 单条失败保留原文.
             translated_tags: list[str] = []
             for tag in metadata.tags:
-                translated = await self._translate_field(tag, field_language, MetadataField.TAGS, use_cache)
+                # VR 标签还参与机器判定, 独立翻译必须保留标记的原始形式.
+                if western_tags and tag.strip().casefold() in VR_TAGS:
+                    translated_tags.append(tag)
+                    continue
+                translated = await self._translate_field(tag, tag_language, MetadataField.TAGS, use_cache)
                 translated_tags.append(translated or tag)
             metadata.tags = translated_tags
 

@@ -824,10 +824,16 @@ class LLMConfig(BaseModel):
     """凭据放 Hot, 可在 UI 修改并热生效. 与 agent section 隔离."""
 
     enabled: bool = False
-    """关闭时刮削管线跳过翻译步骤."""
+    """控制通用字段翻译, 不影响独立的欧美标签翻译."""
 
     translate_fields: list[MetadataField] = Field(default_factory=lambda: [MetadataField.TITLE, MetadataField.PLOT])
-    """当前仅支持文本标量字段 (title/plot)."""
+    """支持 title / plot / tags; 由 enabled 控制."""
+
+    translate_western_tags: bool = False
+    """独立翻译欧美影片标签; 共用模型配置, 不要求启用通用字段翻译."""
+
+    western_tags_language: Language = Language.ZH_CN
+    """独立开关启用时采用的标签目标语言, 不改变其他字段的语言配置."""
 
     system_prompt: str | None = Field(default=None, json_schema_extra={"x-long": True})
     """自定义 system 提示词的指令部分; 空白等价于未配置, 使用内置.

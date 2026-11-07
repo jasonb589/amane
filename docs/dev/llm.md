@@ -23,7 +23,7 @@
 - **按条件跳过**: translator 为 `None` (未配置) 或单字段翻译抛异常时保留原值、不阻断刮削 — 与资源物化同款策略.
 - **缓存语义不变**: `Metadata.raw` 仍存**源语言**站点快照; 译文是派生值, 写入 `Metadata` 标量字段.
 - **独立限速**: LLM 端点用自己的 `AsyncLimiter`, 与站点 host 限速器隔离.
-- **覆盖字段**: 由 `llm.translate_fields` 控制, 当前仅文本标量. 扩展到 tags / series 等须在 `_translate_metadata` 显式列出 (项目禁反射).
+- **覆盖范围**: `llm.enabled` 控制 `translate_fields` 中的标题 / 剧情 / 标签; `llm.translate_western_tags` 独立控制欧美标签并采用独立目标语言. `src/amane/app/runtime.py::build_handlers` 在任一开关启用时构造共享翻译器, `ScrapeHandler._translate_metadata` 分别执行, 欧美标签只翻译一次. 现存条目按库内类型判定, 与元数据缓存开关无关; 新条目按任务类型判定. 独立标签翻译跳过锁定字段并保留机器识别的 VR 标签; 原始站点快照与其他字段不受该开关影响.
 
 ## 自定义提示词
 
@@ -51,7 +51,7 @@
 
 判定逻辑在 `src/amane/utils/language.py`, 服务于「是否需要翻译」的决策, 非通用语言识别:
 
-- **句子级前提**: 标题 / 简介必含假名 → 「含假名」即判日文; 纯汉字日文只出现在词级 (标签 / 人名), 不在翻译范围.
+- **判定边界**: 假名判日文、汉字判中文, 因此纯汉字日文标签仍有歧义; 欧美英文标签按字母证据执行跨语系翻译, 不据此扩展日文标签识别.
 - **简繁不经由 LLM**: 简繁是字形差异而非语言差异, 中文文本交内置 `zhconv.convert`; 转换前用 `issimp` 判断变体, 已是目标变体直接跳过 — 转换对正确繁体并非幂等, 重复转换会改写字形 (如 `干擾` → `幹擾`).
 - **词表同步**: `scripts/sync_zhcdict.py` 从 MediaWiki 的 ZhConversion 表更新; 默认只报差异, 写入按 merge 只增不删. `SIMPONLY` / `TRADONLY` 上游已不导出, 保留本地值. 项目修正词条在 `zhconv_overrides.json`, 与代码分离, 更新后无需改代码.
 - 仅日↔中、英↔中等**跨语系**才调 LLM (`needs_llm_translation`).
