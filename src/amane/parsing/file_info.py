@@ -192,6 +192,45 @@ _WESTERN_PARSE = re.compile(r"([A-Z0-9-]{2,})[-_.]+2?0?(\d{2}[-_.]\d{2}[-_.]\d{2
 _FC2_NUMBER = re.compile(r"FC2(?:[-_.\s\u2010-\u2015\u2212]*PPV)?[-_.\s\u2010-\u2015\u2212]*([0-9]{5,})")
 # FC 长编号是省略 2 的文件命名; 短 FC 系列保持原类型. 紧连 FC2 仍优先解释为完整前缀, 不改变短商品 ID.
 _FC2_ALIAS = re.compile(r"(?<![A-Z0-9])FC(?!2)[-_.\s\u2010-\u2015\u2212]*([0-9]{5,})(?![A-Z0-9])")
+_HEYDOUGA_NUMBER = re.compile(r"HEYDOUGA[-_. ]*([0-9]{2,4})[-_. ]+([0-9]{1,4})(?![0-9])")
+_MD_NUMBER = re.compile(r"(?<![A-Z])MD(?!VR)[A-Z-]*[0-9]{4,}(?:-[0-9])?")
+_TH101_NUMBER = re.compile(r"TH101-[0-9]{3,}-[0-9]{5,}")
+_AMATEUR_NUMBER = re.compile(r"[0-9]{2,}[A-Z]{2,}-[0-9]{2,}[A-Z]?")
+_SHORT_CATALOG_NUMBER = re.compile(r"(?<![A-Z0-9])[A-Z]{2,}-[0-9](?![A-Z0-9])")
+_CONCAT_CATALOG_NUMBER = re.compile(r"(?![A-Z]*FC[0-9])[A-Z]{2,}[0-9]{2,}")
+_HEYZO_NUMBER = re.compile(r"HEYZO-?[0-9]{3,}")
+_TOKYO_HOT_NUMBER = re.compile(r"[NK][0-9]{4}")
+_KIN8_NUMBER = re.compile(r"KIN8(?:TENGOKU)?-?[0-9]{3,}")
+_COMPOSITE_CATALOG_NUMBER = re.compile(
+    r"(?:H4610|C0930|H0930)-[A-Z]+[0-9]{4,}"
+    r"|(?:S2M[BD]*|MCB3D[BD]*)-[0-9]{2,}"
+    r"|CW3D2D?BD-?[0-9]{2,}"
+    r"|MMR-?[A-Z]{2,}-?[0-9]+[A-Z]*"
+    r"|(?:XXX-AV|MKY-[A-Z]+)-[0-9]{3,}"
+    r"|MYWIFE[ .]+NO\.[0-9]+"
+    r"|H_[0-9]{3,}[A-Z]{2,}[0-9]{2,}"
+)
+# 复合番号先消费全部商品号, 再检查额外分段; 不允许把商品号自己的尾段当作 CD.
+_PART_CATALOG_PATTERNS = (
+    _FC2_NUMBER,
+    _FC2_ALIAS,
+    _HEYDOUGA_NUMBER,
+    _MD_NUMBER,
+    _TH101_NUMBER,
+    _HEYZO_NUMBER,
+    _TOKYO_HOT_NUMBER,
+    _KIN8_NUMBER,
+    _COMPOSITE_CATALOG_NUMBER,
+    _WESTERN_PARSE,
+    _TMA_NUMBER,
+    _DMM_CONCAT,
+    _AMATEUR_NUMBER,
+    _CATALOG_NUMBER,
+    _DIGIT_PREFIX_CATALOG,
+    _SHORT_CATALOG_NUMBER,
+    _CONCAT_CATALOG_NUMBER,
+    _SIX_DIGIT_CATALOG,
+)
 
 _ESCAPE_MARKERS = (
     "4K",
@@ -221,7 +260,42 @@ _ESCAPE_MARKERS = (
 
 _ROOT_PARTS = frozenset({"/", ".", ""})
 _CD_DIR = re.compile(r"^(?:CD|PART)(\d{1,2})$", re.IGNORECASE)
+_CD_MARKER = re.compile(r"(?:^|[-_.\s])(?:CD|PART)\s*(0?[1-9]|[1-9][0-9])(?=$|[-_.\s])(?!-[0-9]+(?:$|[-_.\s]))")
 _DIR_BRACKET_STRIP = "[]【】()（）"
+_PART_MARKERS = frozenset(
+    (
+        *_ESCAPE_MARKERS,
+        "C",
+        "U",
+        "UC",
+        "LTX",
+        "CRACKED",
+        "LEAKED",
+        "UNCENSORED",
+        "破解",
+        "克破",
+        "流出",
+        "无码",
+        "無碼",
+        "字幕",
+        "中文",
+        "中文字幕",
+        "CHS",
+        "CHT",
+        "CHI",
+        "ZHO",
+        "ZH",
+        "CN",
+        "TW",
+        "HK",
+        "HANS",
+        "HANT",
+        "EN",
+        "ENG",
+        "JA",
+        "JPN",
+    )
+)
 
 _MOSAIC_DIR_TOKENS: dict[str, Mosaic] = {
     k.casefold(): v
@@ -465,14 +539,9 @@ class _Prepared:
 def _prepare(basename: str, escape_strings: list[str]) -> _Prepared:
     real_name = basename.strip() + "."
     escaped = _remove_escape_strings(real_name, escape_strings) + "."
-    dated = (
-        escaped.replace("-C.", ".")
-        .replace(".PART", "-CD")
-        .replace("-PART", "-CD")
-        .replace(" EP.", ".EP")
-        .replace("-CD-", "")
-    )
-    dated = re.sub(r"[-_ .]CD\d{1,2}", "", dated)
+    dated = escaped.replace("-C.", ".").replace(" EP.", ".EP")
+    # 仅替换完整显式分段标记, 并保留分隔符; 数字边界与分段检测保持一致.
+    dated = _CD_MARKER.sub("-", dated)
     dated = re.sub(r"[-_ .][A-Z0-9]\.$", "", dated)
     dated = dated.replace(" ", "-").strip("-_. ")
     catalog = re.sub(r"\d{4}[-_.]\d{1,2}[-_.]\d{1,2}", "", dated)
@@ -535,6 +604,9 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     normalized = unicodedata.normalize("NFKC", escaped)
     if m := _FC2_NUMBER.search(normalized) or _FC2_ALIAS.search(normalized):
         return f"FC2-{m[1]}", ContentType.FC2
+    # 第二段商品号可以只有一位, 必须在通用尾标剥离之前读取.
+    if m := _HEYDOUGA_NUMBER.search(normalized):
+        return f"HEYDOUGA-{m[1]}-{m[2]}", ContentType.UNCENSORED
     if "MYWIFE" in c and re.search(r"NO\.\d*", c):
         return f"Mywife No.{re.findall(r'NO\.(\d*)', c)[0]}", ContentType.CENSORED
     if m := re.search(r"CW3D2D?BD-?\d{2,}", c):
@@ -543,8 +615,11 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
         number = m.group().replace("MMR-", "MMR")
         return number, _type_of_catalog_id(number)
     # 国产 MD 必须用 escaped: catalog 会删除 MD0165-1 的 -1.
-    if (m := re.search(r"([^A-Z]|^)(MD[A-Z-]*\d{4,}(-\d)?)", escaped)) and "MDVR" not in escaped:
-        return m.group(2), ContentType.CHINESE
+    if (m := _MD_NUMBER.search(escaped)) and "MDVR" not in escaped:
+        return m.group(), ContentType.CHINESE
+    # 裸分段与字幕扩展名会让日期剥离误删六位数字商品号; 字母番号内部的数字不属于该系列.
+    if (m := _catalog_token(normalized)) is not None and m.re is _SIX_DIGIT_CATALOG:
+        return m.group(), ContentType.UNCENSORED
     # 欧美日期号用 dated (日期尚未剥除).
     if _WESTERN_PROBE.findall(dated):
         result = _WESTERN_PARSE.findall(dated)
@@ -567,11 +642,6 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
             return m.group(), ContentType.UNCENSORED
         if m := re.search(r"HEYZO\d{3,}", hz):
             return m.group().replace("HEYZO", "HEYZO-"), ContentType.UNCENSORED
-    # heydouga 番号由系列号与作品号两段组成 (heydouga-4037-1002); 通用的字母前缀规则只取到第一段.
-    if "HEYDOUGA" in c:
-        hd = re.sub(r"[-_. ]+", "-", c)
-        if m := re.search(r"HEYDOUGA-?(\d{2,4})-(\d{1,4})", hd):
-            return f"HEYDOUGA-{m[1]}-{m[2]}", ContentType.UNCENSORED
     if m := re.search(r"(H4610|C0930|H0930)-[A-Z]+\d{4,}", c):
         return m.group(), ContentType.UNCENSORED
     # kin8 归欧美链 (theporndb 为第一源); 该类型表示路由归属, 与马赛克标记正交.
@@ -582,12 +652,12 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     if m := _TMA_NUMBER.search(c):
         # T28 / T38 等: DMM 连写 Txx00nnn → Txx-nnn; 已有短横线则原样.
         return re.sub(r"T(\d{2})00", r"T\1-", m.group()), ContentType.CENSORED
-    if m := re.search(r"TH101-\d{3,}-\d{5,}", c):
+    if m := _TH101_NUMBER.search(c):
         return m.group().lower(), ContentType.UNCENSORED
     if m := _DMM_CONCAT.search(c):
         number = f"{m[1]}-{m[2]}"
         return number, _type_of_catalog_id(number)
-    if m := re.search(r"\d{2,}[A-Z]{2,}-\d{2,}[A-Z]?", c):
+    if m := _AMATEUR_NUMBER.search(c):
         return m.group(), ContentType.AMATEUR
     if m := _CATALOG_NUMBER.search(c):
         file_number = m.group()
@@ -596,6 +666,8 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
                 file_number = f"{digits}{file_number}"
                 break
         return file_number, _type_of_catalog_id(file_number)
+    if m := _SHORT_CATALOG_NUMBER.search(normalized):
+        return m.group(), _type_of_catalog_id(m.group())
     if m := _SIX_DIGIT_CATALOG.search(c):
         # 六位数字 + 短横线或下划线 + 序号 (010115-001 / 010115_001 是两部). 短于六位的数字号不命中.
         return m.group(), ContentType.UNCENSORED
@@ -717,15 +789,41 @@ def _classify_from_path(stem: str, dir_names: tuple[str, ...]) -> ContentType | 
 
 
 def _detect_cd(basename: str) -> int | None:
-    if m := re.search(r"[-_.]CD(\d{1,2})", basename):
+    normalized = unicodedata.normalize("NFKC", basename)
+    if m := _CD_MARKER.search(normalized):
         return int(m[1])
-    if m := re.search(r"[-_.]PART(\d{1,2})", basename):
-        return int(m[1])
-    if m := re.search(r"-([AB])(?:\.|$)", basename):
-        return ord(m[1]) - ord("A") + 1
-    if m := re.search(r"-([1-9])$", basename):
-        return int(m[1])
+    return _detect_catalog_part(normalized)
+
+
+def _catalog_token(basename: str) -> re.Match[str] | None:
+    """定位原始文件名中的完整商品号; 不使用删尾后的文本或规范番号反推边界."""
+    for pattern in _PART_CATALOG_PATTERNS:
+        for match in pattern.finditer(basename):
+            if (match.start() and _ASCII_ALNUM.fullmatch(basename[match.start() - 1])) or (
+                match.end() < len(basename) and _ASCII_ALNUM.fullmatch(basename[match.end()])
+            ):
+                continue
+            if pattern is _DIGIT_PREFIX_CATALOG and match.group().startswith(("FC2-", "TH101-")):
+                continue
+            return match
     return None
+
+
+def _detect_catalog_part(basename: str) -> int | None:
+    """完整商品号紧随的数字或 A/B 是分段; 尾部只允许已知相位与字幕语言标记."""
+    number = _catalog_token(basename)
+    if number is None:
+        return None
+    part = re.fullmatch(r"[-_](0?[1-9]|[1-9][0-9]|[AB])((?:[-_.\s]+[^-_.\s]+)*)", basename[number.end() :])
+    if part is None:
+        return None
+    markers = re.split(r"[-_.\s]+", part[2])[1:]
+    if any(
+        marker not in _PART_MARKERS and not any(pattern.fullmatch(marker) for _, pattern in _DEFINITION_MARKERS)
+        for marker in markers
+    ):
+        return None
+    return ord(part[1]) - ord("A") + 1 if part[1] in {"A", "B"} else int(part[1])
 
 
 def _detect_cd_from_parent(parent: str) -> int | None:

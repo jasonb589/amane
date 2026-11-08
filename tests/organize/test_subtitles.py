@@ -213,6 +213,54 @@ CASES: tuple[_Case, ...] = (
         DEFAULT_SUBTITLE_EXTENSIONS,
         ("ABC-123-CD2.chs.srt", "ABC-123-CD2.en.srt"),
     ),
+    _Case(
+        "fc-alias-part1-matches-canonical-subtitles",
+        (
+            "4K688.com@fc4982441_1.mp4",
+            "4K688.com@fc4982441_2.mp4",
+            "FC2-PPV-4982441_1.chs.srt",
+            "fc4982441_1.en.srt",
+            "FC2-4982441_2.chs.srt",
+            "FC2-4982442_1.srt",
+        ),
+        "4K688.com@fc4982441_1.mp4",
+        DEFAULT_SUBTITLE_EXTENSIONS,
+        ("FC2-PPV-4982441_1.chs.srt", "fc4982441_1.en.srt"),
+    ),
+    _Case(
+        "fc-part2-does-not-take-part1-or-unmarked",
+        (
+            "FC2-4982441_2.mp4",
+            "FC2-4982441_1.chs.srt",
+            "fc4982441_02.en.srt",
+            "FC2-PPV-4982441-CD2.chs.ass",
+            "FC2-4982441.srt",
+            "chs.srt",
+        ),
+        "FC2-4982441_2.mp4",
+        DEFAULT_SUBTITLE_EXTENSIONS,
+        ("FC2-PPV-4982441-CD2.chs.ass", "fc4982441_02.en.srt"),
+    ),
+    _Case(
+        "catalog-underscore-and-explicit-parts-share-pairing",
+        (
+            "MIDV-123_10.mp4",
+            "MIDV-123-Part 10.chs.srt",
+            "MIDV-123-CD10.en.srt",
+            "MIDV-123_1.chs.srt",
+            "MIDV-123.srt",
+        ),
+        "MIDV-123_10.mp4",
+        DEFAULT_SUBTITLE_EXTENSIONS,
+        ("MIDV-123-CD10.en.srt", "MIDV-123-Part 10.chs.srt"),
+    ),
+    _Case(
+        "caribbean-product-suffix-does-not-select-part-one",
+        ("122524_01.mp4", "122524_01.srt", "122524_01-CD1.srt", "122524_02.srt"),
+        "122524_01.mp4",
+        DEFAULT_SUBTITLE_EXTENSIONS,
+        ("122524_01.srt",),
+    ),
 )
 
 

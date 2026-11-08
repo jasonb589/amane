@@ -41,9 +41,9 @@ CASES: list[object] = [
     _Case("MIDV-123-9.mp4", cd=9, number="MIDV-123"),
     _Case("MIDV-123.mp4", number="MIDV-123"),
     _Case("MIDV-123-0.mp4"),
-    _Case("MIDV-123-01.mp4"),
-    _Case("MIDV-123-10.mp4"),
-    _Case("MIDV-123-12.mp4"),
+    _Case("MIDV-123-01.mp4", cd=1),
+    _Case("MIDV-123-10.mp4", cd=10),
+    _Case("MIDV-123-12.mp4", cd=12),
     # --- 字幕 ---
     _Case("MIDV-123-C.mp4", has_subtitle=True, number="MIDV-123"),
     _Case("MIDV-123-UC.mp4", has_subtitle=True, mosaic="cracked", number="MIDV-123"),
@@ -188,7 +188,7 @@ CASES: list[object] = [
     _Case("/media/gachig256.mp4", number="GACHIG-256", content_type=ContentType.UNCENSORED),
     _Case("/media/DRGBD-045.mp4", number="DRGBD-045", content_type=ContentType.UNCENSORED),
     _Case("/media/SMDV-028.mp4", number="SMDV-028", content_type=ContentType.UNCENSORED),
-    _Case("/media/MD0165-1.mp4", cd=1, number="MD0165-1", content_type=ContentType.CHINESE),
+    _Case("/media/MD0165-1.mp4", number="MD0165-1", content_type=ContentType.CHINESE),
     _Case("/media/259LUXU-1456.mp4", number="259LUXU-1456", content_type=ContentType.AMATEUR),
     _Case("/media/SIRO-4567.mp4", number="SIRO-4567", content_type=ContentType.AMATEUR),
     _Case("/media/T38-068.mp4", number="T38-068", content_type=ContentType.CENSORED),
@@ -327,7 +327,7 @@ CASES: list[object] = [
         number="MIDV-123",
         content_type=ContentType.CENSORED,
     ),
-    _Case("/media/SSIS-456 CD2.mp4", number="SSIS-456", content_type=ContentType.CENSORED),
+    _Case("/media/SSIS-456 CD2.mp4", cd=2, number="SSIS-456", content_type=ContentType.CENSORED),
     _Case("/media/[HD]SSIS-456.mp4", definition="HD", number="SSIS-456", content_type=ContentType.CENSORED),
     _Case(
         "/media/videos/MIDV-123-UC.mp4",
@@ -400,7 +400,7 @@ PREFIX_SUFFIX_CASES: list[tuple[str, str, str]] = [
     ("HELLO", "", ""),
     ("MIDV", "", ""),
     ("A-1", "", ""),
-    ("AA-1", "", ""),
+    ("AA-1", "AA", "1"),
     ("東京-123", "", ""),
     ("---", "", ""),
 ]
@@ -602,7 +602,7 @@ def test_fc2_normalization_keeps_all_product_digits(number: str, expected: str) 
         ("/media/ＦＣ２－４９８２４４１/video.mp4", None, False),
         ("/media/FC2.PPV.4982441/CD2/video.mp4", 2, False),
         ("/media/FC2-4982441 2026.11.08.mp4", None, False),
-        ("/media/gx/正常/4K688.com@fc4982441_1.mp4", None, False),
+        ("/media/gx/正常/4K688.com@fc4982441_1.mp4", 1, False),
         ("/media/FC-4982441/video.mp4", None, False),
     ],
 )
@@ -611,6 +611,246 @@ def test_fc2_file_markers_and_upload_dates_do_not_replace_number(path: str, cd: 
     assert (info.number, info.prefix, info.content_type) == ("FC2-4982441", "FC2", ContentType.FC2)
     assert info.cd == cd
     assert info.has_subtitle is subtitle
+
+
+@pytest.mark.parametrize(
+    ("filename", "cd"),
+    [
+        ("4K688.com@fc4982441_1.mp4", 1),
+        ("4K688.com@fc4982441_2.mp4", 2),
+        ("FC2-4982441_1.mp4", 1),
+        ("FC2-PPV-4982441_2.mp4", 2),
+        ("FC2PPV4982441_1.mp4", 1),
+        ("FC24982441_2.mp4", 2),
+        ("FC-4982441_01.mp4", 1),
+        ("FC_4982441_09.mp4", 9),
+        ("FC2_4982441_10.mp4", 10),
+        ("FC2.PPV.4982441_99.mp4", 99),
+        ("ＦＣ２－４９８２４４１＿２.mp4", 2),
+        ("FC2-4982441_2-C.mp4", 2),
+        ("FC2-4982441_2-UC-4K.mp4", 2),
+        ("FC2-4982441_2_1080p60.mp4", 2),
+        ("FC2-4982441_2.2160p.HEVC.mp4", 2),
+        ("FC2-4982441_2-中文字幕.mp4", 2),
+        ("FC2-4982441_2-CRACKED.mp4", 2),
+        ("FC2-4982441_2_LEAKED_HD.mp4", 2),
+        ("fc4982441_1.srt", 1),
+        ("FC2-PPV-4982441_2.ass", 2),
+        ("fc4982441_1.chs.srt", 1),
+        ("FC2-4982441_2.en.srt", 2),
+        ("FC2-4982441_2.zh-CN.ass", 2),
+        ("FC2-4982441_2.zh-Hant.srt", 2),
+        ("FC2-4982441_2.ja.srt", 2),
+    ],
+)
+def test_fc2_underscore_parts_keep_number_and_match_video_or_subtitle(filename: str, cd: int) -> None:
+    for info in (parse_file_info(f"/media/{filename}"), parse_file_info(text=filename)):
+        assert (info.number, info.prefix, info.content_type) == ("FC2-4982441", "FC2", ContentType.FC2)
+        assert info.cd == cd
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "FC2-4982441.mp4",
+        "FC2_4982441.mp4",
+        "FC_4982441.mp4",
+        "FC2-1234_1.mp4",
+        "XFC2-4982441_1.mp4",
+        "0FC2-4982441_1.mp4",
+        "AFC4982441_1.mp4",
+        "FC2-4982441_0.mp4",
+        "FC2-4982441_00.mp4",
+        "FC2-4982441_001.mp4",
+        "FC2-4982441_100.mp4",
+        "FC2-4982441_999.mp4",
+        "FC2-4982441_1080p.mp4",
+        "FC2-4982441_2026.mp4",
+        "FC2-4982441_2A.mp4",
+        "FC2-4982441_2COPY.mp4",
+        "FC2-4982441_2_COPY.mp4",
+        "FC2-4982441_2_Preview.mp4",
+        "FC2-4982441_2_Trailer.mp4",
+        "FC2-4982441_2_2026.11.08.mp4",
+        "FC2-4982441_2_1.mp4",
+        "FC2-4982441_2.5.mp4",
+        "FC2-4982441_2_.mp4",
+        "FC2-4982441_2_CXX.mp4",
+        "FC2-4982441_2_HDTV.mp4",
+        "FC2-4982441_2_H264B.mp4",
+        "FC2-4982441_2.English.srt",
+        "HEYDOUGA_4037_1.mp4",
+        "1pon_010616_001.mp4",
+    ],
+)
+def test_fc2_underscore_parts_reject_other_numbers_and_unknown_suffixes(filename: str) -> None:
+    assert parse_file_info(f"/media/{filename}").cd is None
+    assert parse_file_info(text=filename).cd is None
+
+
+@pytest.mark.parametrize(
+    ("path", "cd"),
+    [
+        ("/media/CD1/FC2-4982441_2.mp4", 2),
+        ("/media/FC2-4982441_2/movie.mp4", None),
+        ("/media/FC2-4982441_2-CD3.mp4", 3),
+        ("/media/FC2-4982441_2-PART3.mp4", 3),
+    ],
+)
+def test_fc2_underscore_parts_use_file_markers_without_changing_explicit_cd_priority(path: str, cd: int | None) -> None:
+    assert parse_file_info(path).cd == cd
+
+
+@pytest.mark.parametrize(
+    ("filename", "number", "cd"),
+    [
+        ("ABC-123_1.mp4", "ABC-123", 1),
+        ("ABC-123_02.mp4", "ABC-123", 2),
+        ("ABC-123_10.mp4", "ABC-123", 10),
+        ("ABC-123-99.mp4", "ABC-123", 99),
+        ("ABC-123-A.mp4", "ABC-123", 1),
+        ("ABC-123_B.mp4", "ABC-123", 2),
+        ("ABC-123-1-C.mp4", "ABC-123", 1),
+        ("ABC-123_2-UC-1080p.mp4", "ABC-123", 2),
+        ("ABC-123-1.chs.srt", "ABC-123", 1),
+        ("ABC-123_B.en.srt", "ABC-123", 2),
+        ("ABC-123-CD1.mp4", "ABC-123", 1),
+        ("ABC-123 CD 2.mp4", "ABC-123", 2),
+        ("ABC-123.Part1.mp4", "ABC-123", 1),
+        ("ABC-123-Part2.mp4", "ABC-123", 2),
+        ("ABC-123 Part 10.chs.srt", "ABC-123", 10),
+        ("ABC-123-CD10.en.srt", "ABC-123", 10),
+        ("R18-292_2.mp4", "R18-292", 2),
+        ("T38-068_2.mp4", "T38-068", 2),
+        ("T3800068_2.mp4", "T38-068", 2),
+        ("SSNI00321_2.mp4", "SSNI-321", 2),
+        ("SSIS123-1.mp4", "SSIS-123", 1),
+        ("SSIS123-A.mp4", "SSIS-123", 1),
+        ("261ARA-423_2.mp4", "261ARA-423", 2),
+        ("ARA-423_2.mp4", "261ARA-423", 2),
+        ("FC-1234_1.mp4", "FC-1234", 1),
+        ("HEYDOUGA_4037_1_2.mp4", "HEYDOUGA-4037-1", 2),
+        ("HEYDOUGA-4037-1-2.mp4", "HEYDOUGA-4037-1", 2),
+        ("HEYDOUGA-4037-01_2.chs.srt", "HEYDOUGA-4037-01", 2),
+        ("010616_01_2.mp4", "010616_01", 2),
+        ("010616-01-2.mp4", "010616-01", 2),
+        ("MD0165-1_2.mp4", "MD0165-1", 2),
+        ("MD0165-1-CD2.mp4", "MD0165-1", 2),
+        ("th101-123-12345_2.mp4", "th101-123-12345", 2),
+        ("HEYZO1234-A.mp4", "HEYZO-1234", 1),
+        ("N1234-1.mp4", "n1234", 1),
+        ("K1363-B.mp4", "k1363", 2),
+        ("Vixen.23.04.15-A.mp4", "Vixen.23.04.15", 1),
+        ("H4610-ki221218-A.mp4", "H4610-KI221218", 1),
+        ("H4610-KI221218_02.mp4", "H4610-KI221218", 2),
+        ("H4610-KI221218_02.chs.srt", "H4610-KI221218", 2),
+        ("ABC-123456_02.mp4", "ABC-123456", 2),
+        ("ABC-123456_02.chs.srt", "ABC-123456", 2),
+        ("MCB3D-012-B.mp4", "MCB3D-012", 2),
+        ("Mywife No.1234-1.mp4", "Mywife No.1234", 1),
+        ("BCD-1-CD2.mp4", "BCD-1", 2),
+        ("BCD-1-CD2.srt", "BCD-1", 2),
+        ("BCD-1_2.mp4", "BCD-1", 2),
+    ],
+)
+def test_catalog_parts_keep_the_complete_product_number(filename: str, number: str, cd: int) -> None:
+    for info in (parse_file_info(f"/media/{filename}"), parse_file_info(text=filename)):
+        assert info.number == number
+        assert info.cd == cd
+
+
+@pytest.mark.parametrize(
+    ("filename", "number"),
+    [
+        ("HEYDOUGA_4037_1.mp4", "HEYDOUGA-4037-1"),
+        ("HEYDOUGA-4037-1.mp4", "HEYDOUGA-4037-1"),
+        ("HEYDOUGA-4037-01.mp4", "HEYDOUGA-4037-01"),
+        ("010616_01.mp4", "010616_01"),
+        ("010616-01.mp4", "010616-01"),
+        ("010616_001.mp4", "010616_001"),
+        ("MD0165-1.mp4", "MD0165-1"),
+        ("MD0165-1.chs.srt", "MD0165-1"),
+        ("BCD-1.mp4", "BCD-1"),
+        ("BCD-2.mp4", "BCD-2"),
+        ("BCD-1.srt", "BCD-1"),
+        ("BCD-2.chs.srt", "BCD-2"),
+        ("CD-1.mp4", "CD-1"),
+        ("CD-1.srt", "CD-1"),
+        ("MIDV-123-CD-1.mp4", "MIDV-123"),
+        ("MIDV-123-CD-1.chs.srt", "MIDV-123"),
+        ("MIDV-123-PART-1.mp4", "MIDV-123"),
+        ("CD1-123.mp4", "CD1-123"),
+        ("PART1-123.mp4", "PART1-123"),
+        ("ABC-123-C.mp4", "ABC-123"),
+        ("ABC-123-UC.mp4", "ABC-123"),
+        ("ABC-123-D.mp4", "ABC-123"),
+        ("ABC-123_0.mp4", "ABC-123"),
+        ("ABC-123_100.mp4", "ABC-123"),
+        ("ABC-123_2_COPY.mp4", "ABC-123"),
+        ("ABC-123_2A.mp4", "ABC-123"),
+        ("ABC-123_2_HDTV.mp4", "ABC-123"),
+        ("ABC-123_2.English.srt", "ABC-123"),
+        ("ABC-123-CD0.mp4", "ABC-123"),
+        ("ABC-123-CD00.mp4", "ABC-123"),
+        ("ABC-123-CD123.mp4", "ABC-123"),
+        ("ABC-123-CD01A.mp4", "ABC-123"),
+        ("ABC-123-Part100.mp4", "ABC-123"),
+        ("ABC-123-Part 0.mp4", "ABC-123"),
+        ("ABC-123-Part 1Trailer.mp4", "ABC-123"),
+    ],
+)
+def test_catalog_product_segments_and_invalid_markers_are_not_parts(filename: str, number: str) -> None:
+    for info in (parse_file_info(f"/media/{filename}"), parse_file_info(text=filename)):
+        assert info.number == number
+        assert info.cd is None
+
+
+@pytest.mark.parametrize(
+    ("filename", "cd"),
+    [
+        ("a-CD1.srt", 1),
+        ("b-Part 2.ass", 2),
+        ("CD1.srt", 1),
+        ("CD 10.srt", 10),
+        ("a_1.srt", None),
+        ("a-B.srt", None),
+    ],
+)
+def test_unparsed_subtitles_only_accept_explicit_part_markers(filename: str, cd: int | None) -> None:
+    assert parse_file_info(text=filename).cd == cd
+
+
+@pytest.mark.parametrize(
+    ("text", "number", "cd"),
+    [
+        ("BCD-1", "BCD-1", None),
+        ("BCD-2", "BCD-2", None),
+        ("CD-1", "CD-1", None),
+        ("ABC-1", "ABC-1", None),
+        ("XYZ-2", "XYZ-2", None),
+        ("ACD-2", "ACD-2", None),
+        ("PART-1", "PART-1", None),
+        ("FC-1", "FC-1", None),
+        ("PLAIN-1", "PLAIN-1", None),
+        ("BCD-1-CD2", "BCD-1", 2),
+    ],
+)
+def test_single_digit_catalog_text_is_not_a_part(text: str, number: str, cd: int | None) -> None:
+    for info in (
+        parse_file_info(text=text),
+        parse_file_info(f"/media/{text}.mp4"),
+        parse_file_info(text=f"{text}.srt"),
+    ):
+        assert info.number == number
+        assert info.content_type is ContentType.WESTERN
+        assert info.cd == cd
+
+
+@pytest.mark.parametrize("number", ["ABCD-123", "ABC-01", "XYZ-234", "ACD-12", "PART-123", "FC-123"])
+def test_catalog_numbers_keep_all_digits_without_a_part(number: str) -> None:
+    for info in (parse_file_info(text=number), parse_file_info(f"/media/{number}.mp4")):
+        assert info.number == number
+        assert info.cd is None
 
 
 @pytest.mark.parametrize(
