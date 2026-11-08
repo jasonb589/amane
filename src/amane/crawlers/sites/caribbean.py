@@ -18,6 +18,7 @@ import json
 import re
 from collections.abc import Mapping
 from datetime import date
+from typing import TYPE_CHECKING
 
 from parsel import Selector
 
@@ -26,6 +27,9 @@ from ...parsing.file_info import ContentType
 from ..base import Crawler, CrawlerProfile
 from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text
+
+if TYPE_CHECKING:
+    from ...net.connectivity import ConnectivityOutcome
 
 BASE_URL = "https://www.caribbeancom.com"
 
@@ -219,6 +223,10 @@ class CaribbeanCrawler(Crawler):
     @classmethod
     def profile(cls) -> CrawlerProfile:
         return CrawlerProfile(name=SiteName.CARIBBEAN, base_url=BASE_URL)
+
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        # 根路径固定显示年龄确认页; 确认链接直接进入目录, 不签发会话 cookie.
+        return await self.client.check(f"{self.base_url}/index2.htm", cookies=self.cookies, headers=self.headers)
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
         if query.content_type not in _CONTENT_TYPES:

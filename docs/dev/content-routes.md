@@ -19,7 +19,7 @@
 |------|------|----------|
 | censored | 中文索引 → FANZA 权威图文 → 稳定镜像 → 可空返回的官网 / r18 | 单厂牌 API (Prestige 等对每个候选 SKU 都请求); iqqtv (每部有碼片都会请求中文站; 需要时加入本路由再把 `field_priority.title` 提前) |
 | uncensored | 有独立无碼区的索引 + 无碼专站 | — |
-| fc2 | javdb 分类 + 专用索引 + 官方电子市场 + BT 与在线看索引排在链尾 | fc2club (跳转镜像不稳定) |
+| fc2 | JavArchive 优先, FC2 专用索引补充, 综合索引与官方电子市场回退 | fc2club (跳转镜像不稳定) |
 | chinese | 有國產区的中文站第一, 综合 / BT 兜底 | javdb 当第一源 |
 | amateur | MGS 第一; FANZA 有素人频道; javbus 首页能见到 `300MIUM-*` | MGS 不纳入有碼默认, 否则 MIDV 会请求 MGS |
 | western | TPDB 第一 (需 token 才真正请求); 有歐美分类的索引排在链尾 | javbus 欧美域 (目录空); 不实现该域爬虫 |
@@ -55,7 +55,11 @@
 
 **fc2ppvdb.com** — FC2 专用索引, 可能被 Cloudflare Access denied; 拦截后回退后续源.
 
+**javarchive.com / fc2ppv-db.com** — 独立原生 FC2 来源, 与 `fc2ppvdb.com` 分别配置. 详情与主正文都须匹配 FC2 商品 ID, 推荐区不参与取值; 页面请求沿用 `HttpClient` 的浏览器 / Solver 策略, 挑战失败作为来源异常保留, 不当作未收录. JavArchive 只采用正文图文, 文章日期与 Recipe 评分不进入影片元数据; FC2PPV-DB 从 RSC 主影片对象取值.
+
 **fc2club.top** — 打开后跳转镜像, 不稳定, 不纳入默认表.
+
+**caribbeancom.com** — 首页是年龄确认页, 连通性探测使用官网确认链接指向的 `/index2.htm`; 详情页独立解析, 真正拦截仍须上报. `caribbeancompr.com` 属于 Premium 目录, 不作为该来源的替换入口.
 
 **getchu.com** — 美少女游戏 / 同人 / 动画周边, 商品是数字 id; 里番靠路径关键词分类, 所以是里番第一源.
 

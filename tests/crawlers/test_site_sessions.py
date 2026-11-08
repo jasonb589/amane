@@ -70,7 +70,7 @@ async def test_connectivity_preserves_real_restriction_and_status(
     source: type[Crawler], body: str, status: int, reason: FailureReason
 ) -> None:
     web = AsyncMock(spec=WebClient)
-    url = source.profile().base_url
+    url = source.profile().base_url + ("/index2.htm" if source is CaribbeanCrawler else "")
     if status >= 400:
         web.request.side_effect = RequestError(
             url,
@@ -88,6 +88,34 @@ async def test_connectivity_preserves_real_restriction_and_status(
     assert outcome.status is ConnectivityStatus.FAILED
     assert (outcome.reason, outcome.http_status, outcome.url) == (reason, status, url)
     web.request.assert_awaited_once_with("GET", url, cookies={"session": "provided"}, headers={}, max_attempts=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base", [None, "https://mirror.example/prefix/"])
+async def test_caribbean_probe_uses_confirmed_catalog_entry(base: str | None) -> None:
+    """根路径的年龄页不代表目录不可用; 镜像前缀和配置会话仍参与实际探测."""
+    web = AsyncMock(spec=WebClient)
+    configured = base.rstrip("/") if base else CaribbeanCrawler.profile().base_url
+    catalog = f"{configured}/index2.htm"
+
+    async def response(method: str, url: str, **kwargs: object) -> Response:
+        result = Response()
+        result.status_code = 200
+        result.url = url
+        result.content = b"<html>catalog</html>" if url == catalog else b"<title>Age Verification</title>"
+        return result
+
+    web.request.side_effect = response
+    config = SiteConfig(base_url=base, cookie={"session": "provided"})
+    crawler = CaribbeanCrawler(HttpClient(web), config)
+    crawler.headers = {"X-Provided-Header": "provided"}
+
+    outcome = await crawler.check_connectivity()
+
+    assert (outcome.status, outcome.url, outcome.http_status) == (ConnectivityStatus.OK, catalog, 200)
+    web.request.assert_awaited_once_with(
+        "GET", catalog, cookies={"session": "provided"}, headers={"X-Provided-Header": "provided"}, max_attempts=1
+    )
 
 
 @pytest.mark.asyncio
