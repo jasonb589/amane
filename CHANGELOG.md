@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.26.0-custom.6
+
+例行更新。
+
 ## v0.26.0-custom.5
 
 例行更新。
