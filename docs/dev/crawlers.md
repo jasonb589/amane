@@ -15,7 +15,7 @@ CrawlerFactory (缓存实例)
 
 外部影片插件在同一个 `CrawlerFactory` 中按来源 ID 延迟创建: 插件返回的 provider 经适配后满足影片爬虫的 `fetch()` 协议, 统一进入聚合、限速、HTTP 记录和站点结果摘要. 第三方来源 ID 规则见 [plugins.md](plugins.md).
 
-爬虫实例由工厂缓存并发复用, 单次请求状态不得写入实例; 可变索引的扩展须串行化. `SiteConfig` 在构造期合并 profile 与用户配置, 子类使用 `self.base_url` / `self.cookies` / `self.headers`; 检索、详情与连通性探测保持同一配置会话, 详情链接跟随配置镜像, 配置变化时重建工厂. WordPress works API 的检索与详情均核对请求 slug, 不按响应列表首项认定作品; 验证页仍按拦截失败上报.
+爬虫实例由工厂缓存并发复用, 单次请求状态不得写入实例; 可变索引的扩展须串行化. `SiteConfig` 合并 profile 与用户配置, 子类使用 `self.base_url` / `self.cookies` / `self.headers`; 页面请求共用配置会话并跟随镜像路径前缀, 图片 CDN 独立, 配置变化时重建工厂. Amazon 页面与年龄确认返回地址限定配置入口, WordPress works 的检索与详情均核对请求 slug; 验证页按拦截失败上报.
 
 - 演员站与影片站共用 HttpClient / 限速; 实现位于 `crawlers/actor/`, 只注册 `actor_registry` (可以不在影片 `registry`). **双料站**指同一 `SiteName` 在影片 / 演员注册表各有一个类并共用 `site_config`; 不允许在 `site_roles` 中手写双料名单.
 - gFriends 额外依赖 `data_dir` (Filetree 缓存) 与 `actor_scraping.gfriends_repo`.

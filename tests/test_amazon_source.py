@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 from html import escape
 from typing import Any
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from amane.aggregate.models import AggregatedMetadata
+from amane.config import SiteConfig
+from amane.crawlers.http import HttpClient
 from amane.crawlers.models import SearchQuery
 from amane.crawlers.sites.amazon import (
     _GATE_RE,
@@ -715,3 +718,137 @@ async def test_concurrent_fetches_keep_failure_state_separate() -> None:
     with pytest.raises(RequestError) as error:
         await task
     assert error.value.reason is FailureReason.TIMEOUT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        None,
+        "https://mirror.example",
+        "https://mirror.example/",
+        "http://mirror.example:8080/amazon/jp/",
+        "https://mirror.example:443/amazon%20jp/",
+    ],
+)
+async def test_configured_base_covers_complete_page_request_chain(base_url: str | None) -> None:
+    gate = '<form name="agecheck" action="/age_check/"></form>'
+    placeholder = _card("B00TEST001", "ABC-001 [DVD]", "01RmK+J4pJL")
+    curtain = '<span class="s-black-curtain"></span>' + placeholder
+    detail = '<img id="landingImage" data-old-hires="https://m.media-amazon.com/images/I/81HITJP.jpg">'
+    shell = '<a href="https://third-party.example/dp/B00TEST001">Other page</a>'
+    web = AsyncMock()
+    web.get_text.side_effect = [gate, _MOBILE_MISS, curtain, "<html>ok</html>", placeholder, shell, shell, detail]
+    cookies = {"session": "configured"}
+    crawler = AmazonCrawler(HttpClient(web=web), SiteConfig(base_url=base_url, cookie=cookies))
+
+    result = await crawler.fetch(SearchQuery("ABC-001"))
+
+    base = (base_url or "https://www.amazon.co.jp").rstrip("/")
+    mobile = f"{base}/gp/aw/s?k=ABC-001&i=dvd"
+    desktop = f"{base}/s?k=ABC-001&i=dvd"
+    requests = [call.args[0] for call in web.get_text.await_args_list]
+    assert requests[:3] == [mobile, mobile, desktop]
+    eligibility = urlsplit(requests[3])
+    assert eligibility.path == urlsplit(base).path + "/-/en/black-curtain/save-eligibility/black-curtain"
+    assert parse_qs(eligibility.query) == {"returnUrl": [desktop]}
+    assert requests[4:] == [
+        desktop,
+        f"{base}/dp/B00TEST001",
+        f"{base}/dp/B00TEST001?th=1&psc=1",
+        f"{base}/-/en/dp/B00TEST001",
+    ]
+    assert all(urlsplit(url).netloc == urlsplit(base).netloc for url in requests)
+    for call in web.get_text.await_args_list:
+        assert call.kwargs == {"cookies": cookies, "headers": None, "encoding": "utf-8"}
+    assert result is not None
+    assert result.source_url == f"{base}/dp/B00TEST001"
+    assert result.poster_urls == [
+        "https://m.media-amazon.com/images/I/81HITJP.jpg",
+        "https://m.media-amazon.com/images/I/81HITJP._SL1500_.jpg",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mirror_keeps_original_cdn_fallbacks_when_details_have_no_image() -> None:
+    base = "https://mirror.example/amazon"
+    web = AsyncMock()
+    web.get_text.side_effect = [_card("B00TEST001", "ABC-001 [DVD]", "01RmK+J4pJL"), "shell", "shell", "shell"]
+    crawler = AmazonCrawler(HttpClient(web=web), SiteConfig(base_url=base))
+
+    result = await crawler.fetch(SearchQuery("ABC-001"))
+
+    assert result is not None and result.source_url == f"{base}/dp/B00TEST001"
+    assert result.poster_urls == [
+        "https://m.media-amazon.com/images/P/B00TEST001.jpg",
+        "https://m.media-amazon.com/images/P/B00TEST001.01._SCLZZZZZZZ_.jpg",
+        "https://tenhow.net/images/B00TEST001.jpg",
+    ]
+    assert all(call.args[0].startswith(f"{base}/") for call in web.get_text.await_args_list)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["page", "eligibility"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://third-party.example/amazon/dp/B00TEST001",
+        "https://mirror.example.evil.example/amazon/dp/B00TEST001",
+        "https://mirror.example@third-party.example/amazon/dp/B00TEST001",
+        "https://user:secret@mirror.example/amazon/dp/B00TEST001",
+        "https://mirror.example:444/amazon/dp/B00TEST001",
+        "https://mirror.example:0/amazon/dp/B00TEST001",
+        "http://mirror.example/amazon/dp/B00TEST001",
+        "ftp://mirror.example/amazon/dp/B00TEST001",
+        "https://mirror.example/amazon-other/dp/B00TEST001",
+        "https://mirror.example/dp/B00TEST001",
+        "https://mirror.example/amazon/../other",
+        "https://mirror.example/amazon/%2e%2e/other",
+        "https://mirror.example/amazon/%5cother",
+        "https://www.amazon.co.jp/dp/B00TEST001",
+        "https://[invalid/amazon/dp/B00TEST001",
+        "//mirror.example/amazon/dp/B00TEST001",
+        "/amazon/dp/B00TEST001",
+    ],
+)
+async def test_page_and_eligibility_reject_urls_outside_configured_base(operation: str, url: str) -> None:
+    web = AsyncMock()
+    crawler = AmazonCrawler(
+        HttpClient(web=web), SiteConfig(base_url="https://mirror.example/amazon", cookie={"session": "configured"})
+    )
+
+    with pytest.raises(SourceError) as error:
+        if operation == "page":
+            await crawler._fetch_page(url)
+        else:
+            await crawler._unlock(url)
+
+    assert error.value.reason is FailureReason.PARSE_ERROR
+    web.get_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "ftp://mirror.example/amazon",
+        "https://user:secret@mirror.example/amazon",
+        "https://mirror.example/amazon?token=private",
+        "https://mirror.example/amazon#anchor",
+        "https://mirror.example:invalid/amazon",
+        "https://[invalid/amazon",
+        "https://mirror.example/amazon/../other",
+        "https://mirror.example\\@third-party.example/amazon",
+        "mirror.example/amazon",
+    ],
+)
+async def test_invalid_base_does_not_fall_back_to_official_site(base_url: str) -> None:
+    web = AsyncMock()
+    crawler = AmazonCrawler(HttpClient(web=web), SiteConfig(base_url=base_url, cookie={"session": "configured"}))
+
+    with pytest.raises(SourceError) as error:
+        await crawler.fetch(SearchQuery("ABC-001"))
+
+    assert error.value.reason is FailureReason.PARSE_ERROR
+    assert error.value.detail == "Amazon 页面地址不属于配置站点"
+    web.get_text.assert_not_awaited()

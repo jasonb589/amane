@@ -29,10 +29,10 @@ if TYPE_CHECKING:
     from ...aggregate.models import AggregatedMetadata
 
 SITE = "https://www.amazon.co.jp"
-_SEARCH_URL = SITE + "/s?k={term}&i=dvd"
+_SEARCH_PATH = "/s?k={term}&i=dvd"
 #: 移动版搜索页: 成人条目**不给黑幕占位图**, 直接就是真封面 (实测 18 条全带 I/<id>),
 #: 所以先走它; 桌面版只在移动版没命中时兜底.
-_MOBILE_SEARCH_URL = SITE + "/gp/aw/s?k={term}&i=dvd"
+_MOBILE_SEARCH_PATH = "/gp/aw/s?k={term}&i=dvd"
 
 _ASIN_RE = re.compile(r"[A-Z0-9]{10}")
 _IMAGE_PATH_RE = re.compile(
@@ -88,7 +88,7 @@ _GATE_RE = re.compile(r'driver-verify|/age_check/|name="agecheck"', re.IGNORECAS
 #: 黑幕弹窗 ("page contains adult material ... Are you over 18?"): 未点「Yes」前成人卡片只给占位图.
 _CURTAIN_RE = re.compile(r"black-curtain-popover|s-black-curtain", re.IGNORECASE)
 #: 点「Yes」走的保存接口; ``returnUrl`` 是点了之后要回跳的页面.
-_ELIGIBILITY_URL = SITE + "/-/en/black-curtain/save-eligibility/black-curtain?returnUrl={}"
+_ELIGIBILITY_PATH = "/-/en/black-curtain/save-eligibility/black-curtain?returnUrl={}"
 
 #: 详情页的几个入口: 同一 ASIN 这几条 URL 的响应不总是等价, 空壳时换下一条再来.
 _DETAIL_PATHS = ("/dp/{asin}", "/dp/{asin}?th=1&psc=1", "/-/en/dp/{asin}")
@@ -361,6 +361,42 @@ class AmazonCrawler(Crawler):
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         return None
 
+    def _page_url(self, path: str) -> str:
+        """页面路径相对配置入口, 保留反向代理的路径前缀; 图片 CDN 独立于该入口."""
+        return self._require_page_url(f"{self.base_url.rstrip('/')}/{path.lstrip('/')}")
+
+    def _require_page_url(self, url: str) -> str:
+        """页面直接请求与年龄确认返回地址必须位于配置入口."""
+        try:
+            base, target = urlsplit(self.base_url), urlsplit(url)
+            for raw, parsed in ((self.base_url, base), (url, target)):
+                decoded_path = unquote(parsed.path)
+                if (
+                    parsed.scheme not in {"http", "https"}
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or "\\" in raw
+                    or "\\" in decoded_path
+                    or any(ord(char) <= 32 for char in raw)
+                    or any(part in {".", ".."} for part in decoded_path.split("/"))
+                ):
+                    raise ValueError
+            base_port = base.port if base.port is not None else 443 if base.scheme == "https" else 80
+            target_port = target.port if target.port is not None else 443 if target.scheme == "https" else 80
+            prefix = base.path.rstrip("/")
+            if (
+                base.query
+                or base.fragment
+                or target.fragment
+                or (target.scheme, target.hostname, target_port) != (base.scheme, base.hostname, base_port)
+                or (target.path != prefix and not target.path.startswith(f"{prefix}/"))
+            ):
+                raise ValueError
+        except ValueError:
+            raise SourceError(FailureReason.PARSE_ERROR, detail="Amazon 页面地址不属于配置站点") from None
+        return url
+
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
         started = time.monotonic()
@@ -394,7 +430,7 @@ class AmazonCrawler(Crawler):
             return MediaMetadata(
                 number=query.number,
                 poster_urls=poster_urls,
-                source_url=f"{SITE}/dp/{asin}",
+                source_url=self._page_url(f"/dp/{asin}"),
                 external_id=asin,
             )
         if state.last_error is not None:
@@ -412,7 +448,8 @@ class AmazonCrawler(Crawler):
         桌面版要处理黑幕 (点一次「Yes」并把跳回来的正文直接吃掉).
         """
         for mobile in (True, False):
-            url = (_MOBILE_SEARCH_URL if mobile else _SEARCH_URL).format(term=quote(term, safe=""))
+            path = (_MOBILE_SEARCH_PATH if mobile else _SEARCH_PATH).format(term=quote(term, safe=""))
+            url = self._page_url(path)
             try:
                 html = await self._fetch_page(url)
             except RequestError as exc:
@@ -459,11 +496,12 @@ class AmazonCrawler(Crawler):
 
     async def _fetch_page(self, url: str) -> str | None:
         """读取页面正文; 年龄门按预算重试, 网络错误交由检索入口尝试下一地址."""
+        self._require_page_url(url)
         for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
             try:
                 # 故意用 get_text 而不是 get_html: 通用拦截启发式把结果页里的 "Age Verification"
                 # 弹窗标题当成年龄门 (成人分区每页都有那个 black-curtain 弹窗), 会把正常页面判死.
-                html = await self.client.get_text(url, cookies=self.cookies or None)
+                html = await self.client.get_text(url, cookies=self.cookies or None, headers=self.headers or None)
             except RequestError as exc:
                 self.logger.debug("amazon search failed", error=str(exc))
                 raise
@@ -478,9 +516,10 @@ class AmazonCrawler(Crawler):
 
     async def _unlock(self, return_url: str) -> str | None:
         """点一次黑幕弹窗的「Yes」, 返回跳回的结果页正文 (失败返回 None)."""
-        url = _ELIGIBILITY_URL.format(quote(return_url, safe=""))
+        self._require_page_url(return_url)
+        url = self._page_url(_ELIGIBILITY_PATH.format(quote(return_url, safe="")))
         try:
-            text = await self.client.get_text(url, cookies=self.cookies or None)
+            text = await self.client.get_text(url, cookies=self.cookies or None, headers=self.headers or None)
         except RequestError as exc:
             self.logger.debug("amazon eligibility failed", error=str(exc))
             return None
@@ -510,7 +549,7 @@ class AmazonCrawler(Crawler):
         """
         for path in _DETAIL_PATHS:
             try:
-                html = await self._fetch_page(f"{SITE}{path.format(asin=asin)}")
+                html = await self._fetch_page(self._page_url(path.format(asin=asin)))
             except RequestError:
                 continue
             if html is None:
