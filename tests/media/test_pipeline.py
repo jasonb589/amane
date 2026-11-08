@@ -143,6 +143,48 @@ async def test_poster_keeps_priority_order_when_sizes_equal(resource_store: Reso
 
 
 @pytest.mark.asyncio
+async def test_preferred_poster_stays_within_aggregated_candidates(
+    resource_store: ResourceStore, tmp_path: Path
+) -> None:
+    allowed, excluded = "https://s/allowed.jpg", "https://s/excluded.jpg"
+    client = FakeClient({allowed: (600, 900), excluded: (422, 600)})
+    result = await materialize_images(
+        [allowed],
+        [],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        HotSettings(),
+        tmp_path,
+        preferred_poster_urls=[excluded],
+    )
+    assert result.poster_urls == [allowed]
+    assert client.downloaded == [allowed]
+
+
+@pytest.mark.asyncio
+async def test_unavailable_preferred_poster_can_fall_back_to_cover_crop(
+    resource_store: ResourceStore, tmp_path: Path
+) -> None:
+    preferred, fallback, cover = "https://s/preferred.jpg", "https://s/small.jpg", "https://s/cover.jpg"
+    client = FakeClient({fallback: (300, 420), cover: (800, 538)}, fail={preferred})
+    result = await materialize_images(
+        [fallback, preferred],
+        [cover],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        HotSettings(),
+        tmp_path,
+        preferred_poster_urls=[preferred],
+    )
+    assert result.poster_urls[0].startswith(pipeline_mod.RESOURCE_URL_PREFIX)
+    crop = await resource_store.get_by_url_hash(result.poster_urls[0].rsplit("/", 1)[-1])
+    assert crop is not None and crop[0].meta["src"] == cover
+    assert preferred in client.downloaded and fallback in client.downloaded
+
+
+@pytest.mark.asyncio
 async def test_small_candidate_falls_back_to_cropped_thumb(resource_store: ResourceStore, tmp_path: Path):
     """候选最长边 < 800 时, 拿 thumb 裁一份比面积: 裁出来的更大就换掉那张小图."""
     client = FakeClient({"https://amazon/P.jpg": (352, 500), "https://s/t.jpg": (800, 538)})

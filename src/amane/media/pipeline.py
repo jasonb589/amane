@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
+from PIL import Image
 
 from ..config import DownloadableResource
 from ..parsing import ContentType
 from ..sr import get_preset_meta, run_SR
+from ..utils.threads import in_thread
 from .images import (
     CropRotation,
     crop_box,
@@ -28,6 +30,8 @@ from .images import (
 from .resource_store import RESOURCE_URL_PREFIX, internal_url_hash
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..config import HotSettings, SrConfig
     from ..db.models import Resource
     from ..net.http import WebClient
@@ -69,6 +73,17 @@ def _best_first(urls: list[str], best: str | None) -> list[str]:
     if not best or best not in urls:
         return urls
     return [best, *(u for u in urls if u != best)]
+
+
+@in_thread
+def _readable_image(path: Path) -> bool:
+    """首选海报须能完整解码, 不能仅凭仍可读取的文件头停止候选回退."""
+    try:
+        with Image.open(path) as image:
+            image.load()
+    except Exception:
+        return False
+    return True
 
 
 async def _native_size(store: ResourceStore, url: str, size: tuple[int, int]) -> tuple[int, int] | None:
@@ -133,13 +148,17 @@ async def materialize_images(
     content_type: ContentType | None = None,
     *,
     extrafanart_urls: dict[str, list[str]] | None = None,
+    preferred_poster_urls: Sequence[str] = (),
 ) -> MaterializedImages:
     """仅下载集合内的类型; 未选中的保留聚合 URL.
 
     死 URL 保序置于尾部, 供来源恢复后重试.
     extrafanart 仅下载到 Resource, 站点分组结构不重排.
+    首选海报须属于聚合候选; 首个可读取的首选直接采用, 不参与像素排序或横图裁切比较.
     """
     kinds = set(config.scraping.download_resources)
+    preferred = [url for url in dict.fromkeys(preferred_poster_urls) if url in poster_urls]
+    ordered_posters = [*preferred, *(url for url in poster_urls if url not in preferred)]
 
     # 下载 thumb.
     thumb_ok: set[str] = set()
@@ -169,12 +188,15 @@ async def materialize_images(
     poster_candidate_url: str | None = None
     poster_native_size: tuple[int, int] | None = None
     poster_candidate_area = -1
-    result_poster_urls = list(poster_urls)
+    preferred_poster_selected = False
+    result_poster_urls = list(ordered_posters)
     if DownloadableResource.poster in kinds:
-        for url in dict.fromkeys(poster_urls):
+        for url in dict.fromkeys(ordered_posters):
             local = await store.acquire(url, client)
             size = probe_oriented_size(local) if local else None
             if local and size:
+                if url in preferred and not await _readable_image(local):
+                    continue
                 poster_ok.add(url)
                 native = await _native_size(store, url, size)
                 area = native[0] * native[1] if native else 0
@@ -183,6 +205,9 @@ async def materialize_images(
                     poster_candidate_local, poster_candidate_url = local, url
                     poster_native_size = native
                     poster_candidate_area = area
+                if url in preferred:
+                    preferred_poster_selected = True
+                    break
 
         # 未选择封面下载时, 仅为缺失或低清海报尝试有限数量的裁切源.
         mode = resolve_crop_mode(config.scraping.poster_crop_mode, content_type)
@@ -191,6 +216,7 @@ async def materialize_images(
             and thumb_urls
             and config.scraping.crop_poster
             and mode != "none"
+            and not preferred_poster_selected
             and (poster_native_size is None or max(poster_native_size) < _SMALL_POSTER_EDGE)
         ):
             for url in list(dict.fromkeys(thumb_urls))[:_CROP_THUMB_LIMIT]:
@@ -214,6 +240,7 @@ async def materialize_images(
         if (
             config.scraping.crop_poster
             and mode != "none"
+            and not preferred_poster_selected
             and thumb_local
             and (
                 small_candidate
@@ -252,11 +279,11 @@ async def materialize_images(
                     cropped = True
                     await _maybe_upscale(store, crop_res, config, data_dir)
                 else:
-                    result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
+                    result_poster_urls = _best_first(_success_first(ordered_posters, poster_ok), poster_candidate_url)
             else:
-                result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
+                result_poster_urls = _best_first(_success_first(ordered_posters, poster_ok), poster_candidate_url)
         else:
-            result_poster_urls = _best_first(_success_first(poster_urls, poster_ok), poster_candidate_url)
+            result_poster_urls = _best_first(_success_first(ordered_posters, poster_ok), poster_candidate_url)
         if not cropped and poster_candidate_url:
             res = await store.get_by_url(poster_candidate_url)
             if res:
@@ -270,6 +297,7 @@ async def materialize_images(
             thumb_size=list(thumb_size) if thumb_size else None,
             candidates=len(poster_urls),
             cropped=cropped,
+            preferred=preferred_poster_selected,
         )
 
     # 超分不能参与原图质量排序, 否则首个低清来源放大后会压过真实高清来源.

@@ -124,7 +124,7 @@ handler 之间复用的阶段逻辑, 不是一条可跳步的总管线:
 `ScrapeHandler` 在聚合后、`upsert_metadata` 前调用 `materialize_images` (`src/amane/media/pipeline.py`) — 二进制写入 Resource 目录的主路径, 与是否整理无关:
 
 - **`scraping.download_resources`** 控制本步下载哪些类型 (thumb / poster / extrafanart / trailer).
-- **URL 重排契约**: 下载成功者前置, 失败者保留在尾部供重试; 封面与海报按实际像素选择首项, 同尺寸保持来源优先级. 未选中下载的类型保持原序, extrafanart 保留站点分组, `raw` 保持原始候选.
+- **URL 重排契约**: 下载成功者前置, 失败者保留供重试; 封面与海报按原始像素选源, 同尺寸保持来源顺序. 素人海报例外: `ScrapeHandler` 只从本次允许的字段链提取 MGStage 候选, `materialize_images` 采用首个可读取者并跳过跨站比较与横图裁切, 全部失败才恢复普通选源. 未选择下载时只调整该来源顺序; extrafanart 保留分组, `raw` 保留原始候选.
 - 自动裁切与人脸检测使用 EXIF 转正后的坐标, 选源与尺寸比较按原始像素, 超分缓存使用记录的输入尺寸, 旧记录缺尺寸按未知画质处理; 未选择封面下载时只为低清或缺失海报探测有限候选. 失败不阻断刮削, 自动写回仍遵守字段锁.
 
 手动裁切复用同一派生通道 (`op=crop`, `args=box:…`), 见 [data-model.md](data-model.md).

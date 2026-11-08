@@ -8,7 +8,7 @@ from ..aggregate import SCALAR_FIELDS, AggregatedMetadata, CrawlerLike, FieldLan
 from ..crawlers.models import SearchQuery
 from ..crawlers.site_roles import builtin_descriptors
 from ..db.models import Library, MediaFile, MediaFileStatus, TaskType
-from ..enums import ActorGender, MetadataField
+from ..enums import ActorGender, MetadataField, SiteName
 from ..media import materialize_images
 from ..observability import current
 from ..observability.models import SiteOutcomeKind
@@ -71,6 +71,7 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
         # 条目类型与字段锁始终以现存记录为准; raw 仅在 metadata 缓存启用时复用.
         use_metadata_cache = CacheKind.metadata in payload.use_cache
         existing = await self._repo.get_metadata_by_number(payload.number)
+        effective_content_type = existing.content_type if existing is not None else content_type
         cached_raw = existing.raw if existing is not None and use_metadata_cache else None
         if cached_raw:
             rec.write_raw_cache(cached_raw)
@@ -154,12 +155,24 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
                 result.metadata,
                 field_language,
                 CacheKind.trans in payload.use_cache,
-                content_type=existing.content_type if existing is not None else content_type,
+                content_type=effective_content_type,
                 locked_fields=existing.locked_fields if existing is not None else (),
             )
 
-        # 物化到 Resource; 失败保留原始 URL.
-        poster_out = result.metadata.poster_urls
+        # 素人海报优先采用 MGStage 原图; 资格仍由本次聚合的字段链决定, 不读取被排除的旧快照.
+        preferred_posters: list[str] = []
+        if (
+            effective_content_type is ContentType.AMATEUR
+            and SiteName.MGSTAGE in field_priority[MetadataField.POSTER_URLS]
+        ):
+            mgstage_posters = result.raw.get(SiteName.MGSTAGE, {}).get("poster_urls", [])
+            preferred_posters = [url for url in result.metadata.poster_urls if url in mgstage_posters]
+
+        # 物化到 Resource; 失败保留来源顺序与原始 URL.
+        poster_out = [
+            *preferred_posters,
+            *(url for url in result.metadata.poster_urls if url not in preferred_posters),
+        ]
         thumb_out = result.metadata.thumb_urls
         trailer_out = result.metadata.trailer_urls
         if self._web_client is not None:
@@ -172,8 +185,9 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
                     self._web_client,
                     self._config,
                     self._resource_store.data_dir,
-                    content_type=payload.content_type,
+                    content_type=effective_content_type,
                     extrafanart_urls=result.metadata.extrafanart_urls,
+                    preferred_poster_urls=preferred_posters,
                 )
                 poster_out = materialized.poster_urls
                 thumb_out = materialized.thumb_urls
