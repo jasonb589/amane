@@ -417,6 +417,11 @@ def normalize_fc2_number(number: str) -> str | None:
     return f"FC2-{match[1]}" if match else None
 
 
+def strip_filename_junk(text: str) -> str:
+    """独立文件编排复用当前垃圾串配置, 保留商品号与源标记供后续解析."""
+    return _strip_junk(text, _DEFAULT_ESCAPE_STRINGS)
+
+
 def infer_content_type(number: str, file_path: str | None = None) -> ContentType:
     """有挂载文件按路径, 否则按番号; 未命中已知形态则欧美."""
     return parse_file_info(file_path, text=number).content_type
