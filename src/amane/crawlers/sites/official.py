@@ -318,7 +318,7 @@ class OfficialCrawler(Crawler):
 
     @override
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        text = await self.client.get_html(url)
+        text = await self.client.get_html(url, cookies=self.cookies, headers=self.headers)
 
         html = Selector(text=text)
 

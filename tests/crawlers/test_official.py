@@ -31,6 +31,21 @@ def _config_with_routes(**routes) -> SiteConfig:
     return SiteConfig(official_routes=routes)
 
 
+@pytest.mark.asyncio
+async def test_fetch_forwards_configured_session_to_detail_request() -> None:
+    web = AsyncMock()
+    web.get_text.return_value = (
+        '<title>作品标题 | S1</title><div><div class="th">品番</div><div class="td"><p>SSIS001</p></div></div>'
+    )
+    cookies = {"age_check_done": "1", "session": "provided"}
+    crawler = OfficialCrawler(HttpClient(web=web), SiteConfig(cookie=cookies))
+    result = await crawler.fetch(SearchQuery("SSIS-001"))
+    assert result is not None and result.number == "SSIS001" and result.title == "作品标题"
+    web.get_text.assert_awaited_once_with(
+        "https://s1s1s1.com/works/detail/ssis001", cookies=cookies, headers=crawler.headers, encoding="utf-8"
+    )
+
+
 # ------------------------------------------------------------------
 # 数据完整性
 # ------------------------------------------------------------------
