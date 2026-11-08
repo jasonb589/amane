@@ -47,10 +47,10 @@ export const ActorCard = memo(function ActorCard({
   selectActive = false,
 }: ActorCardProps) {
   const { t } = useTranslation(["metadata", "common"]);
-  const [errored, setErrored] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const selectable = onToggleSelect != null;
   const imageUrl = proxyImageUrl(item.image_urls?.[0]);
-  const showImage = Boolean(imageUrl) && !errored;
+  const showImage = imageUrl && imageUrl !== failedUrl;
   const age = ageFromBirthday(item.birthday);
   const birthdayLabel = item.birthday
     ? age != null
@@ -88,7 +88,7 @@ export const ActorCard = memo(function ActorCard({
                 alt={item.name}
                 referrerPolicy="no-referrer"
                 style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }}
-                onError={() => setErrored(true)}
+                onError={() => setFailedUrl(imageUrl)}
               />
             ) : (
               <Center bg="var(--mantine-color-default-hover)" h="100%">

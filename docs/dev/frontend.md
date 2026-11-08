@@ -29,7 +29,7 @@
 
 路由由 `@tanstack/router-vite-plugin` 从 `routes/` 生成 (`routeTree.gen.ts` 不手改): 文件名的点号即路径层级, 需要独立 URL 又共享布局的一层写成 `xxx.tsx` + `xxx.index.tsx`, 叶页与父级同段时用尾随 `_`. `tanstackRouter()` 必须排在 JSX 转换插件之前, 顺序颠倒时构建失败.
 
-片库 / 演员 / 分类无独立「管理」路由, list 视图才有多选与破坏性操作; 多选批量一律走批量端点 (一次请求一次落库, 不逐条发请求), 单行按钮复用同一入口. Feed 相反, 阅读器与源表不共用布局. 查询预设是管理页例外: `/saved-queries` 只列已保留的预设, 全选与批量操作作用于过滤后的可见集合; 会话页的预设面板反过来只列当前会话的临时预设. 侧栏「全部 / 未分组」不经深链进入. `/feeds` 的选中态必须 `activeOptions.exact` 且忽略 search, 否则打开 `/feeds/sources` 时「订阅」也会亮.
+片库 / 演员 / 分类无独立「管理」路由; list 均有多选, 片库与演员 grid 也提供批量操作. 批量一律调用批量端点, 单条操作复用同一入口. Feed 阅读器与源表不共用布局. `/saved-queries` 只列已保留的预设, 全选与批量操作作用于过滤后的可见集合; 会话页的预设面板只列当前会话的临时预设. 侧栏「全部 / 未分组」不经深链进入. `/feeds` 的选中态必须 `activeOptions.exact` 且忽略 search, 否则打开 `/feeds/sources` 时「订阅」也会亮.
 
 **列表默认**: 侧栏「片库 / 演员 / 订阅」按钮携带 `lib/nav-defaults.ts` 白名单内的默认列表参数 (排序、筛选、视图; 存于 ui store), 点击时经路由跳转整体替换 search, 因此 URL 仍是列表态的唯一事实来源 —— 页面内清除的筛选不会被默认重新写入. Mantine 的多态 props 把 `component={Link}` 的 `search` 收窄成 `never`, 参数只能这样送入; 中键与修饰键保留浏览器行为, 打开的地址因此不带默认参数.
 
@@ -48,6 +48,10 @@
 窄屏 (md 以下) 的 `BrowsePageShell` 只剩一行: 标题 + 视图切换 + 筛选入口, 摘要 / 搜索 / 高级筛选面板 / 附属控件 / 右侧动作全进底部面板; 带高级筛选的列表页必须把面板经 `filterPanel` 槽传入, 不允许把 `<Collapse>` 放进 children — 否则开关与面板会分处两地. 同一批控件只渲染一处: 两个断点各一份会让搜索框在 DOM 里存在两个. `SelectionBar` 无选中时在窄屏整条不渲染; 订阅浏览页的 `FeedReader` 用同一形态.
 
 图标按钮的悬浮说明必须经 `HintedActionIcon` (Mantine Tooltip), 不允许 HTML `title`; disabled 控件须再包一层可接收指针事件的元素.
+
+## 海报栅格
+
+片库 grid 短边锚定 (`layout="adaptive"`, 行切分见 `lib/media/adaptive.ts`), 演员墙与分类详情列宽相等. 海报多选与批量操作归 `PosterGrid`, 两种布局共用选择状态. 地址解析与自然尺寸缓存归 `lib/media/poster-image.ts`, 海报缺席时采用封面, 缓存键为实际请求地址并跨路由复用. `ProxyImage` 的每个分支须转发 `onLoad` / `onError`; 卡片错误只绑定失败地址, 更换图片后重新加载.
 
 ## 窄屏
 

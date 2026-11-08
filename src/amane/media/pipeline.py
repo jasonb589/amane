@@ -25,7 +25,7 @@ from .images import (
     should_crop_poster,
     validate_crop_box,
 )
-from .resource_store import RESOURCE_URL_PREFIX
+from .resource_store import RESOURCE_URL_PREFIX, internal_url_hash
 
 if TYPE_CHECKING:
     from ..config import HotSettings, SrConfig
@@ -69,6 +69,26 @@ def _best_first(urls: list[str], best: str | None) -> list[str]:
     if not best or best not in urls:
         return urls
     return [best, *(u for u in urls if u != best)]
+
+
+async def _native_size(store: ResourceStore, url: str, size: tuple[int, int]) -> tuple[int, int] | None:
+    """超分缓存按记录的输入像素排序; 历史标记缺少输入尺寸时不冒充原生高清."""
+    if internal := internal_url_hash(url):
+        found = await store.get_by_url_hash(internal)
+        record = found[0] if found else None
+    else:
+        record = await store.get_by_url(url)
+    sr = (record.meta or {}).get("sr") if record else None
+    if isinstance(sr, dict):
+        original = sr.get("source_size")
+        if (
+            isinstance(original, list)
+            and len(original) == 2
+            and all(type(edge) is int and edge > 0 for edge in original)
+        ):
+            return original[0], original[1]
+        return None
+    return size
 
 
 def sr_args_dict(cfg: SrConfig) -> dict:
@@ -126,39 +146,43 @@ async def materialize_images(
     thumb_local: Path | None = None
     thumb_src: str | None = None
     thumb_size: tuple[int, int] | None = None
+    thumb_native_size: tuple[int, int] | None = None
+    thumb_area = -1
     if DownloadableResource.thumb in kinds:
         for url in dict.fromkeys(thumb_urls):
             local = await store.acquire(url, client)
-            size = probe_size(local) if local else None
+            size = probe_oriented_size(local) if local else None
             if local and size:
                 thumb_ok.add(url)
+                native = await _native_size(store, url, size)
+                area = native[0] * native[1] if native else 0
                 # 同一组候选已全部下载, 按真实像素选源, 不固定使用首个成功的小图.
-                if thumb_size is None or size[0] * size[1] > thumb_size[0] * thumb_size[1]:
+                if area > thumb_area:
                     thumb_local, thumb_src = local, url
                     thumb_size = size
+                    thumb_native_size = native
+                    thumb_area = area
 
     # 下载 poster; 候选偏矮则从 thumb 裁剪.
     poster_ok: set[str] = set()
     poster_candidate_local: Path | None = None
     poster_candidate_url: str | None = None
-    poster_candidate_size: tuple[int, int] | None = None
+    poster_native_size: tuple[int, int] | None = None
+    poster_candidate_area = -1
     result_poster_urls = list(poster_urls)
     if DownloadableResource.poster in kinds:
         for url in dict.fromkeys(poster_urls):
             local = await store.acquire(url, client)
-            size = probe_size(local) if local else None
+            size = probe_oriented_size(local) if local else None
             if local and size:
                 poster_ok.add(url)
+                native = await _native_size(store, url, size)
+                area = native[0] * native[1] if native else 0
                 # 选像素面积最大的一张; 来源顺序只用于同尺寸时的先后.
-                if poster_candidate_local is None or (
-                    size is not None
-                    and (
-                        poster_candidate_size is None
-                        or size[0] * size[1] > poster_candidate_size[0] * poster_candidate_size[1]
-                    )
-                ):
+                if area > poster_candidate_area:
                     poster_candidate_local, poster_candidate_url = local, url
-                    poster_candidate_size = size
+                    poster_native_size = native
+                    poster_candidate_area = area
 
         # 未选择封面下载时, 仅为缺失或低清海报尝试有限数量的裁切源.
         mode = resolve_crop_mode(config.scraping.poster_crop_mode, content_type)
@@ -167,16 +191,21 @@ async def materialize_images(
             and thumb_urls
             and config.scraping.crop_poster
             and mode != "none"
-            and (poster_candidate_size is None or max(poster_candidate_size) < _SMALL_POSTER_EDGE)
+            and (poster_native_size is None or max(poster_native_size) < _SMALL_POSTER_EDGE)
         ):
             for url in list(dict.fromkeys(thumb_urls))[:_CROP_THUMB_LIMIT]:
                 local = await store.acquire(url, client)
-                size = probe_size(local) if local else None
-                if local and size and (thumb_size is None or size[0] * size[1] > thumb_size[0] * thumb_size[1]):
-                    thumb_local, thumb_src = local, url
-                    thumb_size = size
+                size = probe_oriented_size(local) if local else None
+                if local and size:
+                    native = await _native_size(store, url, size)
+                    area = native[0] * native[1] if native else 0
+                    if area > thumb_area:
+                        thumb_local, thumb_src = local, url
+                        thumb_size = size
+                        thumb_native_size = native
+                        thumb_area = area
 
-        cand_size = poster_candidate_size
+        cand_size = poster_native_size
         # 候选明显偏小 (最长边 < 800, 例如日亚只剩 352x500 兜底图) 时, 即使比例判定「够高不裁」
         # 也把 thumb 裁一份来比面积: 裁出来的更大就用裁的, 更小仍保留原候选.
         small_candidate = cand_size is not None and max(cand_size) < _SMALL_POSTER_EDGE
@@ -188,7 +217,8 @@ async def materialize_images(
             and thumb_local
             and (
                 small_candidate
-                or should_crop_poster(thumb_size, cand_size, skip_ratio=config.scraping.poster_crop_skip_ratio)
+                or poster_candidate_local is None
+                or should_crop_poster(thumb_native_size, cand_size, skip_ratio=config.scraping.poster_crop_skip_ratio)
             )
         ):
             ratio = config.scraping.poster_ratio
@@ -208,11 +238,15 @@ async def materialize_images(
             crop_res = await store.acquire_derived(thumb_src or "", "crop", args, crop_producer)
             if crop_res:
                 crop_size = probe_size(store.full_path(crop_res))
+                crop_native_size = await _native_size(store, crop_res.url, crop_size) if crop_size else None
+                crop_area = (
+                    crop_native_size[0] * crop_native_size[1] * thumb_area / (thumb_size[0] * thumb_size[1])
+                    if crop_native_size and thumb_size
+                    else 0
+                )
                 # 由「候选偏小」触发的裁切要与原候选比面积: 裁出来更小就没必要换.
                 if not small_candidate or (
-                    crop_size is not None
-                    and cand_size is not None
-                    and crop_size[0] * crop_size[1] > cand_size[0] * cand_size[1]
+                    crop_size is not None and cand_size is not None and crop_area > cand_size[0] * cand_size[1]
                 ):
                     result_poster_urls = [_internal_url(store, crop_res.url)]
                     cropped = True

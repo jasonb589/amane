@@ -561,6 +561,9 @@ export const batchMetadataUserTagsMutation = (options?: Partial<Options<BatchMet
  * Merge Metadata Entries
  *
  * 把来源条目的 raw 快照补入目标并删除来源: 目标字段不变, 关联记录迁入目标.
+ *
+ * ``rescrape`` 要求合并提交后再按目标番号入队 SCRAPE: 只有 raw 已落库, 复用快照的聚合
+ * 才能按当前优先级重建字段与站点级字典.
  */
 export const mergeMetadataEntriesMutation = (options?: Partial<Options<MergeMetadataEntriesData>>): UseMutationOptions<MergeMetadataEntriesResponse, MergeMetadataEntriesError, Options<MergeMetadataEntriesData>> => {
     const mutationOptions: UseMutationOptions<MergeMetadataEntriesResponse, MergeMetadataEntriesError, Options<MergeMetadataEntriesData>> = {
@@ -1746,6 +1749,7 @@ export const proxyImageQueryKey = (options: Options<ProxyImageData>) => createQu
  * 上游失败记入进程内负缓存 (15 分钟), 窗口内同 URL 直接 502.
  * 同 URL 进行中请求合并为一次 acquire.
  * 使用图片 token 的请求只从缓存读取资源: 未命中返回 404, 不发起对外请求, 不写入负缓存.
+ * 缓存命中先于地址判定: 只有下载会发起对外请求, 已入库资源即使是私网地址也直接返回.
  */
 export const proxyImageOptions = (options: Options<ProxyImageData>) => queryOptions<unknown, ProxyImageError, unknown, ReturnType<typeof proxyImageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2319,7 +2323,7 @@ export const getPathTemplateSchemaQueryKey = (options?: Options<GetPathTemplateS
 /**
  * Get Path Template Schema
  *
- * 与 resolve_paths 同源.
+ * 与 ORGANIZE 实际使用的默认值同源.
  */
 export const getPathTemplateSchemaOptions = (options?: Options<GetPathTemplateSchemaData>) => queryOptions<GetPathTemplateSchemaResponse, DefaultError, GetPathTemplateSchemaResponse, ReturnType<typeof getPathTemplateSchemaQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

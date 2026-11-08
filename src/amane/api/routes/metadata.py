@@ -138,6 +138,7 @@ async def list_metadata(
         publisher_ids=filters.publisher_id,
         series_ids=filters.series_id,
         user_tag_ids=filters.user_tag_id,
+        library_ids=filters.library_id,
         has_files=filters.has_files,
         has_subtitle=filters.has_subtitle,
         vr=filters.vr,
@@ -178,6 +179,7 @@ async def _semantic_list(
             publisher_ids=filters.publisher_id,
             series_ids=filters.series_id,
             user_tag_ids=filters.user_tag_id,
+            library_ids=filters.library_id,
             has_files=filters.has_files,
             has_subtitle=filters.has_subtitle,
             vr=filters.vr,
@@ -267,14 +269,30 @@ async def batch_metadata_user_tags(req: MetadataUserTagsRequest, repo: RepoDep) 
 
 @router.post("/merge-entries")
 async def merge_metadata_entries(req: MetadataMergeEntriesRequest, repo: RepoDep) -> MetadataResponse:
-    """把来源条目的 raw 快照补入目标并删除来源: 目标字段不变, 关联记录迁入目标."""
+    """把来源条目的 raw 快照补入目标并删除来源: 目标字段不变, 关联记录迁入目标.
+
+    ``rescrape`` 要求合并提交后再按目标番号入队 SCRAPE: 只有 raw 已落库, 复用快照的聚合
+    才能按当前优先级重建字段与站点级字典.
+    """
     try:
         metadata = await repo.merge_metadata_entries(req.target_id, req.source_ids)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     if metadata is None:
         raise HTTPException(status_code=404, detail="影片不存在")
-    logger.info("metadata entries merged", target_id=req.target_id, source_ids=req.source_ids)
+    rescrape_task_id: int | None = None
+    if req.rescrape:
+        task = await repo.create_task(
+            TaskType.SCRAPE,
+            ScrapePayload(number=metadata.number, content_type=metadata.content_type),
+        )
+        rescrape_task_id = task.id
+    logger.info(
+        "metadata entries merged",
+        target_id=req.target_id,
+        source_ids=req.source_ids,
+        rescrape_task_id=rescrape_task_id,
+    )
     return to_resp(MetadataResponse, metadata)
 
 

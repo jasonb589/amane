@@ -33,7 +33,7 @@ from amane.playback.proxy import (
     neutralized_hls_part_type,
 )
 from amane.plugins.api import UpstreamPlaybackTarget
-from tests.helpers import HTTP_STUB_POLL_INTERVAL
+from tests.helpers import HTTP_STUB_POLL_INTERVAL, LOAD_TOLERANT_TIMEOUT
 
 
 @pytest.mark.parametrize(
@@ -134,7 +134,7 @@ class _Upstream(BaseHTTPRequestHandler):
     media_type: str
     extra: dict[str, str]
     mismatch: bool
-    slow: bool
+    resume_stream: Event | None
     cancelled: Event
 
     def do_HEAD(self) -> None:
@@ -166,9 +166,8 @@ class _Upstream(BaseHTTPRequestHandler):
             return
         self.send_response(self.status)
         self.send_header("Content-Type", self.media_type)
-        if self.slow:
-            length = 65536 * 200
-            self.send_header("Content-Length", str(length))
+        if self.resume_stream is not None:
+            self.send_header("Content-Length", str(len(self.body) * 3))
         elif self.mismatch:
             self.send_header("Content-Range", "bytes 0-20/100")
             self.send_header("Content-Length", "10")
@@ -183,14 +182,24 @@ class _Upstream(BaseHTTPRequestHandler):
         self.end_headers()
         if not with_body:
             return
-        if self.slow:
+        if self.resume_stream is not None:
             try:
-                chunk = b"x" * 65536
-                for _ in range(200):
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
+                self.wfile.write(self.body)
+                self.wfile.flush()
+                if not self.resume_stream.wait(timeout=LOAD_TOLERANT_TIMEOUT):
+                    return
+                # 断连消息被消费后再发送下一块, 供代理读循环检查断连标记; 最后一块始终不发送.
+                self.wfile.write(self.body)
+                self.wfile.flush()
+                self.connection.settimeout(LOAD_TOLERANT_TIMEOUT)
+                if self.connection.recv(1) == b"":
+                    self.cancelled.set()
             except BrokenPipeError, ConnectionResetError, ConnectionAbortedError:
                 self.cancelled.set()
+            except TimeoutError:
+                pass
+            finally:
+                self.close_connection = True
             return
         self.wfile.write(self.body)
 
@@ -209,7 +218,7 @@ def _serve(**kwargs: Any) -> tuple[ThreadingHTTPServer, dict[str, str | None], E
             "media_type": kwargs.get("media_type", "video/mp4"),
             "extra": kwargs.get("extra", {}),
             "mismatch": kwargs.get("mismatch", False),
-            "slow": kwargs.get("slow", False),
+            "resume_stream": kwargs.get("resume_stream"),
         },
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -292,7 +301,9 @@ async def test_proxy_cancels_upstream_on_disconnect() -> None:
     断连由响应的 ``__call__`` 置位: 正文生成器手里没有 ``receive``, 且 ``Request`` 上的探测在
     ``BaseHTTPMiddleware`` 栈下看不到断开.
     """
-    server, _captured, cancelled = _serve(slow=True)
+    resume_stream = Event()
+    chunk = b"first-upstream-chunk"
+    server, _captured, cancelled = _serve(body=chunk, resume_stream=resume_stream)
     stream = StreamClient()
     try:
         target = UpstreamPlaybackTarget(
@@ -313,9 +324,11 @@ async def test_proxy_cancels_upstream_on_disconnect() -> None:
             "server": ("test", 80),
         }
         disconnected = asyncio.Event()
+        disconnect_received = asyncio.Event()
 
         async def receive() -> Message:
             await disconnected.wait()
+            disconnect_received.set()
             return {"type": "http.disconnect"}
 
         response = await stream.proxy(Request(scope, receive), source_id="acme.play", target=target)
@@ -325,16 +338,24 @@ async def test_proxy_cancels_upstream_on_disconnect() -> None:
 
         async def send(message: Message) -> None:
             sent.append(message)
-            if message["type"] == "http.response.body":
+            if message["type"] == "http.response.body" and message.get("body"):
                 disconnected.set()
-                await asyncio.sleep(0)
+                await disconnect_received.wait()
+                resume_stream.set()
 
-        await response(scope, receive, send)
+        async with asyncio.timeout(LOAD_TOLERANT_TIMEOUT):
+            await response(scope, receive, send)
 
-        assert cancelled.wait(timeout=2)
+        chunks = [
+            message["body"] for message in sent if message["type"] == "http.response.body" and message.get("body")
+        ]
+        assert len(chunks) == 1 and chunk.startswith(chunks[0])
+        assert await asyncio.to_thread(cancelled.wait, LOAD_TOLERANT_TIMEOUT)
     finally:
+        resume_stream.set()
         await stream.aclose()
-        server.shutdown()
+        await asyncio.to_thread(server.shutdown)
+        await asyncio.to_thread(server.server_close)
 
 
 @pytest.mark.asyncio

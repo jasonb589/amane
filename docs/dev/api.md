@@ -40,9 +40,9 @@ HTTP 宿主与 DI 在 `app.py` / `deps.py` / `middleware.py` / `spa.py`; `routes
 
 OpenAPI 列出参数, 不表达组合语义:
 
-- metadata 同 kind 的筛选: 关联类 AND / 标量类 OR; 跨 kind 始终 AND. `saved_query_id` 与其它筛选项 AND; `data` 实体不可作列表筛选 (400). 关联文件相位筛选与 `has_files` 一样 AND (布尔项 True = 至少一份具备, False = 没有任何一份具备), 列表项带聚合 `file_phase`. 见 [data-model.md](data-model.md) / [agent.md](agent.md).
+- metadata 同 kind 的筛选: 关联类 AND / 标量类 OR; 跨 kind 始终 AND. `saved_query_id` 与其它筛选项 AND; `data` 实体不可作列表筛选 (400). 关联文件相位筛选与 `has_files` 一样 AND (布尔项 True = 至少一份具备, False = 没有任何一份具备), 列表项带聚合 `file_phase`. `library_id` 属关联文件维度: 同一筛选内多库 OR, 条目在任一选中库中有文件即命中, 无文件条目不命中; 见 [data-model.md](data-model.md) / [agent.md](agent.md).
 - GET `/media` 的相位 query 作用在单行列上; `uncensored` 与 `content_type` 是例外: 两者都按所属条目判定 (`uncensored` = 条目无码或这一份带无码标记, `content_type` = 条目类型), 未绑定条目的文件只看自身标记、不命中任何类型; 布尔侧按空值安全比较. 未知 `definition` → 422; 相位列不纳入 PATCH.
-- 手动裁切基准是源图**当前本地文件**像素 (含就地超分后尺寸): 海报以 `thumb_urls[0]` 为源并替换 `poster_urls`, 演员头像以 `image_urls[0]` 为源并前插保留原图; 库路径海报不受影响. locator 见 [data-model.md](data-model.md).
+- 手动裁切基准是源图**当前本地文件**像素 (含就地超分后尺寸): 海报以 `thumb_urls[0]` 为源并替换 `poster_urls`, 按下文回写契约更新库内海报; 演员头像以 `image_urls[0]` 为源并前插保留原图. locator 见 [data-model.md](data-model.md).
 - `PUT /metadata/{id}/locks` 与 `PUT /actors/{id}/locks` 整体替换锁定字段集合; 锁语义见 [data-model.md](data-model.md)「字段锁定」.
 - `GET /facets/{kind}` 的 `favorite` 过滤与 `POST /facets/{kind}/batch` 的收藏写入只在可收藏的分类上成立 (`db/models.py::FAVORITE_FACET_KINDS`; 链接型分类中的 `director` 与 `tag` 同样成立): 传入 `favorite` (与取值无关) 或对不支持的 kind 写收藏都是 400, 其余 kind 恒为 false. 写端点按 `action` 分派, 空 `facet_ids` 与未登记的 `action` 是 422, 取去重后的 `facet_ids`, 不存在的 id 计入 `missing` 而不报 404, 三个计数之和等于去重后的条目数. 见 [data-model.md](data-model.md).
 - 注册顺序有约束的五处: `/facets/{kind}/rules` 先于 `/{facet_id}` (否则 `rules` 被当成 facet_id); `/plugins/reload` 先于 `/plugins/{plugin_id}` (否则 `reload` 被当成插件 ID); `/tasks/batch` 与 `/tasks/worker*` 先于 `/{task_id}` (否则被当成非法整数 id); `/feeds/items` 先于 `/{feed_id}`; `/playback/sources` 先于 `/{source_id}`.
@@ -75,9 +75,9 @@ OpenAPI 列出参数, 不表达组合语义:
 
 **资源缓存**: `/resources/{hash}` 与 `/proxy` 因就地超分 URL 不变, 不可 immutable — `Cache-Control: public, no-cache` + `content_hash` ETag. proxy 上游失败 502, 进程内负缓存 15 分钟 (不纳入配置), 同 URL singleflight; 刮削下载不经由该缓存. 图片 token 的 proxy 请求只从缓存读取: 未命中返回 404, 不经过负缓存与 singleflight, 也不发起请求.
 
-**资源出站**: 第三方 URL 进入下载通道前过 `net/egress` — 协议白名单对每次请求生效, 地址判定由调用点选择 (`/proxy` 只接受公网, 刮削下载允许私网以支持 LAN 镜像), 重定向逐跳复查. 不防御 DNS rebinding: 校验与实际连接是两次解析, 窗口内改派的地址不会被发现. fake-IP 只放行 Clash / Mihomo / Surge 的默认段, 用户自定义段按非公网拒绝. 浏览器渲染通道不经该客户端, 不受这条判定约束.
+**资源出站**: 第三方 URL 进入下载通道前过 `net/egress` — 协议白名单对每次请求生效, 地址判定由调用点选择 (`/proxy` 只在缓存未命中时判定, 命中直出; 刮削下载允许私网以支持 LAN 镜像), 重定向逐跳复查. 不防御 DNS rebinding: 校验与实际连接是两次解析, 窗口内改派的地址不会被发现. fake-IP 只放行 Clash / Mihomo / sing-box 常用的 IPv4 / IPv6 基准测试段, 用户自定义段按非公网拒绝. 浏览器渲染通道不经该客户端, 不受这条判定约束.
 
-**资源响应类型**: 按文件头判定, 扩展名白名单兜底, 都不命中时附件下载 + `nosniff`. 记录里的 MIME 由 URL 后缀推出, 不能决定浏览器按什么类型解释.
+**资源响应类型**: 按文件头判定, 扩展名白名单兜底, 都不命中时附件下载 + `nosniff`. 记录里的媒体类型不参与该判定.
 
 **海报裁切回写**: `metadata.py::_write_poster_into_libraries` 使用现存媒体位置与 `organize/path_templates.py::resolve_existing_poster_path`, 遵守海报 / 链接模板与安全目录; 不重新应用视频移动模板. 文件操作在线程池执行, 失效媒体不重建目录; 回写失败不撤销数据库中的裁切结果.
 

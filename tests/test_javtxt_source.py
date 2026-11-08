@@ -1,6 +1,13 @@
 """JAVTXT 源的解析用例 (按番号检索 + 详情页 dl 结构 + 只取日文剧情)."""
 
-from amane.crawlers.sites.javtxt import detail_links, parse_detail
+from unittest.mock import AsyncMock
+
+import pytest
+
+from amane.config import SiteConfig
+from amane.crawlers.http import HttpClient
+from amane.crawlers.models import SearchQuery
+from amane.crawlers.sites.javtxt import JavtxtCrawler, detail_links, parse_detail
 
 DETAIL_URL = "https://javtxt.com/v/396334"
 
@@ -64,3 +71,22 @@ def test_detail_links_dedup_and_absolute() -> None:
     html = '<a href="/v/396334">a</a><a href="/v/396334">b</a><a href="/v/401122">c</a>'
 
     assert detail_links(html) == ["https://javtxt.com/v/396334", "https://javtxt.com/v/401122"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_uses_configured_host_and_session_for_search_and_detail() -> None:
+    web = AsyncMock()
+    web.get_text.side_effect = ['<a href="/v/396334">作品</a>', _PAGE]
+    crawler = JavtxtCrawler(
+        HttpClient(web), SiteConfig(base_url="https://mirror.example", cookie={"session": "provided"})
+    )
+    result = await crawler.fetch(SearchQuery("SSIS-313"))
+    assert result is not None and result.number == "SSIS-313"
+    assert result.source_url == "https://mirror.example/v/396334"
+    assert [call.args[0] for call in web.get_text.await_args_list] == [
+        "https://mirror.example/search?q=SSIS-313",
+        "https://mirror.example/v/396334",
+    ]
+    for call in web.get_text.await_args_list:
+        assert call.kwargs["cookies"] == {"session": "provided"}
+        assert call.kwargs["headers"] == crawler.headers

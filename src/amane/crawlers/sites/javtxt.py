@@ -96,14 +96,14 @@ def parse_detail(html: str, url: str) -> MediaMetadata | None:
     )
 
 
-def detail_links(html: str) -> list[str]:
+def detail_links(html: str, base_url: str = SITE) -> list[str]:
     """搜索结果页里的详情页链接 (绝对 URL, 按出现顺序去重)."""
     seen: list[str] = []
     for match in _DETAIL_HREF.finditer(html or ""):
         path = match.group("path")
         if path not in seen:
             seen.append(path)
-    return [f"{SITE}{path}" for path in seen]
+    return [f"{base_url.rstrip('/')}{path}" for path in seen]
 
 
 class JavtxtCrawler(Crawler):
@@ -135,16 +135,18 @@ class JavtxtCrawler(Crawler):
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
-        return parse_detail(await self.client.get_html(url), url)
+        return parse_detail(await self.client.get_html(url, cookies=self.cookies, headers=self.headers), url)
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
         wanted = fold_number(query.number)
         if not wanted:
             return None
-        html = await self.client.get_html(f"{self.base_url}/search?q={quote(query.number, safe='')}")
-        for url in detail_links(html)[: self._MAX_CANDIDATES]:
-            meta = parse_detail(await self.client.get_html(url), url)
+        html = await self.client.get_html(
+            f"{self.base_url}/search?q={quote(query.number, safe='')}", cookies=self.cookies, headers=self.headers
+        )
+        for url in detail_links(html, self.base_url)[: self._MAX_CANDIDATES]:
+            meta = await self._scrape(url)
             if meta is not None and fold_number(meta.number) == wanted:
                 return meta
         return None

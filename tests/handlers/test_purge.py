@@ -1,38 +1,22 @@
 """PURGE handler - 一键重置: 清空片库 → 清理 → 清空任务历史."""
 
+import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.pool import StaticPool
-from sqlmodel import SQLModel
 
 from amane.db.models import MediaFileStatus, TaskType
 from amane.db.repository import Repository
 from amane.handlers import CleanupPayload, PurgeHandler, PurgePayload
 from amane.media import ResourceStore
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+from tests.helpers import LoopProgressProbe
 
 
-@pytest_asyncio.fixture
-async def purge_env(tmp_path: Path) -> AsyncGenerator[tuple[Repository, ResourceStore, Path]]:
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        echo=False,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-
-    repo = Repository(engine)
-    store = ResourceStore(engine=engine, base_dir=tmp_path / "resources")
-    yield repo, store, tmp_path
-    await engine.dispose()
+@pytest.fixture
+def purge_env(
+    repo: Repository, resource_store: ResourceStore, tmp_path: Path
+) -> tuple[Repository, ResourceStore, Path]:
+    return repo, resource_store, tmp_path
 
 
 async def _seed_library(repo: Repository, tmp_path: Path, number: str) -> tuple[int, int, Path]:
@@ -138,3 +122,34 @@ async def test_purge_runs_cleanup_after_library_wipe(purge_env):
     assert outcome.result.metadata_removed == 1
     assert outcome.result.actors_removed == 1
     assert outcome.result.facets_removed == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_disk_io_keeps_loop_responsive_and_preserves_outside_files(
+    repo: Repository, resource_store: ResourceStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, target = await _seed_library(repo, tmp_path, "ABC-003")
+    library = (await repo.list_libraries())[0]
+    assert library.id is not None
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"outside")
+    await repo.create_media_file(library.id, path=str(outside), number="OTHER-001")
+    probe = LoopProgressProbe()
+    unlink = Path.unlink
+
+    def blocked_unlink(path: Path, missing_ok: bool = False) -> None:
+        if path == target:
+            probe.wait()
+        unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", blocked_unlink)
+    outcome, _ = await asyncio.gather(
+        PurgeHandler(repo, resource_store).handle(
+            PurgePayload(delete_files=True, prune_empty_dirs=False, run_cleanup=False, purge_task_history=False)
+        ),
+        probe.marker(),
+    )
+    assert probe.passed, "媒体删除阻塞事件循环"
+    assert outcome.result is not None and outcome.result.files_removed == 1
+    assert not target.exists()
+    assert outside.read_bytes() == b"outside"

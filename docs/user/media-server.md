@@ -56,8 +56,8 @@ Amane 与 Emby / Jellyfin 分工互补: 媒体服务器管理视频文件, 负�
         ├── thumb.jpg             封面
         ├── fanart.jpg            背景图 (内容同封面)
         └── extrafanart/          剧照
-            ├── 1.jpg
-            └── 2.jpg
+            ├── fanart1.jpg
+            └── fanart2.jpg
 ```
 
 | 文件 | 来源 | 由谁决定 |
@@ -65,9 +65,11 @@ Amane 与 Emby / Jellyfin 分工互补: 媒体服务器管理视频文件, 负�
 | NFO | 影片元数据 | 「写入 NFO」开关与 NFO 模板 |
 | `poster.jpg` | 刮削的海报, 或由封面裁切 | 「整理时复制」与海报模板 |
 | `thumb.jpg` / `fanart.jpg` | 刮削的封面 | 「整理时复制」与封面、背景图模板 |
-| `extrafanart/` | 刮削的剧照 | 「整理时复制」与剧照模板 |
+| `extrafanart/` | 刮削的剧照 | 「整理时复制」、剧照模板与剧照文件名模板 |
 | `trailer.mp4` | 刮削的预告片 | 「整理时复制」(新建媒体库时默认不勾选) 与预告片模板 |
 | 字幕 | 视频同目录的外挂字幕 | 字幕扩展名与字幕模板 |
+
+剧照文件名模板留空时使用 `fanart{index}.jpg`. 超过 9 张时, 按文件名排序会把 `fanart10.jpg` 排在 `fanart2.jpg` 前. 使用 `fanart{index_padded}.jpg` 可按序号排列; `{number}-{index_padded}.jpg` 还可标明所属影片. 修改模板不会自动删除旧名字, 如需清理可在确认新文件后删除旧文件.
 
 开启 [水印](organize.md#watermark) 后, 海报与封面带有中字、无码、分辨率等角标. 各文件的路径均可通过模板修改, 语法见 [整理与路径模板](organize.md#placeholders).
 
@@ -77,7 +79,7 @@ NFO 为 Kodi 格式, 根元素为 `<movie>`, 内容固定, 不提供自定义模
 
 | 元素 | 内容 |
 |------|------|
-| `<title>` `<originaltitle>` `<sorttitle>` | 番号 + 空格 + 标题, 如 `MIDV-123 Title Here` |
+| `<title>` `<originaltitle>` `<sorttitle>` | 番号 + 空格 + 标题; 标题已以番号开头时不再重复, 如 `MIDV-123 Title Here` |
 | `<num>` | 番号 |
 | `<plot>` `<outline>` | 剧情简介 (纯文本) |
 | `<premiered>` `<releasedate>` `<year>` | 发行日期与年份 |

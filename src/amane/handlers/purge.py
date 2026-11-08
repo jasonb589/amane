@@ -15,6 +15,7 @@ from ..db.models import TaskStatus
 from ..library import prune_empty_dirs
 from ..observability import remove_task_dir
 from ..utils.path import is_descendant
+from ..utils.threads import in_thread
 from .file import CleanupHandler
 from .models import CleanupPayload, CleanupResult, PurgePayload, PurgeResult
 from .protocol import TaskHandler, TaskResult
@@ -116,14 +117,13 @@ class PurgeHandler(TaskHandler[PurgePayload, PurgeResult]):
         failed = 0
         for mf in media:
             path = Path(mf.path)
-            root = _owning_root(path, roots)
-            if root is None:
-                continue
             try:
-                path.unlink(missing_ok=True)
+                root = await _unlink_owned_file(path, roots)
             except OSError:
                 logger.warning("purge unlink failed", path=str(path), exc_info=True)
                 failed += 1
+                continue
+            if root is None:
                 continue
             removed += 1
             if prune:
@@ -173,3 +173,12 @@ def _owning_root(path: Path, roots: Sequence[Path]) -> Path | None:
     if not candidates:
         return None
     return max(candidates, key=lambda root: len(root.parts))
+
+
+@in_thread
+def _unlink_owned_file(path: Path, roots: Sequence[Path]) -> Path | None:
+    """路径解析与删除可能访问网络盘, 在同一工作线程内校验归属并执行."""
+    root = _owning_root(path, roots)
+    if root is not None:
+        path.unlink(missing_ok=True)
+    return root

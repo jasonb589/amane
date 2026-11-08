@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from amane.crawlers.http import HttpClient
+from amane.crawlers.models import SearchQuery
 from amane.crawlers.sites.dahlia import DahliaCrawler
 from amane.crawlers.sites.faleno import FalenoCrawler
 from amane.crawlers.sites.wp_works import (
@@ -157,3 +158,19 @@ async def test_scrape_reports_parse_error(payload: Any) -> None:
     with pytest.raises(SourceError) as excinfo:
         await crawler._scrape("https://faleno.jp/top/wp-json/wp/v2/works?slug=fns257")
     assert excinfo.value.reason is FailureReason.PARSE_ERROR
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_requested", [False, True])
+async def test_fetch_keeps_requested_work_when_detail_response_changes(has_requested: bool) -> None:
+    web = AsyncMock()
+    requested = {"slug": "fns257", "title": {"rendered": "Requested"}}
+    unrelated = {"slug": "fns258", "title": {"rendered": "Unrelated"}}
+    web.get_json.side_effect = [[requested], [unrelated, requested] if has_requested else [unrelated]]
+    crawler = FalenoCrawler(client=HttpClient(web=web))
+    result = await crawler.fetch(SearchQuery("FNS-257"))
+    if has_requested:
+        assert result is not None and result.number == "FNS-257" and result.title == "Requested"
+    else:
+        assert result is None
+    assert web.get_json.await_count == 2

@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from typing import Any, ClassVar
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import ConfigDict, Field, ValidationError, field_validator
 
@@ -166,8 +167,12 @@ class WordPressWorksCrawler(Crawler):
         return url
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
+        slugs = parse_qs(urlsplit(url).query).get("slug", [])
+        if len(slugs) != 1 or not slugs[0]:
+            return None
         posts = self._posts(await self.client.get_json(url))
-        post = posts[0] if posts else None
+        # 详情响应仍须确认请求的 slug, 不信任列表排序或与检索阶段相同的返回内容.
+        post = next((post for post in posts if post.slug and post.slug.lower() == slugs[0].lower()), None)
         if post is None or not post.slug:
             return None
 

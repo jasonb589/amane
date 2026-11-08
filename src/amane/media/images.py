@@ -183,6 +183,7 @@ def detect_face_box(image_path: Path) -> tuple[int, int, int, int] | None:
         return None
     try:
         with Image.open(image_path) as img:
+            img = ImageOps.exif_transpose(img)
             arr = np.asarray(img.convert("RGB"))[:, :, ::-1]  # PIL RGB -> OpenCV BGR
         height, width = int(arr.shape[0]), int(arr.shape[1])
         if width <= 0 or height <= 0:
@@ -256,7 +257,8 @@ def crop_poster(
     (检不到人脸时回退 right); none 不裁剪, 整图作为海报. 裁剪宽度 = height × ``poster_ratio``.
     """
     try:
-        with Image.open(thumb_path) as img:
+        with Image.open(thumb_path) as source:
+            img = ImageOps.exif_transpose(source)
             width, height = img.size
             target_w = int(height * poster_ratio)
 

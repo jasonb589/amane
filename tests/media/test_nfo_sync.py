@@ -11,7 +11,8 @@ import pytest
 from amane.config import HotSettings
 from amane.db.models import Metadata
 from amane.db.repo_types import WriteMode
-from amane.enums import MoveMode
+from amane.enums import LinkMode, MoveMode
+from amane.handlers import OrganizeHandler, OrganizePayload
 from amane.handlers.file import apply_file_operations, commit_organized_media_file
 from amane.media.nfo import write_nfo
 from amane.media.nfo_sync import sync_metadata_nfos
@@ -118,6 +119,75 @@ async def test_failed_nfo_after_move_still_places_subtitles(
     assert not video.exists() and not subtitle.exists()
     assert placed.dest.with_suffix(".srt").read_text(encoding="utf-8") == "subtitle"
     assert len(await repo.list_nfo_outputs(metadata.id)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("link_failure", "subtitle_conflict"), [("content", False), ("occupied", False), ("content", True)]
+)
+async def test_failed_link_after_move_preserves_nfo_sync_and_subtitle_results(
+    repo: Repository,
+    resource_store: ResourceStore,
+    tmp_path: Path,
+    link_failure: str,
+    subtitle_conflict: bool,
+) -> None:
+    incoming = tmp_path / "incoming"
+    incoming.mkdir()
+    video = incoming / "ABC-001.mp4"
+    video.write_bytes(b"media")
+    subtitle = video.with_suffix(".srt")
+    subtitle.write_text("subtitle", encoding="utf-8")
+    destination = tmp_path / "organized"
+    destination.mkdir()
+    dest_subtitle = destination / subtitle.name
+    if subtitle_conflict:
+        dest_subtitle.write_text("existing subtitle", encoding="utf-8")
+    links = tmp_path / "links"
+    link = links / "ABC-001.strm"
+    if link_failure == "occupied":
+        link.mkdir(parents=True)
+    library = await repo.create_library(
+        "incoming",
+        str(incoming),
+        move_mode=MoveMode.MOVE,
+        video_template=str(destination / "{number}.{ext}"),
+        link_template=str(links / "{number}.{ext}"),
+        link_mode=LinkMode.STRM,
+        strm_content_template="/{video_relpath}" if link_failure == "content" else None,
+        subtitle_template="{video_dir}/{video_name}.{ext}",
+        copy_resources=[],
+    )
+    metadata = await repo.upsert_metadata("ABC-001", title="Original")
+    assert library.id is not None and metadata.id is not None
+    media = await repo.create_media_file(library_id=library.id, path=str(video), metadata_id=metadata.id)
+    assert media.id is not None
+    result = await OrganizeHandler(repo, HotSettings(), resource_store, safe_dirs=[tmp_path]).handle(
+        OrganizePayload(library_id=library.id, path=str(incoming))
+    )
+    assert result.success and result.result is not None
+    assert result.result.failed == 1 and result.result.organized == 0
+    assert await repo.get_media_file(media.id) is None
+    assert (destination / video.name).read_bytes() == b"media" and not video.exists()
+    assert result.result.conflicted == int(subtitle_conflict)
+    if subtitle_conflict:
+        assert subtitle.read_text(encoding="utf-8") == "subtitle"
+        assert dest_subtitle.read_text(encoding="utf-8") == "existing subtitle"
+        assert len(result.result.conflicts) == 1
+        assert result.result.conflicts[0].path == str(subtitle)
+        assert result.result.conflicts[0].target == str(dest_subtitle)
+    else:
+        assert not subtitle.exists()
+        assert dest_subtitle.read_text(encoding="utf-8") == "subtitle"
+    assert not link.is_file()
+    nfo = links / "ABC-001.nfo"
+    assert ET.parse(nfo).findtext("title") == "ABC-001 Original"
+    assert len(await repo.list_nfo_outputs(metadata.id)) == 1
+    updated = await repo.update_metadata(metadata.id, mode=WriteMode.MANUAL, title="Edited")
+    assert updated is not None
+    synced = await sync_metadata_nfos(repo, updated, metadata, [tmp_path])
+    assert synced.written == 1 and synced.failed == synced.skipped == 0
+    assert ET.parse(nfo).findtext("title") == "ABC-001 Edited"
 
 
 @pytest.mark.asyncio

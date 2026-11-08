@@ -1169,6 +1169,27 @@
             "description": "Filter by user tag id(s); AND"
           },
           {
+            "name": "library_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by linked MediaFile library id(s); OR",
+              "title": "Library Id"
+            },
+            "description": "Filter by linked MediaFile library id(s); OR"
+          },
+          {
             "name": "has_files",
             "in": "query",
             "required": false,
@@ -1469,7 +1490,7 @@
           "metadata"
         ],
         "summary": "Merge Metadata Entries",
-        "description": "把来源条目的 raw 快照补入目标并删除来源: 目标字段不变, 关联记录迁入目标.",
+        "description": "把来源条目的 raw 快照补入目标并删除来源: 目标字段不变, 关联记录迁入目标.\n\n``rescrape`` 要求合并提交后再按目标番号入队 SCRAPE: 只有 raw 已落库, 复用快照的聚合\n才能按当前优先级重建字段与站点级字典.",
         "operationId": "merge_metadata_entries",
         "requestBody": {
           "content": {
@@ -4690,7 +4711,7 @@
           "resources"
         ],
         "summary": "Proxy Image",
-        "description": "上游失败记入进程内负缓存 (15 分钟), 窗口内同 URL 直接 502.\n同 URL 进行中请求合并为一次 acquire.\n使用图片 token 的请求只从缓存读取资源: 未命中返回 404, 不发起对外请求, 不写入负缓存.",
+        "description": "上游失败记入进程内负缓存 (15 分钟), 窗口内同 URL 直接 502.\n同 URL 进行中请求合并为一次 acquire.\n使用图片 token 的请求只从缓存读取资源: 未命中返回 404, 不发起对外请求, 不写入负缓存.\n缓存命中先于地址判定: 只有下载会发起对外请求, 已入库资源即使是私网地址也直接返回.",
         "operationId": "proxy_image",
         "parameters": [
           {
@@ -5802,7 +5823,7 @@
           "libraries"
         ],
         "summary": "Get Path Template Schema",
-        "description": "与 resolve_paths 同源.",
+        "description": "与 ORGANIZE 实际使用的默认值同源.",
         "operationId": "get_path_template_schema",
         "responses": {
           "200": {
@@ -7653,7 +7674,7 @@
             "maximum": 60000.0,
             "minimum": 50.0,
             "title": "Sql Timeout Ms",
-            "default": 1000,
+            "default": 5000,
             "x-hidden": true
           },
           "result_cache_ttl_s": {
@@ -10295,7 +10316,7 @@
               "model": "gpt-4o-mini",
               "max_tokens": 128000,
               "rate_limit": 2.0,
-              "sql_timeout_ms": 1000,
+              "sql_timeout_ms": 5000,
               "result_cache_ttl_s": 3600,
               "result_cache_max_entries": 64,
               "history_ttl_s": 3600,
@@ -11004,6 +11025,17 @@
             ],
             "title": "Extrafanart Template"
           },
+          "extrafanart_name_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extrafanart Name Template"
+          },
           "nfo_template": {
             "anyOf": [
               {
@@ -11233,6 +11265,17 @@
               }
             ],
             "title": "Extrafanart Template"
+          },
+          "extrafanart_name_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extrafanart Name Template"
           },
           "nfo_template": {
             "anyOf": [
@@ -11509,6 +11552,17 @@
               }
             ],
             "title": "Extrafanart Template"
+          },
+          "extrafanart_name_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extrafanart Name Template"
           },
           "nfo_template": {
             "anyOf": [
@@ -12323,6 +12377,12 @@
             "minItems": 1,
             "title": "Source Ids",
             "description": "待合并的 Metadata ID 列表; 按顺序补入 raw 快照"
+          },
+          "rescrape": {
+            "type": "boolean",
+            "title": "Rescrape",
+            "description": "合并后按当前优先级对目标番号入队 SCRAPE, 复用 raw 缓存重新聚合字段",
+            "default": false
           }
         },
         "type": "object",
@@ -13323,6 +13383,10 @@
             "type": "string",
             "title": "Extrafanart Template"
           },
+          "extrafanart_name_template": {
+            "type": "string",
+            "title": "Extrafanart Name Template"
+          },
           "nfo_template": {
             "type": "string",
             "title": "Nfo Template"
@@ -13342,12 +13406,13 @@
           "poster_template",
           "fanart_template",
           "extrafanart_template",
+          "extrafanart_name_template",
           "nfo_template",
           "trailer_template",
           "subtitle_template"
         ],
         "title": "OptionalPathTemplateDefaults",
-        "description": "附属模板缺省 (Library 对应列为 None 时 ORGANIZE 使用)."
+        "description": "附属模板缺省 (Library 对应列为 None 时 ORGANIZE 使用; 剧照文件名在写盘时按张数渲染)."
       },
       "OrganizeConflict": {
         "properties": {
@@ -13558,7 +13623,7 @@
           "subtitle_extensions_default"
         ],
         "title": "PathTemplateSchemaResponse",
-        "description": "与 resolve_paths 同源."
+        "description": "与 ORGANIZE 实际使用的默认值同源; 路径模板由 resolve_paths 解析, 剧照文件名模板由写盘阶段渲染."
       },
       "PlaybackSourceListResponse": {
         "properties": {

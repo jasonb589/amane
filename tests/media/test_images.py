@@ -52,6 +52,23 @@ def _near(color: tuple[int, ...] | float | None, expected: tuple[int, int, int],
 
 
 class TestCropPoster:
+    @pytest.mark.parametrize("mode", ["right", "center", "face"])
+    def test_auto_crop_respects_exif_orientation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        monkeypatch.setattr(images_module, "cv2", None)
+        source = tmp_path / "oriented.jpg"
+        img = _quadrants()
+        exif = img.getexif()
+        exif[274] = 6
+        img.save(source, exif=exif, quality=100, subsampling=0)
+        output = tmp_path / "poster.jpg"
+        assert crop_poster(source, output, mode=mode)
+        with Image.open(output) as poster:
+            assert poster.size == (20, 40)
+            assert _near(poster.getpixel((5, 10)), _BLUE)
+            assert _near(poster.getpixel((15, 10)), _RED)
+
     def test_crop_poster_from_thumb(self, tmp_path: Path):
         """裁剪缩略图右侧生成海报 (默认宽高比 0.7)"""
         img = Image.new("RGB", (800, 538), color="blue")

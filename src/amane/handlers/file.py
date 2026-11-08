@@ -18,6 +18,7 @@ from ..media.resource_store import internal_url_hash
 from ..net.http import WebClient
 from ..observability.models import OrganizeConflict, OrganizeConflictReason
 from ..organize import (
+    EXTRAFANART_NAME_TEMPLATE_DEFAULT,
     MoveMode,
     PlaceOutcome,
     ResolvedPaths,
@@ -26,6 +27,7 @@ from ..organize import (
     discover_subtitles,
     execute_organize,
     place_subtitles,
+    render_extrafanart_names,
     render_strm_content,
     resolve_paths,
     target_state,
@@ -120,6 +122,7 @@ async def execute_file_operations(
             file_info=file_info,
             content_type=metadata.content_type,
             watermark_dir=watermark_dir,
+            library=library,
         )
 
     # 发现字幕: 必须在视频移动前检查同目录.
@@ -137,7 +140,8 @@ async def execute_file_operations(
     if org_result.outcome is PlaceOutcome.CONFLICT:
         return FileOperationsResult(outcome=PlaceOutcome.CONFLICT, conflict_target=org_result.dest)
 
-    # 写链接; 失败仍带 dest, 以便回写 MediaFile.path.
+    # 视频已经就位, 链接失败不能跳过 NFO 记录或遗留源目录字幕.
+    link_error: str | None = None
     if org_result.outcome is PlaceOutcome.PLACED and org_result.dest and paths.link is not None:
         mode = LinkMode(library.link_mode) if library is not None else LinkMode.STRM
         strm_content: str | None = None
@@ -154,10 +158,11 @@ async def execute_file_operations(
                     actor_genders=actor_genders,
                 )
             except ValueError as e:
-                return FileOperationsResult(outcome=PlaceOutcome.FAILED, dest=org_result.dest, error=str(e))
-        link_result = await create_video_link(org_result.dest, paths.link, mode, content=strm_content)
-        if link_result.outcome is not PlaceOutcome.PLACED:
-            return FileOperationsResult(outcome=PlaceOutcome.FAILED, dest=org_result.dest, error=link_result.error)
+                link_error = str(e)
+        if link_error is None:
+            link_result = await create_video_link(org_result.dest, paths.link, mode, content=strm_content)
+            if link_result.outcome is not PlaceOutcome.PLACED:
+                link_error = link_result.error or "链接写入失败"
 
     # 视频移动成功后, NFO 失败仍须继续处理源目录字幕.
     nfo_error: str | None = None
@@ -198,12 +203,13 @@ async def execute_file_operations(
             actor_genders=actor_genders,
         )
 
-    if nfo_error is not None:
+    errors = [error for error in (link_error, nfo_error) if error is not None]
+    if errors:
         return FileOperationsResult(
             outcome=PlaceOutcome.FAILED,
             dest=org_result.dest,
             subtitle_conflicts=subtitle_conflicts,
-            error=nfo_error,
+            error="; ".join(errors),
         )
     if org_result.outcome is PlaceOutcome.PLACED:
         logger.debug("file operations done", number=metadata.number, dest=str(org_result.dest), mode=str(move_mode))
@@ -338,16 +344,29 @@ def _copy_into_library(src: Path, dst: Path) -> None:
     成功路径保持 copy2 的全部行为 (Windows 的 CopyFile2 与其余平台的 copyfile + copystat).
     网盘 / FUSE 挂载 (CloudDrive2 等) 常对 utime、chmod 返回 EPERM: copy2 在内容写入之后
     抛错, 而元数据缺失不影响产物可用, 不应让整个整理任务失败.
+    内容失败时记录两次尝试的原文, 并原样抛出回退那次的错误.
     """
     try:
         shutil.copy2(src, dst)
-    except OSError:
+        return
+    except OSError as first:
         # 内容可能已经写好, 重拷一次以区分内容失败与元数据失败: 内容失败会在此再次抛出.
-        shutil.copyfile(src, dst)
         try:
-            shutil.copystat(src, dst)
-        except OSError as exc:
-            logger.debug("copy metadata skipped", src=str(src), dst=str(dst), error=str(exc))
+            shutil.copyfile(src, dst)
+        except OSError as second:
+            # 回退复制经 CRT 打开文件, Win32 码会被压成 EINVAL, 两次的原文都要留下.
+            logger.error(
+                "library copy failed",
+                src=str(src),
+                dst=str(dst),
+                copy2_error=str(first),
+                copyfile_error=str(second),
+            )
+            raise
+    try:
+        shutil.copystat(src, dst)
+    except OSError as exc:
+        logger.debug("copy metadata skipped", src=str(src), dst=str(dst), error=str(exc))
 
 
 @in_thread
@@ -358,7 +377,7 @@ def _place_library_images(
     poster_local: Path | None,
     poster_wide_local: Path | None = None,
     trailer_local: Path | None,
-    extrafanart: Sequence[Path],
+    extrafanart_targets: Sequence[tuple[str, Path]],
     kinds: set[DownloadableResource],
     config: HotSettings | None,
     file_info: FileInfo | None,
@@ -403,10 +422,10 @@ def _place_library_images(
         paths.trailer.parent.mkdir(parents=True, exist_ok=True)
         _copy_into_library(trailer_local, paths.trailer)
 
-    if extrafanart and DownloadableResource.extrafanart in kinds:
+    if extrafanart_targets and DownloadableResource.extrafanart in kinds:
         paths.extrafanart_dir.mkdir(parents=True, exist_ok=True)
-        for i, p in enumerate(extrafanart):
-            _copy_into_library(p, paths.extrafanart_dir / f"fanart{i + 1}.jpg")
+        for name, p in extrafanart_targets:
+            _copy_into_library(p, paths.extrafanart_dir / name)
 
     # 叠加水印 (thumb / poster).
     wm = config.watermark if config is not None else WatermarkConfig()
@@ -444,8 +463,12 @@ async def _download_images_via_store(
     file_info: FileInfo | None,
     content_type: ContentType,
     watermark_dir: Path | None = None,
+    library: Library | None = None,
 ) -> None:
-    """优先用 Resource 已有文件; 缺失则现场 acquire."""
+    """优先用 Resource 已有文件; 缺失则现场 acquire.
+
+    剧照文件名在这里渲染: 补零宽度取决于本轮剧照数量, 只有拿到文件列表后才定得下来.
+    """
     thumb_local = None
     if DownloadableResource.thumb in kinds:
         thumb_urls = metadata.thumb_urls
@@ -480,13 +503,20 @@ async def _download_images_via_store(
             priority = list(extrafanart_by_site.keys())
             extrafanart = await store.acquire_extrafanart(extrafanart_by_site, priority, client)
 
+    # 名字与源文件成对落地: 文件名模板只能在这里渲染, 宽度取决于本轮张数.
+    extrafanart_targets: list[tuple[str, Path]] = []
+    if extrafanart:
+        template = library.extrafanart_name_template if library is not None else None
+        names = render_extrafanart_names(template or EXTRAFANART_NAME_TEMPLATE_DEFAULT, paths.context, len(extrafanart))
+        extrafanart_targets = list(zip(names, extrafanart, strict=True))
+
     await _place_library_images(
         paths,
         thumb_local=thumb_local,
         poster_local=poster_local,
         poster_wide_local=poster_wide_local,
         trailer_local=trailer_local,
-        extrafanart=extrafanart,
+        extrafanart_targets=extrafanart_targets,
         kinds=kinds,
         config=config,
         file_info=file_info,
@@ -636,23 +666,23 @@ class OrganizeHandler(TaskHandler[OrganizePayload, OrganizeResult]):
 
                 if fop_result.dest and media_file.id is not None:
                     await commit_organized_media_file(self._repo, media_file, fop_result.dest, library_root)
+                # 链接或 NFO 失败时, 已经处理的字幕冲突仍须呈现; path 指向留在原处的字幕.
+                conflicted += _record_conflicts(
+                    conflicts,
+                    [
+                        OrganizeConflict(
+                            path=str(item.source),
+                            target=str(item.target),
+                            reason=OrganizeConflictReason.subtitle_target_exists,
+                        )
+                        for item in fop_result.subtitle_conflicts
+                    ],
+                )
                 match fop_result.outcome:
                     case PlaceOutcome.PLACED:
                         organized += 1
                         if collect_prune:
                             prune_candidates.update(ancestor_dirs(file_path, library_root=library_root))
-                        # 字幕冲突的 path 是留在原处的那条字幕, 不是视频源路径.
-                        conflicted += _record_conflicts(
-                            conflicts,
-                            [
-                                OrganizeConflict(
-                                    path=str(item.source),
-                                    target=str(item.target),
-                                    reason=OrganizeConflictReason.subtitle_target_exists,
-                                )
-                                for item in fop_result.subtitle_conflicts
-                            ],
-                        )
                     case PlaceOutcome.CONFLICT:
                         # 行不提交新路径, 留在源路径: 下次整理会再次报告, 直到用户自行处理.
                         target = fop_result.conflict_target

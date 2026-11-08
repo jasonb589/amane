@@ -6,6 +6,12 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
+import pytest
+
+from amane.config import SiteConfig
+from amane.crawlers.http import HttpClient
 from amane.crawlers.sites.xchina import XchinaCrawler, parse_video
 
 VIDEO_URL = "https://xchina.co/video/6ae6d6e5352c0"
@@ -100,3 +106,20 @@ def test_serves_url_matches_site_and_mirror() -> None:
     assert crawler.serves_url("https://xchina.tv/video/abc")
     assert not crawler.serves_url("https://r2.xchina.download/cover/abc.webp")
     assert not crawler.serves_url("https://www.dmm.co.jp/mono/anime/-/detail/=/cid=68jvdw41/")
+
+
+@pytest.mark.asyncio
+async def test_fetch_from_url_uses_profile_headers_and_configured_session() -> None:
+    web = AsyncMock()
+    web.get_text.return_value = _page(VIDEO_OBJECT, BREADCRUMB)
+    crawler = XchinaCrawler(
+        HttpClient(web), SiteConfig(base_url="https://mirror.example", cookie={"session": "provided"})
+    )
+    assert crawler.serves_url("https://mirror.example/video/6ae6d6e5352c0")
+    assert not crawler.serves_url("ftp://xchina.co/video/6ae6d6e5352c0")
+    assert not crawler.serves_url("https://xchina.co.evil.example/video/6ae6d6e5352c0")
+    result = await crawler.fetch_from_url(VIDEO_URL)
+    assert result is not None and result.title == "人气巨乳御姐的三洞大乱斗"
+    web.get_text.assert_awaited_once_with(
+        VIDEO_URL, cookies={"session": "provided"}, headers=crawler.headers, encoding="utf-8"
+    )

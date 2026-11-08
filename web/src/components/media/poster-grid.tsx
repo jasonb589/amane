@@ -23,49 +23,45 @@ import {
   listFacetsOptions,
   listMetadataQueryKey,
 } from "@/client/@tanstack/react-query.gen";
-import type { MetadataResponse } from "@/client/types.gen";
 import { SelectionBar } from "@/components/common/selection-bar";
 import { useIdSelection } from "@/hooks/use-id-selection";
+import { useRatioRefresh } from "@/hooks/use-ratio-refresh";
 import { extractErrorMessage } from "@/lib/api-error";
 import { confirm } from "@/lib/confirm";
 import { USER_TAG_FACET_LIST } from "@/lib/facets";
+import { DEFAULT_POSTER_RATIO, posterEntries } from "@/lib/media/poster-image";
+import { AdaptivePosterGrid, type PosterGridBodyProps } from "./adaptive-poster-grid";
 import { PosterCard } from "./poster-card";
 
 // sm/md 收窄一列: 48em 起导航栏展开, 内容区反而变窄, 沿用桌面列数会让缩略图小一档.
 const GRID_COLS = { base: 2, xs: 3, sm: 3, md: 4, lg: 6, xl: 7 };
 
-interface PosterGridProps {
-  items: MetadataResponse[];
+interface PosterGridProps extends Omit<PosterGridBodyProps, "selection"> {
   loading?: boolean;
   emptyMessage?: string;
-  /** 传入时海报显示演员出演时年龄. */
-  actorBirthday?: string | null;
   /** 打开多选: 卡片左上角出现选择圆点, 网格上方出现批量操作条 (片库海报视图). */
   selectable?: boolean;
-  /** 逐条覆盖卡片图片与宽高比 (语义检索的剧照结果). */
-  imageUrlOf?: (item: MetadataResponse) => string | null | undefined;
-  imageRatioOf?: (item: MetadataResponse) => number | undefined;
+  /** 列宽相等 (默认, 高度随图片) 或短边锚定 (横版定高、竖版定宽, 视觉大小一致). */
+  layout?: "uniform" | "adaptive";
 }
 
 /**
  * 片库海报网格.
  *
  * 多选自持一份 `useIdSelection` + `SelectionBar` (与列表视图同模式, 不依赖父页面传参);
- * 批量刮削 / 用户标签 / 批量删除的动作、确认弹窗与 toast 文案照抄 meta-table.
+ * 批量动作位于布局外层, 两种栅格共用选择状态与操作入口.
  * 不开 `selectable` 的用法 (演员出演墙、分类页影片墙) 保持只读.
  */
 export function PosterGrid({
-  items,
   loading = false,
   emptyMessage,
-  actorBirthday,
   selectable = false,
-  imageUrlOf,
-  imageRatioOf,
+  layout = "uniform",
+  ...body
 }: PosterGridProps) {
   const { t } = useTranslation(["metadata", "common"]);
   const queryClient = useQueryClient();
-  const pageIds = items.map((item) => item.id);
+  const pageIds = body.items.map((item) => item.id);
   const { selected, selectedIds, toggleOne, toggleAll, isAllSelected, clear } = useIdSelection();
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const [tagIds, setTagIds] = useState<string[]>([]);
@@ -132,6 +128,7 @@ export function PosterGrid({
   const allSelected = isAllSelected(pageIds);
   const selectionCount = selected.size;
   const selectActive = selectionCount > 0;
+  const selection = selectable ? { selected, toggleOne, selectActive } : undefined;
 
   async function handleBatchDelete() {
     const ok = await confirm({
@@ -148,7 +145,7 @@ export function PosterGrid({
       <SimpleGrid cols={GRID_COLS} spacing="md">
         {Array.from({ length: 12 }, (_, i) => (
           <Stack key={i} gap={2}>
-            <AspectRatio ratio={0.7}>
+            <AspectRatio ratio={DEFAULT_POSTER_RATIO}>
               <Skeleton radius="md" />
             </AspectRatio>
             <Skeleton h={12} w="70%" />
@@ -158,7 +155,7 @@ export function PosterGrid({
     );
   }
 
-  if (items.length === 0) {
+  if (body.items.length === 0) {
     return (
       <Center py="xl">
         <Text c="dimmed" size="sm">
@@ -224,20 +221,11 @@ export function PosterGrid({
         </SelectionBar>
       )}
 
-      <SimpleGrid cols={GRID_COLS} spacing="md">
-        {items.map((item) => (
-          <PosterCard
-            key={item.id}
-            item={item}
-            actorBirthday={actorBirthday}
-            selected={selected.has(item.id)}
-            onToggleSelect={selectable ? toggleOne : undefined}
-            selectActive={selectActive}
-            imageUrl={imageUrlOf?.(item)}
-            imageRatio={imageRatioOf?.(item)}
-          />
-        ))}
-      </SimpleGrid>
+      {layout === "adaptive" ? (
+        <AdaptivePosterGrid {...body} selection={selection} />
+      ) : (
+        <UniformPosterGrid {...body} selection={selection} />
+      )}
 
       {selectable && (
         <Modal
@@ -295,5 +283,27 @@ export function PosterGrid({
         </Modal>
       )}
     </Stack>
+  );
+}
+
+/** 列宽相等: 盒子按各自的图片比例定高, 因此横版变矮而不是被裁掉, 列位置不因图片到达而移动. */
+function UniformPosterGrid({ actorBirthday, selection, ...source }: PosterGridBodyProps) {
+  const refresh = useRatioRefresh();
+  return (
+    <SimpleGrid cols={GRID_COLS} spacing="md">
+      {posterEntries(source).map(({ item, url, ratio }) => (
+        <PosterCard
+          key={item.id}
+          item={item}
+          actorBirthday={actorBirthday}
+          selected={selection?.selected.has(item.id)}
+          onToggleSelect={selection?.toggleOne}
+          selectActive={selection?.selectActive}
+          imageUrl={url}
+          imageRatio={ratio}
+          onImageRatioChange={refresh}
+        />
+      ))}
+    </SimpleGrid>
   );
 }

@@ -2,6 +2,7 @@
 
 import os
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -9,11 +10,11 @@ import pytest
 from PIL import Image
 
 from amane.config import HotSettings, WatermarkConfig
-from amane.db.models import MediaFile, Metadata
+from amane.db.models import Library, MediaFile, Metadata
 from amane.enums import DownloadableResource
 from amane.handlers.file import _copy_into_library, execute_file_operations
 from amane.media import ResourceStore
-from amane.organize import MoveMode, PlaceOutcome, ResolvedPaths
+from amane.organize import MoveMode, PlaceOutcome, ResolvedPaths, resolve_paths
 from amane.parsing import parse_file_info
 
 if TYPE_CHECKING:
@@ -439,16 +440,41 @@ def test_copy_into_library_tolerates_metadata_failure(
     assert dst.read_bytes() == b"image"
 
 
-def test_copy_into_library_propagates_content_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """内容写不进去时照常抛出, 不掩盖真实错误."""
+def test_copy_into_library_logs_both_attempts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """内容写不进去时记录两次尝试的原文, 并原样抛出回退那次的错误."""
 
-    def reject(*args: object, **kwargs: object) -> None:
-        raise PermissionError(13, "Permission denied")
+    def reject(error: OSError) -> Callable[..., None]:
+        def _reject(*args: object, **kwargs: object) -> None:
+            raise error
 
-    monkeypatch.setattr("amane.handlers.file.shutil.copyfile", reject)
+        return _reject
 
-    with pytest.raises(PermissionError):
+    first = PermissionError(13, "Permission denied")
+    second = OSError(22, "Invalid argument")
+    monkeypatch.setattr("amane.handlers.file.shutil.copy2", reject(first))
+    monkeypatch.setattr("amane.handlers.file.shutil.copyfile", reject(second))
+    recorded: list[tuple[str, dict[str, object]]] = []
+
+    def record(event: str, **fields: object) -> None:
+        recorded.append((event, fields))
+
+    monkeypatch.setattr("amane.handlers.file.logger.error", record)
+
+    with pytest.raises(OSError) as excinfo:
         _copy_into_library(tmp_path / "src.jpg", tmp_path / "dst.jpg")
+
+    assert excinfo.value is second
+    assert recorded == [
+        (
+            "library copy failed",
+            {
+                "src": str(tmp_path / "src.jpg"),
+                "dst": str(tmp_path / "dst.jpg"),
+                "copy2_error": str(first),
+                "copyfile_error": str(second),
+            },
+        )
+    ]
 
 
 def test_copy_into_library_preserves_metadata_when_possible(tmp_path: Path) -> None:
@@ -516,3 +542,128 @@ async def test_images_placed_when_metadata_copy_denied(
     assert paths.thumb.exists()
     assert paths.poster.exists()
     assert paths.fanart.read_bytes() == paths.thumb.read_bytes()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("template", "expected"),
+    [
+        ("{number}-{index_padded}.jpg", [f"MIDV-123-{index:02}.jpg" for index in range(1, 11)]),
+        ("{index}.jpg", [f"{index}.jpg" for index in range(1, 11)]),
+    ],
+)
+async def test_extrafanart_names_follow_library_template(
+    resource_store: ResourceStore, tmp_path: Path, template: str, expected: list[str]
+) -> None:
+    """剧照文件名按库模板逐张渲染; 宽度由本轮数量决定."""
+    client = cast("WebClient", FakeClient())
+    root = tmp_path / "lib"
+    root.mkdir()
+    src = tmp_path / "src" / "MIDV-123.mp4"
+    src.parent.mkdir(parents=True)
+    src.write_bytes(b"movie")
+
+    mf = MediaFile(path=str(src), library_id=1)
+    meta = Metadata(
+        number="MIDV-123",
+        extrafanart_urls={"dmm": [f"https://s/e{i}.jpg" for i in range(1, 11)]},
+    )
+    lib = Library(
+        name="t",
+        path=str(root),
+        video_template="{number}/{number}.{ext}",
+        extrafanart_name_template=template,
+    )
+    paths = resolve_paths(lib, meta, ext="mp4", source_path=src)
+
+    result = await execute_file_operations(
+        media_file=mf,
+        metadata=meta,
+        paths=paths,
+        move_mode=MoveMode.COPY,
+        resource_store=resource_store,
+        file_info=parse_file_info(src),
+        web_client=client,
+        config=HotSettings(),
+        library=lib,
+    )
+
+    assert result.outcome is PlaceOutcome.PLACED
+    names = sorted(p.name for p in paths.extrafanart_dir.iterdir())
+    assert names == sorted(expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", [None, ""])
+async def test_default_stills_reuse_existing_names_without_removing_other_files(
+    resource_store: ResourceStore, tmp_path: Path, template: str | None
+) -> None:
+    """空模板继续写入 fanartN.jpg, 更新同名剧照并保留其他文件, 不产生数字文件名副本."""
+    client = cast("WebClient", FakeClient())
+    root = tmp_path / "lib"
+    root.mkdir()
+    src = tmp_path / "src" / "MIDV-123.mp4"
+    src.parent.mkdir(parents=True)
+    src.write_bytes(b"movie")
+
+    mf = MediaFile(path=str(src), library_id=1)
+    meta = Metadata(number="MIDV-123", extrafanart_urls={"dmm": ["https://s/e1.jpg", "https://s/e2.jpg"]})
+    lib = Library(
+        name="t",
+        path=str(root),
+        video_template="{number}/{number}.{ext}",
+        extrafanart_name_template=template,
+    )
+    paths = resolve_paths(lib, meta, ext="mp4", source_path=src)
+    paths.extrafanart_dir.mkdir(parents=True)
+    stale = paths.extrafanart_dir / "99.jpg"
+    stale.write_bytes(b"old")
+    existing = paths.extrafanart_dir / "fanart1.jpg"
+    existing.write_bytes(b"old fanart")
+
+    result = await execute_file_operations(
+        media_file=mf,
+        metadata=meta,
+        paths=paths,
+        move_mode=MoveMode.COPY,
+        resource_store=resource_store,
+        file_info=parse_file_info(src),
+        web_client=client,
+        config=HotSettings(),
+        library=lib,
+    )
+
+    assert result.outcome is PlaceOutcome.PLACED
+    assert stale.read_bytes() == b"old"
+    assert _pixel(existing) == (0, 0, 254)
+    assert sorted(p.name for p in paths.extrafanart_dir.iterdir()) == ["99.jpg", "fanart1.jpg", "fanart2.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_extrafanart_names_fall_back_without_library(resource_store: ResourceStore, tmp_path: Path):
+    """未带库列时用默认模板, 与传入路径时的默认输出一致."""
+    client = cast("WebClient", FakeClient())
+    root = tmp_path / "lib"
+    root.mkdir()
+    src = tmp_path / "src" / "MIDV-123.mp4"
+    src.parent.mkdir(parents=True)
+    src.write_bytes(b"movie")
+
+    mf = MediaFile(path=str(src), library_id=1)
+    meta = Metadata(number="MIDV-123", extrafanart_urls={"dmm": ["https://s/e1.jpg", "https://s/e2.jpg"]})
+    lib = Library(name="t", path=str(root), video_template="{number}/{number}.{ext}")
+    paths = resolve_paths(lib, meta, ext="mp4", source_path=src)
+
+    result = await execute_file_operations(
+        media_file=mf,
+        metadata=meta,
+        paths=paths,
+        move_mode=MoveMode.COPY,
+        resource_store=resource_store,
+        file_info=parse_file_info(src),
+        web_client=client,
+        config=HotSettings(),
+    )
+
+    assert result.outcome is PlaceOutcome.PLACED
+    assert sorted(p.name for p in paths.extrafanart_dir.iterdir()) == ["fanart1.jpg", "fanart2.jpg"]

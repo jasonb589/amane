@@ -95,7 +95,7 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 |------|---------|------|
 | `MediaFile` 删除 | 不级联 Metadata 或 `NfoOutput` | 文件索引消失不影响元数据条目或实际 NFO 输出记录 |
 | `Metadata` 删除 | **nullify** `MediaFile.metadata_id`, 状态回 `PENDING`; 删除 `NfoOutput` | 应用层级联 (`delete_metadata`); 文件本身保留, 可再刮削 |
-| `Metadata` 合并 | 来源的 `MediaFile` / `NfoOutput` / `Comment` / `MetadataUserTag` 改挂 target 并去重, 分类投影与来源条目删除 | `merge_metadata_entries`; target 字段与锁定不变, `raw` 只补目标缺失的站点 (来源之间按传入顺序), 不重新聚合 |
+| `Metadata` 合并 | 来源的 `MediaFile` / `NfoOutput` / `Comment` / `MetadataUserTag` 改挂 target 并去重, 分类投影与来源条目删除 | `merge_metadata_entries`; target 字段与锁定不变, `raw` 只补目标缺失的站点 (来源之间按传入顺序), 不重新聚合; 请求的 `rescrape` 在合并提交后对目标番号入队 SCRAPE (复用 raw 缓存), 由聚合按当前优先级重建字段与站点级字典 |
 | `Library` 删除 | **级联删除** `MediaFile` 与 `NfoOutput` | 应用层级联 (`delete_library` 先 flush 删子表再删库, 无 ORM relationship). 仅删 DB 索引, 不动磁盘文件; 路由层同时 `remove_library` 停止监控 |
 | `Feed` 删除 | **级联删除** `FeedItem` | 应用层级联; 已入队的 SCRAPE / Metadata 不受影响 |
 | `UserTag` 删除 | **级联删除**两张关联表的挂载行 | 应用层级联 (不依赖 FK pragma); 合并用户标签时源标签的挂载先迁入 target 再删实体 |
@@ -105,7 +105,7 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 
 ## Library 整理布局
 
-每个 Library 持有 `move_mode` (move / copy / hardlink / symlink)、一组按资源类型独立的路径模板与整理默认 (`write_nfo` / `copy_resources`), 因此同一进程里各库可以不同. `copy_resources` 与刮削热配置 `scraping.download_resources` 共用 `DownloadableResource` 枚举但互不读写 — 前者控制复制到库路径, 后者控制写入 Resource 目录. ORGANIZE payload 上对应字段为 `None` 时沿用库设置, 非空则只覆盖该次任务.
+每个 Library 持有 `move_mode` (move / copy / hardlink / symlink)、一组按资源类型独立的路径模板与整理默认 (`write_nfo` / `copy_resources`), 因此同一进程里各库可以不同; 剧照另有一个文件名模板. `copy_resources` 与刮削热配置 `scraping.download_resources` 共用 `DownloadableResource` 枚举但互不读写 — 前者控制复制到库路径, 后者控制写入 Resource 目录. ORGANIZE payload 上对应字段为 `None` 时沿用库设置, 非空则只覆盖该次任务.
 
 `trailer_pattern` 只在库上: 对**文件名 (含扩展名)** 做正则搜索, 命中则 REFRESH 扫描与 watcher 都不把该文件当正片入库; 空串关闭. `min_file_size` (字节, 默认 0 关闭) 只过滤**扫描视频**: 后缀须属于该次扫描的视频扩展名白名单; 图片 / NFO / 字幕不适用, `.strm` 是路径指针也不参与判定; 符号链接跟随目标比较真实大小, 否则已整理的入口会被当作广告. 低于阈值与文件黑名单同语义: REFRESH / watcher 不入库, 整库扫描列为清理候选; stat 失败 (含悬空链接) 视为不匹配.
 
@@ -121,23 +121,23 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 
 字幕: ORGANIZE 在视频**挪走前**扫描其同目录 (不递归、不入库、不扫描同目录其它视频), 扩展名由库 `subtitle_extensions` 配置; 多个字幕全部搬走不挑主字幕, 放置采用与视频相同的 `move_mode`. 字幕采用同一套 `parse_file_info`, 但只解析**文件名** (`text=` 入参), 否则 `chs.srt` 会被当成番号; 解析出番号时必须与当前视频相同, 再按分集配对, 解析不出时才回退独立目录规则. 中字落盘 (`{sub?}` 与封面角标) 只看库 `subtitle_extensions` 的同目录命中 (`has_companion_subtitle`) 与文件名标记, 不做这里的配对; 命中来源是 `MediaFile.has_external_subtitle`, 不重扫目录.
 
-`link_template` 为空则不创建链接, 非空时 ORGANIZE 在视频就位后按该模板写一条指向真实视频的链接 (`link_mode=strm` 写 `.strm`, `symlink` 做符号链接). 链接必须在库外, 否则 REFRESH 会把链接再扫描为媒体. `.strm` 正文由库级 `strm_content_template` 决定 (空则写一行视频绝对路径); 模板引用 `{video_relpath}` 且整理后路径不在本库内时失败, 不写出错误正文. 默认附属模板用 `{link_dir}`, 因此填链接模板后 NFO / 海报自动跟随链接.
+`link_template` 非空时 ORGANIZE 在视频就位后创建链接 (`link_mode=strm` 写 `.strm`, `symlink` 创建符号链接). 链接必须在库外, 否则 REFRESH 会再次扫描为媒体. `.strm` 正文由 `strm_content_template` 决定 (空则写视频绝对路径); 引用 `{video_relpath}` 且目标在库外时失败. 链接失败仍登记并写入 NFO、处理字幕; 链接或 NFO 失败均保留实际视频位置与字幕冲突, 供索引提交与结果展示. 默认附属模板用 `{link_dir}`, NFO / 海报随链接放置.
 
-模板语言在 `organize/template.py`, 只约束以下几点: 占位符分相位注入 (`metadata` → file 相位 → `apply_video` → `apply_link`), file 相位未检出是**空串**不是 `Unknown`; 渲染时把 `{title}` / `{actor}` 等分量截到 200 UTF-8 字节 (不切开多字节字符), 但不截断渲染后的路径分量; 可选组 `[...]` 内直接占位符全空则整段丢弃, 有一个非空时其余输出空串. 普通占位符缺失回退 `Unknown`. **段名按 Windows 创建结果对齐**: 每个路径段去掉段尾的 `.` 与空格, 控制字符替换为空格 — 创建与 `os.path.abspath` 对段尾字符的处理不同, 不对齐会让索引记录磁盘上不存在的名字; `.` / `..` 原样保留给逃逸检查. **逃逸防护**: 校验对渲染结果做 realpath (跟随符号链接), 相对模板的真实写出路径必须在本库内 (`ALLOW_ALL` 也不例外), 绝对模板必须位于本库或 `safe_dirs` 内, 否则 `ValueError`; 多盘分存要求目标盘在 `safe_dirs` 内. 细则见 `organize/path_templates.py`.
+模板语言在 `organize/template.py`, 只约束以下几点: 占位符分相位注入 (`metadata` → file 相位 → `apply_video` → `apply_link`), file 相位未检出是**空串**不是 `Unknown`; `{index}` / `{index_padded}` 不在这些相位里, 只在剧照文件名模板的写盘渲染中有值 (补零宽度取本轮张数位数), 其它模板输出 `Unknown`, 因此剧照文件名由复制阶段渲染并依赖 `ResolvedPaths.context` 携带同一份取值, 不由 `resolve_paths` 产出; 渲染时把 `{title}` / `{actor}` 等分量截到 200 UTF-8 字节 (不切开多字节字符), 但不截断渲染后的路径分量; 可选组 `[...]` 内直接占位符全空则整段丢弃, 有一个非空时其余输出空串. 普通占位符缺失回退 `Unknown`. **段名按 Windows 创建结果对齐**: 每个路径段去掉段尾的 `.` 与空格, 控制字符替换为空格 — 创建与 `os.path.abspath` 对段尾字符的处理不同, 不对齐会让索引记录磁盘上不存在的名字; `.` / `..` 原样保留给逃逸检查. **逃逸防护**: 校验对渲染结果做 realpath (跟随符号链接), 相对模板的真实写出路径必须在本库内 (`ALLOW_ALL` 也不例外), 绝对模板必须位于本库或 `safe_dirs` 内, 否则 `ValueError`; 多盘分存要求目标盘在 `safe_dirs` 内. 细则见 `organize/path_templates.py`.
 
 NFO 编辑同步优先使用 `src/amane/handlers/file.py::execute_file_operations` 在视频就位后、NFO 写入前登记的位置, 写入失败仍保留以供后续编辑补写; 同一输出只允许属于一个 Metadata. 整理与 `src/amane/media/nfo_sync.py::sync_metadata_nfos` 共用同步锁, 取得锁后重读最新元数据. 回写遵守当前库的 `write_nfo` 与安全目录, 要求视频和目标父目录仍存在, 不重建目录、不覆盖符号链接或其他影片的 NFO. 缺少输出记录时, 只用编辑前元数据还原可确定的既有 NFO 路径; 库外媒体索引已删除时仅尝试可完整还原的模板, 必须同时找到视频与 NFO, 不遍历目录或模糊匹配. 接口结果语义见 [api.md](api.md)「元数据编辑回写」.
 
 ## Resource (一等存储, 非缓存)
 
-`Resource.url` UNIQUE, 作**通用 locator key**: 原始外部图用真实外部 URL, 派生裁剪用合成串 `derived:{sha256(src_url)}:crop:{args}`. 手动裁切写入派生 Resource: 海报替换 `poster_urls`, 演员头像前插 `image_urls` 并保留原图; 均**不**修改库路径海报 (ORGANIZE 再复制). 文件路径相对 `{data_dir}/resources/`.
+`Resource.url` UNIQUE, 作**通用 locator key**: 原始外部图用真实外部 URL, 派生裁剪用合成串 `derived:{sha256(src_url)}:crop:{args}`. 手动裁切写入派生 Resource: 海报替换 `poster_urls` 并按库模板回写 (见 [api.md](api.md)「海报裁切回写」), 演员头像前插 `image_urls` 并保留原图. 文件路径相对 `{data_dir}/resources/`, 扩展名取 URL 后缀 (无后缀为 `.bin`, 派生资源由 `ext` 指定); `mime_type` 在入库与就地超分后按内容判定 (见 `src/amane/media/file_type.py::detect_media_type`), 判不出为 `NULL` — 存量行的值可能来自 URL 后缀, 读取方遇 `NULL` 或 `application/octet-stream` 须按内容复核.
 
-`meta` (JSON, 默认 `{}`) 记可逆来源与处理标记: 裁剪记 `{'op':'crop','src':底层locator,'args':str}` (不记内部 URL); `args` 为像素框, 顺时针旋转非 0 时追加 `:r90` — 键必须覆盖角度, 否则换角度命中旧结果. 超分追加 `{'sr':{tool,model,scale}}`, **就地覆盖**文件 (URL 不变).
+`meta` (JSON, 默认 `{}`) 记录可逆来源与处理标记: 裁剪记录 `{'op':'crop','src':底层locator,'args':str}` (不记录内部 URL); 像素框 `args` 须覆盖非 0 旋转角度 (`:r90`), 避免命中其他角度结果. 超分追加 `sr` 并**就地覆盖**文件 (URL 不变); `sr.source_size` 是超分输入经 EXIF 转正后的尺寸. `src/amane/media/pipeline.py::_native_size` 据此比较原生质量, 历史超分缺少输入尺寸时按未知质量排序.
 
 **按引用回收**: 不是 LRU 缓存. 刮削换 URL / 改裁剪参数后旧条目留到 CLEANUP 回收未引用项 (含派生). 原始像素须 invalidate 重下 (就地超分后不可恢复). 见 [task-system.md](task-system.md) CLEANUP. `content_hash` 兼作 ETag, 见 [api.md](api.md); 同一 locator 的写入按 locator 串行 (`ResourceStore._serialized`), 先写文件再写记录, 二者恒对应盘上那份字节.
 
 ## 图片向量 (`media_embeddings`, sidecar)
 
-语义检索的派生数据, 可随时重建: 存 `{data_dir}/embeddings.db` (独立 SQLite, 不经 Alembic, 删除文件即关闭功能). `semantic_models` 按 `(name, version, dim)` 注册模型, 其 id 是向量的命名空间; `media_embeddings` 每 `(条目, 模型, 图片 locator)` 一行, 存 `kind` (`cover` / `still`)、`content_hash` 与 L2 归一化的 float32 字节串. 封面取 `poster_url` 优先、`thumb_url` 兜底; 剧照取 `Metadata.extrafanart` 中第一个有已落盘 Resource 的站点 (与 `ResourceStore.acquire_extrafanart` 的取舍一致), 按 `content_hash` 去重; 没有封面的条目不建向量. 跨库无外键: 删除条目在主库提交后再清 sidecar (清理失败留下的孤儿行由下一次完整索引删掉), 图片字段变化由 `Repository.set_media_hook` 通知, 只删 url 或 `content_hash` 变了的行; 就地超分只改 `content_hash`, 建索引时据此重算. 检索时整表装载, 缓存键为 `(条数, 最后写入时间)`; 筛选条件先由主库解析成条目 id 集合, 再据此屏蔽向量索引的行.
+语义检索的派生数据, 可随时重建: 存 `{data_dir}/embeddings.db` (独立 SQLite, 不经 Alembic, 删除文件即关闭功能). `semantic_models` 按 `(name, version, dim)` 注册模型, 其 id 是向量的命名空间; `media_embeddings` 每 `(条目, 模型, 图片 locator)` 一行, 存 `kind` (`cover` / `still`)、`content_hash` 与 L2 归一化的 float32 字节串. 封面取 `poster_url` 优先、`thumb_url` 兜底; 剧照取 `Metadata.extrafanart` 中第一个有已落盘 Resource 的站点 (与 `ResourceStore.acquire_extrafanart` 的取舍一致), 按 `content_hash` 去重; 没有封面的条目不建向量. 跨库无外键: 删除条目在主库提交后再清 sidecar (清理失败留下的孤儿行由下一次完整索引删掉), 图片字段变化由 `Repository.set_media_hook` 通知, 只删 url 或 `content_hash` 变了的行; 就地超分只改 `content_hash` 与媒体类型, 建索引时据此重算. 检索时整表装载, 缓存键为 `(条数, 最后写入时间)`; 筛选条件先由主库解析成条目 id 集合, 再据此屏蔽向量索引的行.
 
 ## 分类索引 (爬取侧投影)
 

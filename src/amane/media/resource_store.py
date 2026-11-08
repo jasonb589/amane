@@ -7,7 +7,6 @@
 
 import asyncio
 import hashlib
-import mimetypes
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -21,6 +20,8 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ..db.models import Resource
+from .file_type import detect_media_type
+from .images import probe_oriented_size
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -34,9 +35,9 @@ logger = structlog.get_logger()
 
 RESOURCE_URL_PREFIX = "/api/resources"
 
-# 上游把已下架资源重定向到 200 的占位图 (DMM 的 now_printing) 时不能算获取成功:
+# 上游把已下架资源重定向到 200 的占位图 (DMM 的 now_printing, up-timely 的 noimage) 时不能算获取成功:
 # 否则该 URL 会被判为可用并前置, 前端最终显示占位图本身.
-_PLACEHOLDER_PATH_MARKERS: tuple[str, ...] = ("/now_printing/",)
+_PLACEHOLDER_PATH_MARKERS: tuple[str, ...] = ("/now_printing/", "/noimage.")
 
 
 def _is_placeholder_url(url: str) -> bool:
@@ -224,7 +225,7 @@ class ResourceStore:
             tmp.unlink(missing_ok=True)
 
         size = dest.stat().st_size
-        mime = mimetypes.guess_type(str(dest))[0]
+        mime = detect_media_type(dest)
         content_hash = self._hash_file(dest)
 
         # 写入记录.
@@ -308,7 +309,7 @@ class ResourceStore:
                 return None
 
             size = dest.stat().st_size
-            mime = mimetypes.guess_type(str(dest))[0]
+            mime = detect_media_type(dest)
             content_hash = self._hash_file(dest)
             meta = {"op": op, "src": src_url, "args": args}
 
@@ -360,6 +361,7 @@ class ResourceStore:
             try:
                 if record.meta and "sr" in record.meta and self._matches_record(src, record):
                     return UpscaleOutcome.SKIPPED
+                source_size = probe_oriented_size(src)
                 ok = await producer(src, tmp)
                 if not ok or not tmp.exists():
                     logger.warning("upscale producer failed", url=record.url)
@@ -371,11 +373,12 @@ class ResourceStore:
             finally:
                 tmp.unlink(missing_ok=True)
 
-            # 原地替换后重新量取, 记入的就是盘上那份.
+            # 原地替换后重新量取, 记入的就是盘上那份. 输出格式由超分配置决定, 媒体类型须一并重算.
             size = src.stat().st_size
             content_hash = self._hash_file(src)
+            mime = detect_media_type(src)
             new_meta = dict(record.meta) if record.meta else {}
-            new_meta["sr"] = sr_args
+            new_meta["sr"] = {**sr_args, "source_size": list(source_size) if source_size else None}
 
             async with self._session() as session:
                 result = await session.exec(select(Resource).where(Resource.url == record.url))
@@ -384,6 +387,7 @@ class ResourceStore:
                     return UpscaleOutcome.SKIPPED
                 row.size = size
                 row.content_hash = content_hash
+                row.mime_type = mime
                 row.meta = new_meta
                 session.add(row)
                 await session.commit()

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from unittest.mock import AsyncMock
 
 import pytest
+from PIL import Image
 
 from amane.media import ResourceStore, UpscaleOutcome, derived_locator
 from amane.media.resource_store import RESOURCE_URL_PREFIX, _is_placeholder_url, internal_url_hash
@@ -98,6 +99,34 @@ class TestAcquireDerived:
 
 
 class TestUpscaleInPlace:
+    @pytest.mark.asyncio
+    async def test_input_dimensions_survive_cached_and_repeated_operations(self, resource_store: ResourceStore):
+        async def producer(dest: Path) -> bool:
+            image = Image.new("RGB", (600, 400))
+            exif = image.getexif()
+            exif[274] = 6
+            image.save(dest, exif=exif)
+            return True
+
+        record = await resource_store.acquire_derived("https://s/t.jpg", "crop", "0.7", producer)
+        assert record is not None
+
+        async def upscale(src: Path, output: Path) -> bool:
+            Image.new("RGB", (1600, 2400)).save(output)
+            return True
+
+        args = {"scale": 4, "source_size": [1, 1]}
+        assert await resource_store.upscale_in_place(record, args, upscale) is UpscaleOutcome.UPSCALED
+        assert await resource_store.upscale_in_place(record, {"scale": 2}, upscale) is UpscaleOutcome.SKIPPED
+        cached = await resource_store.acquire_derived("https://s/t.jpg", "crop", "0.7", producer)
+        assert cached is not None
+        assert cached.meta == {
+            "op": "crop",
+            "src": "https://s/t.jpg",
+            "args": "0.7",
+            "sr": {"scale": 4, "source_size": [400, 600]},
+        }
+
     @pytest.mark.asyncio
     async def test_overwrites_and_marks_meta(self, resource_store: ResourceStore):
         # 先造一个派生资源作为超分目标
@@ -401,6 +430,55 @@ async def test_acquire_forwards_egress_policy(
     assert kwargs["max_bytes"] == 1024
 
 
+@pytest.mark.asyncio
+async def test_acquire_records_content_type(
+    resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """入库按内容写 MIME: 无后缀 URL 的图片不再记成通用二进制."""
+    url = "https://img.example.com/actor/12345"
+    client = AsyncMock()
+    client.resolve_final_url = AsyncMock(return_value=url)
+
+    async def download(_url: str, dest: Path, **_kwargs: object) -> bool:
+        dest.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+        return True
+
+    client.download = AsyncMock(side_effect=download)
+    monkeypatch.setattr(resource_store, "_compute_path", lambda url: tmp_path / "resources" / "resource.bin")
+
+    assert await resource_store.acquire(url, client) is not None
+    record = await resource_store.get_by_url(url)
+    assert record is not None
+    assert record.mime_type == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_derived_mime_follows_content(resource_store: ResourceStore):
+    """派生资源同样按内容写类型; 盘上字节被换掉后重跑并覆盖记录."""
+    url = "https://s/derived.jpg"
+
+    async def png(dest: Path) -> bool:
+        dest.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return True
+
+    first = await resource_store.acquire_derived(url, "crop", "0.7", png)
+    assert first is not None
+    assert first.mime_type == "image/png"
+
+    # 盘上字节不再是记录所指的那份, 下一次调用必须重跑 producer.
+    resource_store.full_path(first).write_bytes(b"stale")
+
+    async def jpeg(dest: Path) -> bool:
+        dest.write_bytes(b"\xff\xd8\xff\xe0")
+        return True
+
+    second = await resource_store.acquire_derived(url, "crop", "0.7", jpeg)
+    assert second is not None
+    saved = await resource_store.get_by_url(first.url)
+    assert saved is not None
+    assert saved.mime_type == "image/jpeg"
+
+
 _REQUEST = "https://pics.dmm.co.jp/digital/video/mide00030/mide00030pl.jpg"
 _PLACEHOLDER = "https://pics.dmm.com/mono/movie/n/now_printing/now_printing.jpg"
 
@@ -411,6 +489,7 @@ class TestPlaceholderRedirect:
         [
             (_PLACEHOLDER, True),
             ("https://imgsrc.dmm.com/pics/mono/movie/n/now_printing/now_printing.jpg?h=800&w=800", True),
+            ("https://cdn.up-timely.com/noimage.png", True),
             (_REQUEST, False),
             # 只匹配路径, 查询串里的同名字样不算
             ("https://pics.dmm.com/redirect?to=/now_printing/now_printing.jpg", False),

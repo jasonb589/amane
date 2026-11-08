@@ -21,7 +21,7 @@ def test_nfo_output_upgrade_and_downgrade_preserve_metadata(tmp_path: Path) -> N
                 "INSERT INTO metadata(id, number, title, content_type, created_at, updated_at) VALUES (1, 'ABC-001', 'Keep', 'censored', '2026-11-07', '2026-11-07')"
             )
         )
-    command.upgrade(config, "head")
+    command.upgrade(config, "384b2b3fdd6a")
     with engine.begin() as connection:
         assert connection.execute(text("SELECT title FROM metadata WHERE id=1")).scalar_one() == "Keep"
         assert {fk["referred_table"] for fk in inspect(connection).get_foreign_keys("nfo_outputs")} == {

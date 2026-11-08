@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, override
-from urllib.parse import urlparse
 
 from ...enums import ActorGender, SiteName
 from ..base import Crawler, CrawlerProfile
@@ -198,13 +197,6 @@ class XchinaCrawler(Crawler):
             headers=dict(_BROWSER_HEADERS),
         )
 
-    def serves_url(self, url: str) -> bool:
-        """xchina.co / xchina.tv 及其子域, 外加图片 CDN (r2.xchina.download) 不算站点页."""
-        host = urlparse(url).netloc.lower()
-        if not host or host.endswith("xchina.download"):
-            return False
-        return host == "xchina.co" or host == "xchina.tv" or host.endswith((".xchina.co", ".xchina.tv"))
-
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
         # 站点按自己的 ID 组织, 番号检索没有意义; 只支持「指定链接刮削」.
         return None
@@ -212,7 +204,7 @@ class XchinaCrawler(Crawler):
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
         del options
         # 走 get_html 而不是 get_text: 只有这条路径会在直连被 Cloudflare 挡住时按需升级到浏览器后端.
-        html = await self.client.get_html(url)
+        html = await self.client.get_html(url, cookies=self.cookies, headers=self.headers)
         meta = parse_video(html, url)
         if meta is not None:
             self.logger.debug("xchina scraped", url=url, title=meta.title)

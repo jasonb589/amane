@@ -216,6 +216,143 @@ async def test_cover_quality_selection_precedes_upscaling(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("kind", [DownloadableResource.poster, DownloadableResource.thumb])
+async def test_native_image_precedes_previously_upscaled_cache(
+    resource_store: ResourceStore, tmp_path: Path, kind: DownloadableResource
+) -> None:
+    low, native = "https://s/low.jpg", "https://s/native.jpg"
+    client = FakeClient({low: (400, 600), native: (1000, 1500)})
+    await resource_store.acquire(low, cast("WebClient", client))
+    record = await resource_store.get_by_url(low)
+    assert record is not None
+
+    async def upscale(src: Path, output: Path) -> bool:
+        Image.new("RGB", (1600, 2400)).save(output)
+        return True
+
+    await resource_store.upscale_in_place(record, {"scale": 4}, upscale)
+    saved = await resource_store.get_by_url(low)
+    assert saved is not None and saved.meta["sr"]["source_size"] == [400, 600]
+    config = HotSettings()
+    config.scraping.download_resources = [kind]
+    urls = [low, native]
+    out = await materialize_images(
+        urls if kind is DownloadableResource.poster else [],
+        urls if kind is DownloadableResource.thumb else [],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        config,
+        tmp_path,
+    )
+    assert (out.poster_urls if kind is DownloadableResource.poster else out.thumb_urls) == [native, low]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("candidate_size", [None, (400, 600)])
+async def test_cached_upscale_does_not_suppress_native_cover_crop(
+    resource_store: ResourceStore, tmp_path: Path, candidate_size: tuple[int, int] | None
+) -> None:
+    low, cover = "https://s/low.jpg", "https://s/cover.jpg"
+    client = FakeClient({low: (400, 600), cover: (2200, 1500)})
+    await resource_store.acquire(low, cast("WebClient", client))
+    record = await resource_store.get_by_url(low)
+    assert record is not None
+
+    async def upscale(src: Path, output: Path) -> bool:
+        Image.new("RGB", (1600, 2400)).save(output)
+        return True
+
+    await resource_store.upscale_in_place(record, {"scale": 4}, upscale)
+    if candidate_size is None:
+        async with resource_store._session() as session:
+            legacy = await session.get(type(record), record.id)
+            assert legacy is not None
+            legacy.meta = {"sr": {"scale": 4}}
+            session.add(legacy)
+            await session.commit()
+    config = HotSettings()
+    config.scraping.download_resources = [DownloadableResource.poster]
+    out = await materialize_images([low], [cover], [], resource_store, cast("WebClient", client), config, tmp_path)
+    chosen = await resource_store.get_by_url_hash(out.poster_urls[0].rsplit("/", 1)[-1])
+    assert chosen is not None and chosen[0].meta["src"] == cover
+    with Image.open(chosen[1]) as image:
+        assert image.size == (1050, 1500)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_sr", [False, True])
+async def test_upscaled_cover_crop_does_not_replace_better_native_poster(
+    resource_store: ResourceStore, tmp_path: Path, legacy_sr: bool
+) -> None:
+    cover, poster = "https://s/cover.jpg", "https://s/poster.jpg"
+    client = FakeClient({cover: (600, 400), poster: (400, 600)})
+    await resource_store.acquire(cover, cast("WebClient", client))
+    record = await resource_store.get_by_url(cover)
+    assert record is not None
+
+    async def upscale(src: Path, output: Path) -> bool:
+        Image.new("RGB", (2400, 1600)).save(output)
+        return True
+
+    await resource_store.upscale_in_place(record, {"scale": 4}, upscale)
+    if legacy_sr:
+        async with resource_store._session() as session:
+            legacy = await session.get(type(record), record.id)
+            assert legacy is not None
+            legacy.meta = {"sr": {"scale": 4}}
+            session.add(legacy)
+            await session.commit()
+    out = await materialize_images(
+        [poster], [cover], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path
+    )
+    assert out.poster_urls == [poster]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_sr", [False, True])
+async def test_cached_upscaled_crop_does_not_replace_better_native_poster(
+    resource_store: ResourceStore, tmp_path: Path, legacy_sr: bool
+) -> None:
+    cover, poster = "https://s/cover.jpg", "https://s/poster.jpg"
+    client = FakeClient({cover: (600, 400), poster: (400, 600)})
+    original = await materialize_images(
+        [], [cover], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path
+    )
+    cropped = await resource_store.get_by_url_hash(original.poster_urls[0].rsplit("/", 1)[-1])
+    assert cropped is not None
+
+    async def upscale(src: Path, output: Path) -> bool:
+        Image.new("RGB", (1120, 1600)).save(output)
+        return True
+
+    await resource_store.upscale_in_place(cropped[0], {"scale": 4}, upscale)
+    if legacy_sr:
+        async with resource_store._session() as session:
+            legacy = await session.get(type(cropped[0]), cropped[0].id)
+            assert legacy is not None
+            legacy.meta = {**legacy.meta, "sr": {"scale": 4}}
+            session.add(legacy)
+            await session.commit()
+    out = await materialize_images(
+        [poster], [cover], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path
+    )
+    assert out.poster_urls == [poster]
+
+
+@pytest.mark.asyncio
+async def test_auto_crop_decision_uses_oriented_poster_dimensions(
+    resource_store: ResourceStore, tmp_path: Path
+) -> None:
+    cover, poster = "https://s/cover.jpg", "https://s/poster.jpg"
+    client = FakeClient({cover: (1200, 800), poster: (800, 560)}, orientations={poster: 6})
+    out = await materialize_images(
+        [poster], [cover], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path
+    )
+    assert out.poster_urls == [poster]
+
+
+@pytest.mark.asyncio
 async def test_poster_only_quality_search_is_bounded(resource_store: ResourceStore, tmp_path: Path) -> None:
     urls = [f"https://s/{index}.jpg" for index in range(20)]
     client = FakeClient(dict.fromkeys(urls, (800, 538)))
