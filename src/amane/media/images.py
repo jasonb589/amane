@@ -15,14 +15,14 @@ from .watermarks import load_stamp
 
 try:
     # 人脸识别只在安装 OpenCV 时启用; 基础环境与 CI 允许缺少该模块.
-    import cv2  # ty: ignore[unresolved-import]
+    import cv2
 except ImportError:
     cv2 = None
 
 try:
     # OpenCV 5 已移除 Haar API; 4.x 仍作为 YuNet 不可用时的可选后备.
-    from cv2 import CascadeClassifier  # ty: ignore[unresolved-import]
-    from cv2.data import haarcascades  # ty: ignore[unresolved-import]
+    from cv2 import CascadeClassifier
+    from cv2.data import haarcascades
 except ImportError:
     CascadeClassifier = None
     haarcascades = ""

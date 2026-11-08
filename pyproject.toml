@@ -105,7 +105,7 @@ reportAttributeAccessIssue = "warning"
 src = { include = ["src/amane/", "scripts/"], exclude = ["src/amane/db/migrations/"] }
 
 [[tool.ty.overrides]]
-include = ["src/amane/semantic/onnx.py"]
+include = ["src/amane/semantic/onnx.py", "src/amane/media/images.py"]
 
 [tool.ty.overrides.rules]
 unresolved-import = "ignore"
