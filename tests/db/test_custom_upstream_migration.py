@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 from amane.db.sqlite_migrate import upgrade_sqlite_database
@@ -48,7 +49,7 @@ def test_upgrade_preserves_both_branch_data(tmp_path: Path, previous: str) -> No
         with engine.connect() as connection:
             assert connection.execute(text("SELECT title FROM metadata WHERE id=1")).scalar_one() == "人工标题"
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all() == [
-                "b214ab0f2c78"
+                ScriptDirectory.from_config(config).get_current_head()
             ]
             assert "nfo_outputs" in inspect(connection).get_table_names()
             template = connection.execute(text("SELECT extrafanart_name_template FROM libraries")).scalar_one()

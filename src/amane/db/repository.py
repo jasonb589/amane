@@ -21,6 +21,7 @@ class MediaChangeHook(Protocol):
 class Repository(
     repos.AgentRepoMixin,
     repos.FacetsRepoMixin,
+    repos.Fc2PartsRepoMixin,
     repos.FeedsRepoMixin,
     repos.LibrariesRepoMixin,
     repos.MediaRepoMixin,

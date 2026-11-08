@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, NoReturn
 
+from pydantic import JsonValue
 from sqlalchemy import Boolean, Column, Index, String, Text, UniqueConstraint, exists, func, or_, text
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import JSON, Field, SQLModel, col, select
@@ -18,6 +19,7 @@ from ..library import (
 from ..organize.path_templates import VIDEO_TEMPLATE_DEFAULT, ExtrafanartNameTemplate, PathTemplate
 from ..organize.strm_content import StrmContentTemplate
 from ..parsing import VR_TAGS, ContentType, Mosaic, is_vr
+from .fc2_parts import Fc2PlannedMember, validate_fc2_part_members
 
 
 def _utcnow() -> datetime:
@@ -348,6 +350,30 @@ class NfoOutput(SQLModel, table=True):
     nfo_path: str
     path_key: str = Field(unique=True, index=True)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class Fc2PartPlan(SQLModel, table=True):
+    """FC2 同目录文件组的固定分配, 独立于媒体索引、番号条目和任务."""
+
+    __tablename__ = "fc2_part_plans"  # type: ignore[assignment]
+    __table_args__ = (
+        UniqueConstraint("library_id", "directory_key", "number", name="uq_fc2_part_plans_group"),
+        Index("ix_fc2_part_plans_library_number", "library_id", "number"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    library_id: int = Field(foreign_key="libraries.id", ondelete="CASCADE")
+    original_directory: str
+    directory_key: str
+    number: str
+    members_json: list[dict[str, JsonValue]] = Field(sa_column=Column("members", JSON, nullable=False))
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+    @property
+    def members(self) -> tuple[Fc2PlannedMember, ...]:
+        parsed = tuple(Fc2PlannedMember.model_validate(value) for value in self.members_json)
+        return validate_fc2_part_members(parsed)
 
 
 class Task(SQLModel, table=True):
