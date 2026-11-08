@@ -188,6 +188,10 @@ _TMA_NUMBER = re.compile(r"(?<![A-Z0-9])T\d{2}-?\d{3,}")
 _SIX_DIGIT_CATALOG = re.compile(r"(?<!\d)\d{6}[-_]\d{2,4}(?!\d)")
 _WESTERN_PROBE = re.compile(r"([A-Z0-9_]{2,})[-_.]+2?0?(\d{2}[-_.]\d{2}[-_.]\d{2})")
 _WESTERN_PARSE = re.compile(r"([A-Z0-9-]{2,})[-_.]+2?0?(\d{2}[-_.]\d{2}[-_.]\d{2})")
+# 连接符与全角字符须先按 FC2 结构归一; 通用字母前缀规则会把前缀里的 2 当作分隔内容删除.
+_FC2_NUMBER = re.compile(r"FC2(?:[-_.\s\u2010-\u2015\u2212]*PPV)?[-_.\s\u2010-\u2015\u2212]*([0-9]{5,})")
+# FC 长编号是省略 2 的文件命名; 短 FC 系列保持原类型. 紧连 FC2 仍优先解释为完整前缀, 不改变短商品 ID.
+_FC2_ALIAS = re.compile(r"(?<![A-Z0-9])FC(?!2)[-_.\s\u2010-\u2015\u2212]*([0-9]{5,})(?![A-Z0-9])")
 
 _ESCAPE_MARKERS = (
     "4K",
@@ -330,6 +334,13 @@ def parse_file_info(
 def extract_number(text: str, escape_strings: list[str] | None = None) -> str | None:
     """未命中返回 None, 不能把原文冒充番号."""
     return parse_file_info(text=text, escape_strings=escape_strings).number
+
+
+def normalize_fc2_number(number: str) -> str | None:
+    """完整 FC2 商品号或 FC 长编号别名归一; 至少五位数字, 标题与文件尾标不参与."""
+    normalized = unicodedata.normalize("NFKC", number).strip().upper()
+    match = _FC2_NUMBER.fullmatch(normalized) or _FC2_ALIAS.fullmatch(normalized)
+    return f"FC2-{match[1]}" if match else None
 
 
 def infer_content_type(number: str, file_path: str | None = None) -> ContentType:
@@ -520,6 +531,10 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     t = _prepare(basename, escape_strings)
     c, escaped, dated = t.catalog, t.escaped, t.dated
 
+    # 明确商品号优先于日期号: 附加上传日期不能把 FC2 商品改判为欧美片商日期号.
+    normalized = unicodedata.normalize("NFKC", escaped)
+    if m := _FC2_NUMBER.search(normalized) or _FC2_ALIAS.search(normalized):
+        return f"FC2-{m[1]}", ContentType.FC2
     if "MYWIFE" in c and re.search(r"NO\.\d*", c):
         return f"Mywife No.{re.findall(r'NO\.(\d*)', c)[0]}", ContentType.CENSORED
     if m := re.search(r"CW3D2D?BD-?\d{2,}", c):
@@ -546,12 +561,6 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
         return m.group(), ContentType.UNCENSORED
     if m := re.search(r"MKY-[A-Z]+-\d{3,}", c):
         return m.group(), ContentType.CHINESE
-    if "FC2" in c:
-        fc2 = c.replace("PPV", "").replace("_", "-").replace("--", "-")
-        if m := re.search(r"FC2-\d{5,}", fc2):
-            return m.group(), ContentType.FC2
-        if m := re.search(r"FC2\d{5,}", fc2):
-            return m.group().replace("FC2", "FC2-"), ContentType.FC2
     if "HEYZO" in c:
         hz = c.replace("_", "-").replace("--", "-")
         if m := re.search(r"HEYZO-\d{3,}", hz):
@@ -635,8 +644,6 @@ def _fallback(stem: str, escape: list[str]) -> tuple[str, ContentType]:
     with contextlib.suppress(Exception):
         temp_name = temp_name.encode("cp932").decode("shift_jis")
     result = temp_name.strip("-_. ")
-    if result.startswith("FC-"):
-        return result.replace("FC-", "FC2-"), ContentType.FC2
     # 欧美片名不会出现中日文; 含中日文且完全无字母数字的标题基本只剩里番/动画
     # (有码 / 素人 / FC2 都带番号, 走不到这里), 判欧美会让该类型下的源全部落空.
     if _is_cjk_title(t.escaped):

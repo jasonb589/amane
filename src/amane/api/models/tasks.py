@@ -35,7 +35,7 @@ from ...handlers import (
     UpscalePayload,
     UpscaleResult,
 )
-from ...parsing import ContentType, infer_content_type, parse_file_info
+from ...parsing import ContentType, infer_content_type, normalize_fc2_number, parse_file_info
 
 
 class TaskChildStatusCounts(BaseModel):
@@ -180,6 +180,10 @@ class ScrapeRequest(BaseModel):
     def _normalize_number(cls, value: object) -> object:
         if isinstance(value, str):
             stripped = value.strip()
+            # FC 长编号简写与全角前缀统一为商品号; 已有 FC2 写法保留元数据主键.
+            normalized = normalize_fc2_number(stripped)
+            if normalized and not stripped.upper().startswith("FC2"):
+                return normalized
             return stripped or None
         return value
 

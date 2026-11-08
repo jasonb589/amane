@@ -12,6 +12,7 @@ from amane.parsing import (
     is_amateur,
     is_uncensored,
     is_vr,
+    normalize_fc2_number,
     parse_file_info,
     split_number,
 )
@@ -536,6 +537,132 @@ EXTRACT_NUMBER_CASES: list[tuple[str, str | None]] = [
 @pytest.mark.parametrize(("text", "expected"), EXTRACT_NUMBER_CASES)
 def test_extract_number(text: str, expected: str | None) -> None:
     assert extract_number(text) == expected
+
+
+@pytest.mark.parametrize(
+    "number",
+    [
+        "FC2-4982441",
+        "FC2PPV4982441",
+        "FC2-PPV-4982441",
+        "FC24982441",
+        "fc2 ppv 4982441",
+        "FC2 - PPV - 4982441",
+        "FC2.PPV.4982441",
+        "FC2_PPV_4982441",
+        "FC2－4982441",
+        "FC2‐4982441",
+        "FC2‑4982441",
+        "FC2–4982441",
+        "FC2—4982441",
+        "FC2−4982441",
+        "ＦＣ２－ＰＰＶ－４９８２４４１",
+        "FC２-4982441",
+        "FC2-４９８２４４１",
+        "FC4982441",
+        "FC-4982441",
+        "FC_4982441",
+    ],
+)
+def test_fc2_written_variants_keep_product_id_and_route(number: str) -> None:
+    assert normalize_fc2_number(number) == "FC2-4982441"
+    assert extract_number(number) == "FC2-4982441"
+    assert infer_content_type(number) is ContentType.FC2
+    info = parse_file_info(f"/media/{number}.mp4")
+    assert (info.number, info.prefix, info.content_type) == ("FC2-4982441", "FC2", ContentType.FC2)
+
+
+@pytest.mark.parametrize(
+    ("number", "expected"),
+    [
+        ("FC2-12345", "FC2-12345"),
+        ("FC2PPV12345", "FC2-12345"),
+        ("FC2-PPV-00001", "FC2-00001"),
+        ("FC2_12345678", "FC2-12345678"),
+        ("  fc2＿ppv＿123456789  ", "FC2-123456789"),
+        ("FC2--PPV--12345", "FC2-12345"),
+        ("FC-12345", "FC2-12345"),
+        ("FC12345", "FC2-12345"),
+        ("FC-24982441", "FC2-24982441"),
+        ("FC24982441", "FC2-4982441"),
+        ("FC50001234", "FC2-50001234"),
+    ],
+)
+def test_fc2_normalization_keeps_all_product_digits(number: str, expected: str) -> None:
+    assert normalize_fc2_number(number) == expected
+    assert extract_number(number) == expected
+    assert infer_content_type(number) is ContentType.FC2
+
+
+@pytest.mark.parametrize(
+    ("path", "cd", "subtitle"),
+    [
+        ("/media/FC2－PPV－4982441-CD2.mp4", 2, False),
+        ("/media/FC2 - PPV - 4982441-C.mp4", None, True),
+        ("/media/ＦＣ２－４９８２４４１/video.mp4", None, False),
+        ("/media/FC2.PPV.4982441/CD2/video.mp4", 2, False),
+        ("/media/FC2-4982441 2026.11.08.mp4", None, False),
+        ("/media/gx/正常/4K688.com@fc4982441_1.mp4", None, False),
+        ("/media/FC-4982441/video.mp4", None, False),
+    ],
+)
+def test_fc2_file_markers_and_upload_dates_do_not_replace_number(path: str, cd: int | None, subtitle: bool) -> None:
+    info = parse_file_info(path)
+    assert (info.number, info.prefix, info.content_type) == ("FC2-4982441", "FC2", ContentType.FC2)
+    assert info.cd == cd
+    assert info.has_subtitle is subtitle
+
+
+@pytest.mark.parametrize(
+    "number",
+    [
+        "",
+        "FC2",
+        "4982441",
+        "FC-001",
+        "FC-1234",
+        "FC1234",
+        "FC21234",
+        "FC-4982441A",
+        "XFC-4982441",
+        "AFC4982441",
+        "FC-4982441-title",
+        "FC2-1234",
+        "FC2-4982441-title",
+        "FC2-4982441A",
+        "XFC2-4982441",
+        "0FC2-4982441",
+        "FC22-4982441",
+        "FC2PPVPPV4982441",
+        "FC2-4982441-CD2",
+        "FC2-4982441?query=1",
+        "FC2/4982441",
+        "FC2-PPV-4982441.mp4",
+        "https://example.com/FC2-4982441",
+    ],
+)
+def test_fc2_normalization_requires_a_complete_unambiguous_product_number(number: str) -> None:
+    assert normalize_fc2_number(number) is None
+
+
+@pytest.mark.parametrize("number", ["FC-001", "FC-1234"])
+def test_short_fc_catalog_is_not_rewritten(number: str) -> None:
+    assert extract_number(number) == number
+    assert infer_content_type(number) is ContentType.CENSORED
+    assert parse_file_info(f"/media/{number}.mp4").number == number
+
+
+@pytest.mark.parametrize("number", ["FC-1", "FC-ABC", "FC-UNKNOWN"])
+def test_unknown_fc_filename_does_not_become_fc2(number: str) -> None:
+    info = parse_file_info(f"/media/{number}.mp4")
+    assert info.number == number
+    assert info.content_type is ContentType.WESTERN
+
+
+def test_fc2_normalization_retains_path_keyword_override() -> None:
+    info = parse_file_info("/media/欧美/FC2－4982441.mp4")
+    assert info.number == "FC2-4982441"
+    assert info.content_type is ContentType.WESTERN
 
 
 EXTRACT_VS_PATH_CASES: list[tuple[str, str]] = [

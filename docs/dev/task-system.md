@@ -37,6 +37,7 @@ ORGANIZE 只读取范围内的 `MediaFile` 行: 缺省为该库全部索引, 显
 - **筛选与 roots_only 正交**: `GET /tasks` 带 status / type 筛选时在 SQL 中匹配**全部**任务 (含子任务), 再 `DISTINCT COALESCE(root_task_id, id)` 还原链根行, 因此「父已 DONE、子排队中」时仍能看到父根行. 裸任务 (root 为空) 按自身 id 精确匹配.
 - **删除保护**: 待删集合里存在**不在该集合内的后裔**的节点跳过; 「清除已完成」遇到父 DONE、子有成有败时保留父节点作为链根.
 - **重试为独立再次运行**: `retry_tasks` 克隆为**无根裸任务**, 不继承原任务链归属, 完成后自成新链.
+- **旧 FC 简写任务恢复**: `ScrapeHandler._recover_file_fc2_alias` 仅处理带源路径的自动任务, 路径须确认同一 FC2 商品号且旧号没有元数据; 当前文件路径与已有元数据关联不得冲突. 恢复仅用于本次执行, 不改原任务载荷或迁移元数据主键. 手动指定类型不进入此恢复.
 - **树视图 API**: `GET /tasks/{id}/children` 返回直接子任务 (含出边 `link_key`); `GET /tasks?root_task_id=` 取整链. 批量操作须同时失效列表与 children (见 [frontend.md](frontend.md)).
 - 静态 continuation / on_failure / 多父 join 尚未实现, 见 `docs/roadmap.md`.
 

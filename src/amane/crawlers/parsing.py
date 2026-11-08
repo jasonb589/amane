@@ -9,7 +9,7 @@ from enum import StrEnum
 from re import Pattern
 from typing import TYPE_CHECKING, Any
 
-from ..parsing.file_info import SUREN_LABELS
+from ..parsing.file_info import SUREN_LABELS, normalize_fc2_number
 from ..utils.dates import normalize_calendar_date
 
 if TYPE_CHECKING:
@@ -148,6 +148,9 @@ _FC2_NUMBER = re.compile(r"^fc2(?:_?ppv)?_?(\d+)$")
 
 def fc2_article_id(number: str) -> str | None:
     """FC2 番号的商品 ID; 不是 FC2 形态时 None. ``PPV`` 词缀与分隔符不参与识别."""
+    if canonical := normalize_fc2_number(number):
+        return canonical.removeprefix("FC2-")
+    # 来源允许直接查询短商品 ID; 路径解析的五位阈值不能缩小此处已有的请求范围.
     match = _FC2_NUMBER.match(fold_number(number))
     return match.group(1) if match else None
 

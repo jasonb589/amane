@@ -12,7 +12,7 @@ from ..db.embeddings import EmbeddingKind
 from ..db.models import TaskType
 from ..enums import DownloadableResource
 from ..observability.models import OrganizeConflict, SiteOutcomeRecord
-from ..parsing import ContentType, infer_content_type
+from ..parsing import ContentType, infer_content_type, normalize_fc2_number
 from ..utils.path import is_descendant, is_resolved_path, resolved_path
 
 if TYPE_CHECKING:
@@ -114,6 +114,9 @@ class ScrapePayload(BaseModel):
 
 
 def build_feed_scrape_payload(feed: Feed, number: str) -> ScrapePayload:
+    normalized = normalize_fc2_number(number)
+    if normalized and not number.strip().upper().startswith("FC2"):
+        number = normalized
     content_type = feed.content_type or infer_content_type(number)
 
     use_cache: set[CacheKind] = set()

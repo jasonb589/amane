@@ -12,7 +12,7 @@ from ..enums import ActorGender, MetadataField, SiteName
 from ..media import materialize_images
 from ..observability import current
 from ..observability.models import SiteOutcomeKind
-from ..parsing import VR_TAGS, ContentType
+from ..parsing import VR_TAGS, ContentType, normalize_fc2_number, parse_file_info
 from ..plugins.models import SourceDescriptor, SourceTrait
 from ..utils.threads import path_exists
 from ._common import ensure_oshash, finalize_media_file, register_media_file
@@ -21,7 +21,7 @@ from .protocol import FollowupTask, TaskHandler, TaskResult
 
 if TYPE_CHECKING:
     from ..config import HotSettings
-    from ..db.models import MediaFile
+    from ..db.models import MediaFile, Metadata
     from ..db.repository import Repository
     from ..llm import Translator
     from ..media import ResourceStore
@@ -62,6 +62,12 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
         self._file_hash_sources = frozenset(d.id for d in catalog if SourceTrait.USES_FILE_HASH in d.traits)
 
     async def handle(self, payload: ScrapePayload) -> TaskResult[ScrapeResult]:
+        file = await self._repo.get_media_file(payload.media_file_id) if payload.media_file_id is not None else None
+        existing = await self._repo.get_metadata_by_number(payload.number)
+        recovered = await self._recover_file_fc2_alias(payload, file, existing)
+        if recovered is not payload:
+            payload = recovered
+            existing = await self._repo.get_metadata_by_number(payload.number)
         bind_contextvars(number=payload.number)
 
         content_type = payload.content_type
@@ -70,7 +76,6 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
 
         # 条目类型与字段锁始终以现存记录为准; raw 仅在 metadata 缓存启用时复用.
         use_metadata_cache = CacheKind.metadata in payload.use_cache
-        existing = await self._repo.get_metadata_by_number(payload.number)
         effective_content_type = existing.content_type if existing is not None else content_type
         cached_raw = existing.raw if existing is not None and use_metadata_cache else None
         if cached_raw:
@@ -88,10 +93,6 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
         if not crawlers:
             current().warning("no crawlers available", requested=route)
             return TaskResult(success=False, error=f"番号 {payload.number} 没有可用来源")
-
-        file = None
-        if payload.media_file_id:
-            file = await self._repo.get_media_file(media_id=payload.media_file_id)
 
         # 仅当本次可用来源声明需要指纹时计算 oshash.
         file_hash = file.oshash if file else None
@@ -256,6 +257,32 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             ),
             followups=[*actor_followups, *organize_followups],
         )
+
+    async def _recover_file_fc2_alias(
+        self, payload: ScrapePayload, file: MediaFile | None, existing: Metadata | None
+    ) -> ScrapePayload:
+        """旧自动任务须有路径证据才恢复 FC 长编号; 手动类型和既有元数据身份不参与改写."""
+        if (
+            existing is not None
+            or not payload.path
+            or payload.media_file_id is None
+            or payload.content_type is not ContentType.CENSORED
+            or payload.number.strip().upper().startswith("FC2")
+        ):
+            return payload
+        normalized = normalize_fc2_number(payload.number)
+        if normalized is None:
+            return payload
+        for path in (payload.path, file.path if file is not None else payload.path):
+            parsed = parse_file_info(path)
+            if parsed.number != normalized or parsed.content_type is not ContentType.FC2:
+                return payload
+        if file is not None and file.metadata_id is not None:
+            canonical = await self._repo.get_metadata_by_number(normalized)
+            if canonical is None or canonical.id != file.metadata_id:
+                return payload
+        current().info("file FC2 alias recovered", original_number=payload.number, number=normalized)
+        return payload.model_copy(update={"number": normalized, "content_type": ContentType.FC2})
 
     def failure_result(self, payload: ScrapePayload) -> ScrapeResult | None:
         """抓取之后崩掉时, 站点明细仍要能回答"为什么刮不到"."""

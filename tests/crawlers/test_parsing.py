@@ -1,8 +1,13 @@
 """测试爬虫共用的解析工具: HTML 提取, 番号与名字归一."""
 
+from pathlib import Path
+from unittest.mock import AsyncMock
+
 import pytest
 from parsel import Selector
 
+from amane.crawlers.http import HttpClient
+from amane.crawlers.models import SearchQuery
 from amane.crawlers.parsing import (
     CSSSelector,
     NumberMatch,
@@ -20,6 +25,10 @@ from amane.crawlers.parsing import (
     parse_western_number,
     select_number_index,
 )
+from amane.crawlers.sites.fc2ppv_db import FC2PPVDBIndexCrawler
+from amane.crawlers.sites.javarchive import JavArchiveCrawler
+
+from .driven import build_mock
 
 SAMPLE_HTML = """
 <html>
@@ -132,6 +141,15 @@ def test_parse_western_number(number: str, expected: tuple[str, str, str] | None
         ("FC2PPV4203531", "fc2_4203531", True),
         ("FC2-PPV-4203531", "FC2-PPV-4203532", False),
         ("FC2-4203531", "4203531", False),
+        ("FC2－ＰＰＶ－４９８２４４１", "FC2-4982441", True),
+        ("FC2.PPV.4982441", "FC2PPV4982441", True),
+        ("FC2 - PPV - 4982441", "FC2-PPV-4982441", True),
+        ("FC2−4982441", "FC2-49824410", False),
+        ("FC2–4982441", "FC-4982441", True),
+        ("FC2-4982441", "FC4982441", True),
+        ("FC2-123", "FC-123", False),
+        ("XFC2－4982441", "FC2-4982441", False),
+        ("FC2－4982441-title", "FC2-4982441", False),
         # 欧美日期号: 年份 2 位与 4 位同番号; 片商或发布日期不同则不是
         ("Blacked.26.03.29", "Blacked.2026.03.29", True),
         ("Blacked.26.03.29", "Blacked.2026.03.24", False),
@@ -221,6 +239,8 @@ NUMBER_VARIANT_CASES: list[tuple[str, tuple[str, ...]]] = [
     ("FC2-4203531", ("FC2-4203531", "FC2-PPV-4203531")),
     ("FC2-PPV-4203531", ("FC2-PPV-4203531", "FC2-4203531")),
     ("FC2PPV-4203531", ("FC2PPV-4203531", "FC2-PPV-4203531", "FC2-4203531")),
+    ("FC2.PPV.4982441", ("FC2.PPV.4982441", "FC2-PPV-4982441", "FC2-4982441")),
+    ("ＦＣ２－４９８２４４１", ("ＦＣ２－４９８２４４１", "FC2-PPV-4982441", "FC2-4982441")),
     # 只有原样: 标签须自番号开头起算, 裸数字号与无数字段的号不派生
     ("GARA-006", ("GARA-006",)),
     ("MIDV-123", ("MIDV-123",)),
@@ -240,9 +260,31 @@ FC2_ARTICLE_ID_CASES: list[tuple[str, str | None]] = [
     ("FC2-PPV-4203531", "4203531"),
     ("fc2ppv4203531", "4203531"),
     ("FC2_PPV_4203531", "4203531"),
+    ("FC2 - PPV - 4982441", "4982441"),
+    ("FC2.PPV.4982441", "4982441"),
+    ("FC2－4982441", "4982441"),
+    ("FC2–4982441", "4982441"),
+    ("FC2−4982441", "4982441"),
+    ("ＦＣ２－ＰＰＶ－４９８２４４１", "4982441"),
+    ("FC2_00001", "00001"),
+    ("FC2-1", "1"),
+    ("FC2PPV1234", "1234"),
+    ("FC21234", "1234"),
+    ("FC-4982441", "4982441"),
+    ("FC4982441", "4982441"),
     # 非 FC2 形态与裸商品 ID 都不认
     ("FC2PPVDB-123", None),
     ("FC2-", None),
+    ("FC-1234", None),
+    ("FC1234", None),
+    ("XFC4982441", None),
+    ("FC4982441A", None),
+    ("FC2－1234", None),
+    ("XFC2－4982441", None),
+    ("FC2－4982441A", None),
+    ("FC2－4982441-CD2", None),
+    ("FC2.PPV.4982441.mp4", None),
+    ("https://example.com/FC2-4982441", None),
     ("4203531", None),
     ("", None),
 ]
@@ -251,6 +293,40 @@ FC2_ARTICLE_ID_CASES: list[tuple[str, str | None]] = [
 @pytest.mark.parametrize(("number", "expected"), FC2_ARTICLE_ID_CASES)
 def test_fc2_article_id(number: str, expected: str | None) -> None:
     assert fc2_article_id(number) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("number", ["FC2－5003408", "FC2.PPV.5003408", "FC2 - PPV - 5003408", "FC5003408"])
+async def test_javarchive_fetch_normalizes_fc2_query_url(
+    number: str, http_client: HttpClient, mock_web_client: AsyncMock
+) -> None:
+    fixture_dir = Path(__file__).resolve().parents[1] / "fixtures" / "javarchive"
+    build_mock(
+        mock_web_client,
+        fixture_dir,
+        [
+            {"url_contains": "/search?q=FC2-PPV-5003408", "file": "javarchive-search.html"},
+            {"url_contains": "/1174735-FC2-PPV-5003408-", "file": "javarchive-detail.html"},
+        ],
+    )
+    result = await JavArchiveCrawler(http_client).fetch(SearchQuery(number))
+    assert result is not None and result.number == "FC2-5003408"
+    assert mock_web_client.get_text.await_args_list[0].args[0] == "https://javarchive.com/search?q=FC2-PPV-5003408"
+    assert mock_web_client.get_text.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("number", ["FC2－4778286", "FC2.PPV.4778286", "ＦＣ２－ＰＰＶ－４７７８２８６", "FC-4778286"])
+async def test_fc2_index_fetch_normalizes_fc2_query_url(
+    number: str, http_client: HttpClient, mock_web_client: AsyncMock
+) -> None:
+    fixture_dir = Path(__file__).resolve().parents[1] / "fixtures" / "fc2ppv_db"
+    mock_web_client.get_text.return_value = (fixture_dir / "fc2ppv_db.html").read_text(encoding="utf-8")
+    result = await FC2PPVDBIndexCrawler(http_client).fetch(SearchQuery(number))
+    assert result is not None and result.number == "FC2-4778286"
+    mock_web_client.get_text.assert_awaited_once_with(
+        "https://fc2ppv-db.com/ja/videos/4778286", cookies={"age-verified": "true"}, headers={}, encoding="utf-8"
+    )
 
 
 @pytest.mark.parametrize(
