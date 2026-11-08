@@ -34,6 +34,8 @@ pysqlite 只在 DML 之前发出 `BEGIN`, 纯 SELECT 落在事务之外 (SQLAlch
 
 入队互斥用 Repository 上的进程内锁串行化, 见 [task-system.md](task-system.md).
 
+FC2 分集计划的整组预留与条件更新同样使用 `BEGIN IMMEDIATE`; 文件身份读取在事务外, 编号与目标的不可变约束由 `src/amane/db/repos/fc2_parts.py` 在事务内复核. 生命周期见 [data-model.md](data-model.md)「Library 整理布局」.
+
 ## 启动期自动迁移与安全网
 
 `create_async_engine_from_path` (`db/engine.py`) 在创建业务引擎**之前**调用 `upgrade_sqlite_database` (`db/sqlite_migrate.py`):

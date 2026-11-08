@@ -27,7 +27,7 @@
 
 类型 (`content_type`) 是**番号的属性**, 落在 `Metadata`: 只在条目创建时落定 (有发现路径时随其路径关键词, 否则只依据番号), 番号不可改, 因此不随文件增删或后续刮削漂移; 它决定刮削路由, 也供「类型」筛选与有码 / 无码角标使用, 不进对外 PATCH. `ContentType.chinese` 是国产, 不是中字.
 
-文件相位 (`mosaic` / `definition` 与中字的文件名标记列) 是 **path 的投影**, 落在 `MediaFile`: 创建与修改 path 时经 `parse_file_info` 回填, 不纳入对外 PATCH; `cd` 只用于 ORGANIZE 分集配对, 不落库. `src/amane/handlers/refresh.py::RefreshHandler._sync_file_phase` 按当前过滤规则刷新本次扫描命中的既有行, 仅相位或字幕变化时写入, 不修改番号与元数据绑定; 启动不全库回填. `mosaic` 只采用文件名与目录整段词表命中, 多种标记按破解、流出、无码取首项. 中字合并文件名标记 (`has_subtitle_in_name`) 与同目录命中库 `subtitle_extensions` 的字幕 (`has_external_subtitle`, 登记 / 修改 path / 库扫描时检查); 外挂字幕只在整理时传入 `parse_file_info` 并入 `FileInfo.has_subtitle`, 不改变路径投影. 两者都不校验字幕语言; 目录读取不到按无字幕处理. 只删除字幕不触发复查, 视频重新登记、更换 path 或所在库被扫描时才回退. Python 的 `MediaFile.has_subtitle` 与 SQL 的 `db/models.py::has_subtitle_predicate` 必须保持同一口径.
+文件相位 (`mosaic` / `definition` 与中字的文件名标记列) 是 **path 的投影**, 落在 `MediaFile`: 创建与修改 path 时经 `parse_file_info` 回填, 不纳入对外 PATCH; `cd` 不写入 MediaFile, 分集契约见「Library 整理布局」. `src/amane/handlers/refresh.py::RefreshHandler._sync_file_phase` 按当前过滤规则刷新本次扫描命中的既有行, 仅相位或字幕变化时写入, 不修改番号与元数据绑定; 启动不全库回填. `mosaic` 只采用文件名与目录整段词表命中, 多种标记按破解、流出、无码取首项. 中字合并文件名标记 (`has_subtitle_in_name`) 与同目录命中库 `subtitle_extensions` 的字幕 (`has_external_subtitle`, 登记 / 修改 path / 库扫描时检查); 外挂字幕只在整理时传入 `parse_file_info` 并入 `FileInfo.has_subtitle`, 不改变路径投影. 两者都不校验字幕语言; 目录读取不到按无字幕处理. 只删除字幕不触发复查, 视频重新登记、更换 path 或所在库被扫描时才回退. Python 的 `MediaFile.has_subtitle` 与 SQL 的 `db/models.py::has_subtitle_predicate` 必须保持同一口径.
 
 Metadata 列表与 `/media` 文件行的角标与筛选: 有码 / 无码取条目类型 (没有挂载文件也成立), 无码再并上「存在无码标记的文件」; 中字 / 分辨率 / 破解 / 流出按关联 EXISTS 或页级聚合 (`file_phase`) 判定, 任一挂载文件具备即亮, `definition` 取最高档; 布尔取值的口径见 [api.md](api.md). 文件行同样返回派生的 `censored` / `uncensored`: `censored` 取这一份文件的性质 (带无码标记的副本不算有码), `uncensored` 与列表筛选同口径, 未绑定条目的文件只看自身标记. VR 标识与 `GET /metadata` 的 `vr` 筛选不来自文件相位, 也不物化: 只依据 `Metadata.tags` 与 `parsing/file_info.py::VR_TAGS` 的整体相等判定, 番号不参与; Python 与 SQL 两侧共用同一份词表 (`db/models.py::metadata_vr_predicate`, 用法同 `has_subtitle_predicate`), 因此重命名 / 合并标签后判定立即变化, 无需回填. 代价是判定随 `tags` 的单源取值: 字段链首个非空站点不给 VR 标签的条目判为否.
 
@@ -93,10 +93,10 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 
 | 操作 | 级联行为 | 后果 |
 |------|---------|------|
-| `MediaFile` 删除 | 不级联 Metadata 或 `NfoOutput` | 文件索引消失不影响元数据条目或实际 NFO 输出记录 |
+| `MediaFile` 删除 | 不级联 Metadata、`NfoOutput` 或 `Fc2PartPlan` | 文件索引消失不影响元数据、实际输出记录或固定分集 |
 | `Metadata` 删除 | **nullify** `MediaFile.metadata_id`, 状态回 `PENDING`; 删除 `NfoOutput` | 应用层级联 (`delete_metadata`); 文件本身保留, 可再刮削 |
 | `Metadata` 合并 | 来源的 `MediaFile` / `NfoOutput` / `Comment` / `MetadataUserTag` 改挂 target 并去重, 分类投影与来源条目删除 | `merge_metadata_entries`; target 字段与锁定不变, `raw` 只补目标缺失的站点 (来源之间按传入顺序), 不重新聚合; 请求的 `rescrape` 在合并提交后对目标番号入队 SCRAPE (复用 raw 缓存), 由聚合按当前优先级重建字段与站点级字典 |
-| `Library` 删除 | **级联删除** `MediaFile` 与 `NfoOutput` | 应用层级联 (`delete_library` 先 flush 删子表再删库, 无 ORM relationship). 仅删 DB 索引, 不动磁盘文件; 路由层同时 `remove_library` 停止监控 |
+| `Library` 删除 | **级联删除** `MediaFile`、`NfoOutput` 与 `Fc2PartPlan` | 应用层级联 (`delete_library` 先 flush 删子表再删库, 无 ORM relationship). 仅删 DB 索引, 不动磁盘文件; 路由层同时 `remove_library` 停止监控 |
 | `Feed` 删除 | **级联删除** `FeedItem` | 应用层级联; 已入队的 SCRAPE / Metadata 不受影响 |
 | `UserTag` 删除 | **级联删除**两张关联表的挂载行 | 应用层级联 (不依赖 FK pragma); 合并用户标签时源标签的挂载先迁入 target 再删实体 |
 | `Actor` 删除 / 合并 | 删除其标签挂载行; 合并时源演员的挂载并入 target | 应用层级联, 与别名行同处处理 |
@@ -117,9 +117,11 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 - `.amane_trash` 是历史遗留目录: 不再写入新内容, 目录本身与任意深度下级路径在任何扫描 / 监控中都恒被忽略, 历史内容由清理面板处置; 手动移出则被当作新文件重新入库.
 - 跳过正则在扫描 / 监控侧**逐条编译、任一命中即跳过**; 不允许用 `|` 拼接 (用户全局旗标拼在联合式中间会触发 re 的 "global flags not at the start"). 空列表关闭.
 
-分集 (CD) 不落库, ORGANIZE 按 `parsing/file_info.py::parse_file_info` 的结果渲染 `{cd?}`; 视频与字幕共用识别. 裸数字或字母尾标须位于完整商品号之后, 商品号内部连接符不作分集. 文件名无分集时可采用直接父目录的完整 CD / PART 标记. 写出的分集 / 中字 / 马赛克 / 分辨率须能被同一解析器反推, 保持再次整理幂等.
+普通分集由 `parsing/file_info.py::parse_file_info` 识别并渲染 `{cd?}`, 不单独落库. 裸数字或字母尾标须位于完整商品号之后, 商品号内部连接符不作分集. 文件名无分集时可采用直接父目录的完整 CD / PART 标记. 写出的分集 / 中字 / 马赛克 / 分辨率须能被同一解析器反推, 保持再次整理幂等.
 
-字幕: ORGANIZE 在视频**挪走前**扫描其同目录 (不递归、不入库、不扫描同目录其它视频), 扩展名由库 `subtitle_extensions` 配置; 多个字幕全部搬走不挑主字幕, 放置采用与视频相同的 `move_mode`. 字幕采用同一套 `parse_file_info`, 但只解析**文件名** (`text=` 入参), 否则 `chs.srt` 会被当成番号; 解析出番号时必须与当前视频相同, 再按分集配对, 解析不出时才回退独立目录规则. 中字落盘 (`{sub?}` 与封面角标) 只看库 `subtitle_extensions` 的同目录命中 (`has_companion_subtitle`) 与文件名标记, 不做这里的配对; 命中来源是 `MediaFile.has_external_subtitle`, 不重扫目录.
+FC2 特集由 `parsing/fc2_parts.py` 独立分类; `handlers/fc2_parts.py::resolve_fc2_part` 在同库整理锁内读取原始直接父目录, 按规范番号分组, 正片先于特集. 首次移动前经 `db/repos/fc2_parts.py` 固定整组成员、源身份与 CD, 移动前预留目标, 视频就位后先记录目标身份再处理附属文件. `Fc2PartPlan` 随 Library 保留, 不依赖 Metadata、MediaFile 或 NFO; 索引删除、失败重试与进程重启不得重排. 无法确定顺序、文件替换或固定后新增成员均拒绝整理. 目录读取沿用视频扩展名与跳过规则, 不按扫描 glob 截断分组.
+
+字幕: ORGANIZE 在视频移动前检查直接父目录, 扩展名由库 `subtitle_extensions` 配置; 多个字幕均采用视频的 `move_mode` 放置. 普通字幕只按文件名调用 `parse_file_info(text=...)`, 番号相同后按分集配对, 无番号才回退独立目录规则. FC2 特集计划按源角色与局部序号配对, 按输出 CD 命名; 无番号时仅明确语言名可属于首段正片, 已输出文件按 CD 配对. 中字落盘 (`{sub?}` 与封面角标) 仍使用 `MediaFile.has_external_subtitle` 与文件名标记, 不按字幕配对重算.
 
 `link_template` 非空时 ORGANIZE 在视频就位后创建链接 (`link_mode=strm` 写 `.strm`, `symlink` 创建符号链接). 链接必须在库外, 否则 REFRESH 会再次扫描为媒体. `.strm` 正文由 `strm_content_template` 决定 (空则写视频绝对路径); 引用 `{video_relpath}` 且目标在库外时失败. 链接失败仍登记并写入 NFO、处理字幕; 链接或 NFO 失败均保留实际视频位置与字幕冲突, 供索引提交与结果展示. 默认附属模板用 `{link_dir}`, NFO / 海报随链接放置.
 

@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,23 +8,38 @@ import structlog
 
 from ..enums import ActorGender, MoveMode
 from ..parsing import FileInfo, parse_file_info
+from ..parsing.fc2_parts import parse_fc2_member
 from ..utils.threads import in_thread
 from .file import PlaceOutcome, execute_organize
 from .path_templates import resolve_subtitle_path
 
 if TYPE_CHECKING:
     from ..db.models import Library, Metadata
+    from ..parsing.fc2_parts import Fc2Member
 
 logger = structlog.get_logger()
 
+_LANGUAGE_ONLY = re.compile(
+    r"(?:chs|cht|chi|zho|zh(?:[-_.\s]+(?:cn|tw|hk|hans|hant))?|en|eng|ja|jpn)",
+    re.IGNORECASE,
+)
+
 
 @in_thread
-def discover_subtitles(video_path: Path, extensions: Sequence[str], video: FileInfo) -> list[Path]:
+def discover_subtitles(
+    video_path: Path,
+    extensions: Sequence[str],
+    video: FileInfo,
+    *,
+    fc2_member: Fc2Member | None = None,
+) -> list[Path]:
     """只检查直接父目录, 不递归; 扩展名大小写不敏感. 空扩展名列表不发现. 多个字幕全部返回, 不挑主字幕.
 
     字幕只解析文件名 (`parse_file_info(text=...)`, 不依据目录、不使用路径回退).
     解析出番号时必须与当前视频番号相同 (忽略大小写), 再按分集配对;
     解析不出番号时回退独立目录规则: 有分集标记的跟当前视频同号, 解析不出的跟无分集或 CD1.
+    传入 FC2 成员时依据源文件的正片/特集角色与局部序号配对, 不使用整理目标 CD;
+    无番号时仅允许明确语言名匹配未编号正片或正片第一段.
     """
     exts = {e.lower() for e in extensions}
     if not exts:
@@ -38,7 +54,12 @@ def discover_subtitles(video_path: Path, extensions: Sequence[str], video: FileI
             continue
         if child.suffix.lower() not in exts:
             continue
-        if _belongs(video, parse_file_info(text=child.name)):
+        belongs = (
+            _fc2_belongs(fc2_member, child.name)
+            if fc2_member is not None
+            else _belongs(video, parse_file_info(text=child.name))
+        )
+        if belongs:
             found.append(child)
     found.sort(key=lambda p: p.name.casefold())
     return found
@@ -105,6 +126,20 @@ def _belongs(video: FileInfo, sub: FileInfo) -> bool:
     if sub.number is not None and (video.number is None or sub.number.casefold() != video.number.casefold()):
         return False
     return _cd_belongs(video.cd, sub.cd)
+
+
+def _fc2_belongs(video: Fc2Member, subtitle_name: str) -> bool:
+    if sub := parse_fc2_member(subtitle_name):
+        if sub.number != video.number or sub.role != video.role:
+            return False
+        if video.role == "special":
+            return sub.part == video.part
+        return _cd_belongs(video.part, sub.part)
+    return (
+        video.role == "main"
+        and video.part in {None, 1}
+        and _LANGUAGE_ONLY.fullmatch(Path(subtitle_name).stem) is not None
+    )
 
 
 def _cd_belongs(video_cd: int | None, sub_cd: int | None) -> bool:

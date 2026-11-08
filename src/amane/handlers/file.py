@@ -39,6 +39,7 @@ from ..utils.path import existing_disk_path as existing_disk_path_sync
 from ..utils.path import is_descendant, nfc_path, path_is_under
 from ..utils.threads import existing_disk_path, in_thread, path_is_dir
 from ._common import LibraryTaskLocks, refresh_external_subtitle
+from .fc2_parts import complete_fc2_part, prepare_fc2_part, resolve_fc2_part, verify_fc2_part
 from .models import (
     ORGANIZE_CONFLICT_LIMIT,
     CleanupPayload,
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
     from ..db.repository import Repository
     from ..media import ResourceStore
     from ..net.http import WebClient
+    from .fc2_parts import Fc2PartContext
 
 logger = structlog.get_logger()
 
@@ -86,6 +88,8 @@ async def execute_file_operations(
     watermark_dir: Path | None = None,
     actor_genders: dict[str, ActorGender] | None = None,
     repo: Repository | None = None,
+    *,
+    fc2_part: Fc2PartContext | None = None,
 ) -> FileOperationsResult:
     """``file_info`` 由渲染路径的那一次 ``parse_file_info`` 产出, 必须带上 ``has_external_subtitle``.
 
@@ -108,6 +112,13 @@ async def execute_file_operations(
         logger.warning("organize target state unknown", source=str(source_path), dest=str(dest), error=check.error)
         return FileOperationsResult(outcome=PlaceOutcome.FAILED, error=check.error)
 
+    if fc2_part is not None:
+        assert repo is not None
+        try:
+            await prepare_fc2_part(repo, fc2_part, source_path, dest)
+        except (ValueError, OSError) as exc:
+            return FileOperationsResult(outcome=PlaceOutcome.FAILED, error=str(exc))
+
     # 下载图片; 水印打在库路径副本上, 不能修改 Resource 原图.
     if web_client and download_images:
         logger.debug("downloading images via store", number=metadata.number)
@@ -128,7 +139,19 @@ async def execute_file_operations(
     # 发现字幕: 必须在视频移动前检查同目录.
     subtitles: list[Path] = []
     if library is not None:
-        subtitles = await discover_subtitles(source_path, library.subtitle_extensions, file_info)
+        subtitles = await discover_subtitles(
+            source_path,
+            library.subtitle_extensions,
+            file_info,
+            fc2_member=fc2_part.source_member if fc2_part is not None else None,
+        )
+
+    if fc2_part is not None:
+        # 资源下载与字幕读取可能耗时; 移动前复核, 不沿用等待前的文件身份.
+        try:
+            await verify_fc2_part(fc2_part, source_path)
+        except (ValueError, OSError) as exc:
+            return FileOperationsResult(outcome=PlaceOutcome.FAILED, error=str(exc))
 
     org_result = await execute_organize(
         source=source_path,
@@ -139,6 +162,14 @@ async def execute_file_operations(
 
     if org_result.outcome is PlaceOutcome.CONFLICT:
         return FileOperationsResult(outcome=PlaceOutcome.CONFLICT, conflict_target=org_result.dest)
+
+    plan_error: str | None = None
+    if org_result.outcome is PlaceOutcome.PLACED and org_result.dest and fc2_part is not None:
+        assert repo is not None
+        try:
+            await complete_fc2_part(repo, fc2_part, org_result.dest)
+        except (ValueError, OSError) as exc:
+            plan_error = str(exc)
 
     # 视频已经就位, 链接失败不能跳过 NFO 记录或遗留源目录字幕.
     link_error: str | None = None
@@ -203,7 +234,7 @@ async def execute_file_operations(
             actor_genders=actor_genders,
         )
 
-    errors = [error for error in (link_error, nfo_error) if error is not None]
+    errors = [error for error in (plan_error, link_error, nfo_error) if error is not None]
     if errors:
         return FileOperationsResult(
             outcome=PlaceOutcome.FAILED,
@@ -248,6 +279,12 @@ async def apply_file_operations(
     # 渲染路径后执行落盘.
     ext = Path(media_file.path).suffix.lstrip(".")
     file_info = parse_file_info(media_file.path, has_external_subtitle=media_file.has_external_subtitle)
+    try:
+        fc2_part = await resolve_fc2_part(repo, media_file, metadata, library, config)
+    except (ValueError, OSError) as exc:
+        return FileOperationsResult(outcome=PlaceOutcome.FAILED, error=str(exc))
+    if fc2_part is not None:
+        file_info = fc2_part.output_info(file_info)
     actor_genders = {a.name: a.gender for a in await repo.get_actors_by_names(metadata.actors)}
     paths = resolve_paths(
         library,
@@ -275,6 +312,7 @@ async def apply_file_operations(
         watermark_dir=watermark_dir,
         actor_genders=actor_genders,
         repo=repo,
+        fc2_part=fc2_part,
     )
 
 
@@ -531,9 +569,9 @@ def _classify_indexed(path: Path, scan: LibraryScan) -> LibraryFileKind | None:
 
 
 class OrganizeHandler(TaskHandler[OrganizePayload, OrganizeResult]):
-    """依据已有 Metadata 整理范围内的 MediaFile; 不刮削, 不修改 Metadata, 不扫描磁盘.
+    """依据已有 Metadata 整理范围内的 MediaFile; 不刮削, 不注册磁盘文件.
 
-    同库执行期与 DELETE 共用一把锁.
+    同库执行期与 DELETE 共用一把锁; FC2 特集只读同目录成员以固定编号.
     """
 
     def __init__(
