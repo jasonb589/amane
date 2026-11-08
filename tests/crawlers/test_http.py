@@ -250,6 +250,119 @@ async def test_auto_source_switches_to_browser_after_challenge(mock_web, mock_br
 
 
 @pytest.mark.asyncio
+async def test_auto_source_switches_after_http_403_challenge(mock_web: AsyncMock, mock_browser: AsyncMock) -> None:
+    client = HttpClient(web=mock_web, browser=mock_browser)
+    view = client.for_source("fc2ppv_db", SiteConfig())
+    mock_web.get_text.side_effect = RequestError(
+        _URL,
+        RequestFailure(
+            kind=FailureKind.HTTP_STATUS,
+            status=403,
+            message="HTTP 403",
+            body=b"<script>_cf_chl_opt={}</script>",
+        ),
+    )
+    mock_browser.get_page.return_value = ("<html>rendered</html>", None)
+
+    first = await view.get_html(_URL, cookies={"age-verified": "true"}, headers={"X-Test": "yes"}, wait_for="main h1")
+    second = await view.get_html(_URL)
+
+    assert first == second == "<html>rendered</html>"
+    mock_web.get_text.assert_awaited_once()
+    assert mock_browser.get_page.await_count == 2
+    call = mock_browser.get_page.await_args_list[0]
+    assert call.kwargs["scope"] == "fc2ppv_db"
+    assert call.kwargs["cookies"] == {"age-verified": "true"}
+    assert call.kwargs["headers"] == {"X-Test": "yes"}
+    assert call.kwargs["wait_for"] == "main h1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "available", "body", "reason"),
+    [
+        (BrowserMode.OFF, True, b"<script>_cf_chl_opt={}</script>", FailureReason.CLOUDFLARE_CHALLENGE),
+        (BrowserMode.AUTO, False, b"<script>_cf_chl_opt={}</script>", FailureReason.CLOUDFLARE_CHALLENGE),
+        (BrowserMode.AUTO, True, b"Access denied", FailureReason.HTTP_ERROR),
+        (BrowserMode.AUTO, True, b"cf-ray-id block", FailureReason.CLOUDFLARE_BLOCKED),
+    ],
+)
+async def test_http_failure_preserves_disabled_browser_and_nonchallenge_errors(
+    mock_web: AsyncMock,
+    mock_browser: AsyncMock,
+    mode: BrowserMode,
+    available: bool,
+    body: bytes,
+    reason: FailureReason,
+) -> None:
+    if not available:
+        mock_browser.resolve.return_value = None
+    view = HttpClient(web=mock_web, browser=mock_browser).for_source("fc2ppv_db", SiteConfig(use_browser=mode))
+    failure = RequestError(
+        _URL, RequestFailure(kind=FailureKind.HTTP_STATUS, status=403, message="HTTP 403", body=body)
+    )
+    mock_web.get_text.side_effect = failure
+
+    with pytest.raises(RequestError) as exc:
+        await view.get_html(_URL)
+
+    assert exc.value is failure
+    assert exc.value.reason is reason
+    mock_browser.get_page.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_challenge_without_browser_preserves_original_failure(mock_web: AsyncMock) -> None:
+    failure = RequestError(
+        _URL,
+        RequestFailure(
+            kind=FailureKind.HTTP_STATUS, status=403, message="HTTP 403", body=b"<script>_cf_chl_opt={}</script>"
+        ),
+    )
+    mock_web.get_text.side_effect = failure
+    view = HttpClient(web=mock_web).for_source("fc2ppv_db", SiteConfig())
+
+    with pytest.raises(RequestError) as exc:
+        await view.get_html(_URL)
+
+    assert exc.value is failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["get_html", "check"])
+async def test_http_challenge_browser_failure_stays_on_browser(
+    mock_web: AsyncMock, mock_browser: AsyncMock, operation: str
+) -> None:
+    challenge = RequestError(
+        _URL,
+        RequestFailure(
+            kind=FailureKind.HTTP_STATUS, status=403, message="HTTP 403", body=b"<script>_cf_chl_opt={}</script>"
+        ),
+    )
+    mock_web.get_text.side_effect = challenge
+    mock_web.request.side_effect = challenge
+    mock_browser.get_page.side_effect = [
+        (None, RequestFailure(kind=FailureKind.TIMEOUT, message="solver timeout")),
+        ("<html>recovered</html>", None),
+    ]
+    view = HttpClient(web=mock_web, browser=mock_browser).for_source("fc2ppv_db", SiteConfig())
+
+    if operation == "get_html":
+        with pytest.raises(RequestError) as exc:
+            await view.get_html(_URL)
+        assert exc.value.reason is FailureReason.TIMEOUT
+        assert await view.get_html(_URL) == "<html>recovered</html>"
+        mock_web.get_text.assert_awaited_once()
+    else:
+        first = await view.check(_URL)
+        second = await view.check(_URL)
+        assert first.status is ConnectivityStatus.FAILED and first.reason is FailureReason.TIMEOUT
+        assert second.status is ConnectivityStatus.OK
+        mock_web.request.assert_awaited_once()
+    assert mock_browser.get_page.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_auto_switch_is_shared_across_views_of_same_source(mock_web, mock_browser):
     client = HttpClient(web=mock_web, browser=mock_browser)
     first = client.for_source("minnano", SiteConfig())

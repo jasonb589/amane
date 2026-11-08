@@ -727,20 +727,25 @@ async def test_solver_creates_session_and_reuses_it():
         ("POST", "request.get"),
         ("POST", "request.get"),
     ]
-    assert [call[2]["json"].get("session") for call in web.calls] == ["site-a", "site-a", "site-a"]
+    session = web.calls[0][2]["json"]["session"]
+    assert session != "site-a"
+    assert [call[2]["json"].get("session") for call in web.calls] == [session, session, session]
     assert all(call[1] == "http://solver.test:8191/v1" for call in web.calls)
     assert all(call[2]["use_proxy"] is False for call in web.calls)
     assert all(call[2]["max_attempts"] == 1 for call in web.calls)
 
 
 @pytest.mark.asyncio
-async def test_solver_tolerates_existing_session():
-    solver, web = _make_solver([{"status": "error", "message": "Session already exists"}, _SOLVER_OK])
+@pytest.mark.parametrize("status", ["ok", "error"])
+async def test_solver_rejects_explicit_session_collision(status: str) -> None:
+    solver, web = _make_solver([{"status": status, "message": "Session already exists"}])
 
     html, failure = await solver.get_page("https://a.example/", scope="site-a")
+    await solver.close()
 
-    assert (html, failure) == ("<html>ok</html>", None)
-    assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create", "request.get"]
+    assert html is None
+    assert failure is not None and failure.message == "Session already exists"
+    assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create"]
 
 
 @pytest.mark.asyncio
@@ -749,7 +754,7 @@ async def test_solver_recreates_missing_session_once():
         [{"status": "ok"}, {"status": "error", "message": "Session not found"}, {"status": "ok"}, _SOLVER_OK]
     )
 
-    html, failure = await solver.get_page("https://a.example/", scope="site-a")
+    html, failure = await solver.get_page("https://a.example/", scope="site-a", cookies={"age-verified": "true"})
 
     assert (html, failure) == ("<html>ok</html>", None)
     assert [call[2]["json"]["cmd"] for call in web.calls] == [
@@ -758,6 +763,9 @@ async def test_solver_recreates_missing_session_once():
         "sessions.create",
         "request.get",
     ]
+    first, retried = [call[2]["json"] for call in web.calls if call[2]["json"]["cmd"] == "request.get"]
+    assert first["session"] != retried["session"]
+    assert first["cookies"] == retried["cookies"] == [{"name": "age-verified", "value": "true"}]
 
 
 @pytest.mark.asyncio
@@ -769,7 +777,7 @@ async def test_solver_falls_back_to_sessionless_when_session_request_fails():
 
     assert (html, failure) == ("<html>ok</html>", None)
     assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create", "request.get", "request.get"]
-    assert web.calls[1][2]["json"]["session"] == "site-a"
+    assert web.calls[1][2]["json"]["session"] == web.calls[0][2]["json"]["session"]
     assert "session" not in web.calls[2][2]["json"]
 
 
@@ -797,7 +805,7 @@ async def test_solver_falls_back_to_sessionless_on_solver_5xx():
 @pytest.mark.asyncio
 async def test_solver_stays_sessionless_after_fallback():
     """降级是粘性的: 之后的来源不再建会话, 免得每次刮削都白等一个超时."""
-    solver, web = _make_solver([{"status": "ok"}, _solver_timeout(), _SOLVER_OK, _SOLVER_OK])
+    solver, web = _make_solver([{"status": "ok"}, _solver_timeout(), _SOLVER_OK, _SOLVER_OK, {"status": "ok"}])
 
     await solver.get_page("https://a.example/", scope="site-a")
     html, failure = await solver.get_page("https://b.example/", scope="site-b")
@@ -810,6 +818,11 @@ async def test_solver_stays_sessionless_after_fallback():
         "request.get",
     ]
     assert "session" not in web.calls[3][2]["json"]
+    await solver.close()
+    assert web.calls[-1][2]["json"] == {
+        "cmd": "sessions.destroy",
+        "session": web.calls[0][2]["json"]["session"],
+    }
 
 
 _SOLVER_FAILURES: list[tuple[object, FailureKind, FailureReason]] = [
@@ -936,7 +949,9 @@ async def test_solver_close_destroys_all_sessions():
     await solver.close()
 
     destroyed = {call[2]["json"]["session"] for call in web.calls if call[2]["json"]["cmd"] == "sessions.destroy"}
-    assert destroyed == {"site-a", "site-b"}
+    created = {call[2]["json"]["session"] for call in web.calls if call[2]["json"]["cmd"] == "sessions.create"}
+    assert len(created) == 2
+    assert destroyed == created
 
 
 # solver 同会话互斥: FlareSolverr 的会话是一张浏览器标签, 同会话并发会让两个调用方读到同一份正文.
@@ -996,22 +1011,37 @@ async def test_solver_releases_scope_lock_on_session_failure():
 
 
 @pytest.mark.asyncio
-async def test_solver_forwards_global_proxy_to_payload():
-    """面板的「代理」要转发给 solver: trawl 的 /v1 支持 per-request ``proxy``."""
-    web = _FakeWeb([{"status": "ok"}, _SOLVER_OK])
+@pytest.mark.parametrize(
+    ("proxy", "expected"),
+    [
+        ("http://proxy.example:8080", {"url": "http://proxy.example:8080"}),
+        (
+            "http://name%40example:p%3Ass@[2001:db8::1]:8080",
+            {"url": "http://[2001:db8::1]:8080", "username": "name@example", "password": "p:ss"},
+        ),
+    ],
+)
+@pytest.mark.parametrize("session_fails", [False, True])
+async def test_solver_sets_proxy_on_session_creation_and_sessionless_requests(
+    proxy: str, expected: dict[str, str], session_fails: bool
+) -> None:
+    """有会话时代理在创建阶段固定; 无会话请求采用标准对象, 两者均与 FlareSolverr 兼容."""
+    replies = [{"status": "ok"}, _solver_timeout(), _SOLVER_OK] if session_fails else [{"status": "ok"}, _SOLVER_OK]
+    web = _FakeWeb(replies)
     solver = SolverBackend(
         web_provider=lambda: web,  # type: ignore[arg-type]
         url="http://solver.test:8191",
         default_timeout=1000,
-        proxy="http://74.222.29.169:27703",
+        proxy=proxy,
     )
 
     assert await solver.get_page("https://a.example/1", scope="site-a") == ("<html>ok</html>", None)
 
-    payload = web.calls[-1][2]["json"]
-    assert payload["proxy"] == "http://74.222.29.169:27703"
-    # 访问 solver 自身仍直连: 否则等于自己绕自己.
-    assert web.calls[-1][2]["use_proxy"] is False
+    assert web.calls[0][2]["json"]["proxy"] == expected
+    assert "proxy" not in web.calls[1][2]["json"]
+    if session_fails:
+        assert web.calls[-1][2]["json"]["proxy"] == expected
+    assert all(call[2]["use_proxy"] is False for call in web.calls)
 
 
 @pytest.mark.asyncio
@@ -1021,4 +1051,291 @@ async def test_solver_omits_proxy_when_unset():
 
     assert await solver.get_page("https://a.example/1", scope="site-a") == ("<html>ok</html>", None)
 
-    assert "proxy" not in web.calls[-1][2]["json"]
+    assert all("proxy" not in call[2]["json"] for call in web.calls)
+
+
+@pytest.mark.asyncio
+async def test_solver_instances_own_distinct_sessions_for_same_scope() -> None:
+    web = _SolverWeb(_solver_responder)
+    first = SolverBackend(web_provider=lambda: web, url="http://solver.test", default_timeout=1000)  # type: ignore[arg-type]
+    second = SolverBackend(web_provider=lambda: web, url="http://solver.test", default_timeout=1000)  # type: ignore[arg-type]
+    await first.get_page("https://a.example/1", scope="site-a")
+    await second.get_page("https://a.example/2", scope="site-a")
+    created = [call["session"] for call in web.calls if call["cmd"] == "sessions.create"]
+
+    await first.close()
+
+    assert len(set(created)) == 2
+    assert [call["session"] for call in web.calls if call["cmd"] == "sessions.destroy"] == created[:1]
+    assert await second.get_page("https://a.example/3", scope="site-a") == ("<html>https://a.example/3</html>", None)
+    assert web.calls[-1]["session"] == created[1]
+    await second.close()
+    assert [call["session"] for call in web.calls if call["cmd"] == "sessions.destroy"] == created
+
+
+@pytest.mark.asyncio
+async def test_solver_cookie_reuse_preserves_clearance_until_host_or_config_changes() -> None:
+    stored: dict[str, str] = {}
+    imports: list[str] = []
+
+    def respond(payload: dict[str, Any]) -> dict[str, Any]:
+        if payload["cmd"] == "sessions.create":
+            stored.clear()
+        if payload["cmd"] != "request.get":
+            return {"status": "ok"}
+        if "cookies" in payload:
+            stored.clear()
+            stored.update({cookie["name"]: cookie["value"] for cookie in payload["cookies"]})
+            imports.append(payload["url"])
+        preserved = "cf_clearance" in stored
+        stored["cf_clearance"] = "solved"
+        return {"status": "ok", "solution": {"status": 200, "response": f"<html>{preserved}</html>"}}
+
+    web = _SolverWeb(respond)
+    solver = SolverBackend(web_provider=lambda: web, url="http://solver.test", default_timeout=1000)  # type: ignore[arg-type]
+    initial = {"age-verified": "true", "language": "ja"}
+    assert await solver.get_page("https://a.example/1", scope="site", cookies=initial) == ("<html>False</html>", None)
+    assert await solver.get_page(
+        "https://a.example/2", scope="site", cookies={"language": "ja", "age-verified": "true"}
+    ) == ("<html>True</html>", None)
+    changed = {"age-verified": "true", "language": "en"}
+    for url, cookies in [
+        ("https://a.example/3", changed),
+        ("https://b.example/4", changed),
+        ("https://a.example/5", initial),
+    ]:
+        assert await solver.get_page(url, scope="site", cookies=cookies) == ("<html>False</html>", None)
+    assert imports == ["https://a.example/1", "https://a.example/3", "https://b.example/4", "https://a.example/5"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_fails", [False, True])
+async def test_solver_cookie_removal_replaces_only_affected_source(first_fails: bool) -> None:
+    jars: dict[str, dict[str, str]] = {}
+
+    def respond(payload: dict[str, Any]) -> dict[str, Any]:
+        session = payload["session"]
+        if payload["cmd"] == "sessions.create":
+            jars[session] = {}
+            return {"status": "ok"}
+        if payload["cmd"] == "sessions.destroy":
+            del jars[session]
+            return {"status": "ok"}
+        jar = jars[session]
+        if "cookies" in payload:
+            jar.clear()
+            jar.update({cookie["name"]: cookie["value"] for cookie in payload["cookies"]})
+        if first_fails and payload["url"].endswith("/first"):
+            return {"status": "error", "message": "Challenge not solved"}
+        return {
+            "status": "ok",
+            "solution": {"status": 200, "response": f"<html>{jar.get('account', 'anonymous')}</html>"},
+        }
+
+    web = _SolverWeb(respond)
+    solver = SolverBackend(web_provider=lambda: web, url="http://solver.test", default_timeout=1000)  # type: ignore[arg-type]
+    await solver.get_page("https://a.example/first", scope="changed", cookies={"account": "first"})
+    await solver.get_page("https://a.example/other", scope="other", cookies={"account": "other"})
+    first_session, other_session = [call["session"] for call in web.calls if call["cmd"] == "sessions.create"]
+
+    assert await solver.get_page("https://a.example/next", scope="changed", cookies={}) == (
+        "<html>anonymous</html>",
+        None,
+    )
+    anonymous_session = web.calls[-1]["session"]
+    assert anonymous_session != first_session
+    assert await solver.get_page("https://a.example/repeat", scope="changed", cookies={}) == (
+        "<html>anonymous</html>",
+        None,
+    )
+    assert web.calls[-1]["session"] == anonymous_session
+    assert await solver.get_page("https://a.example/other-next", scope="other", cookies={"account": "other"}) == (
+        "<html>other</html>",
+        None,
+    )
+    assert web.calls[-1]["session"] == other_session
+    assert [call["session"] for call in web.calls if call["cmd"] == "sessions.destroy"] == [first_session]
+    await solver.close()
+    assert jars == {}
+    assert len([call for call in web.calls if call["cmd"] == "sessions.destroy"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_solver_cookie_replacement_retries_failed_cleanup_at_close() -> None:
+    replies: list[object] = [
+        {"status": "ok"},
+        _SOLVER_OK,
+        RequestError("http://solver.test", RequestFailure(kind=FailureKind.HTTP_STATUS, status=409, message="busy")),
+        {"status": "ok"},
+        _SOLVER_OK,
+        {"status": "ok"},
+        {"status": "ok"},
+    ]
+    solver, web = _make_solver(replies)
+    await solver.get_page("https://a.example/first", scope="site", cookies={"account": "test"})
+    await solver.get_page("https://a.example/second", scope="site", cookies={})
+    await solver.close()
+    sessions = [call[2]["json"]["session"] for call in web.calls if call[2]["json"]["cmd"] == "sessions.create"]
+    destroyed = [call[2]["json"]["session"] for call in web.calls if call[2]["json"]["cmd"] == "sessions.destroy"]
+    assert destroyed.count(sessions[0]) == 2
+    assert destroyed.count(sessions[1]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("collision", [False, True])
+async def test_cancelled_session_creation_waits_for_result_and_cleans_ownership(collision: bool) -> None:
+    response = {"status": "error", "message": "Session already exists"} if collision else {"status": "ok"}
+    web = _GatedWeb([response, {"status": "ok"}], gate_cmd="sessions.create")
+    pool = BrowserPool(
+        default_backend=BrowserBackendName.SOLVER,
+        solver_url="http://solver.test",
+        proxy=None,
+        web_client=web,  # type: ignore[arg-type]
+        timeout_ms=1000,
+    )
+    task = asyncio.create_task(pool.get_page("https://a.example/", scope="site"))
+    await asyncio.wait_for(web.get_answered.wait(), LOAD_TOLERANT_TIMEOUT)
+    task.cancel()
+    pool.retire()
+    web.retire()
+    assert not web.closed
+    web.release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, LOAD_TOLERANT_TIMEOUT)
+    await pool.close()
+    await web.close()
+    commands = [call[2]["json"]["cmd"] for call in web.calls]
+    assert commands == (["sessions.create"] if collision else ["sessions.create", "sessions.destroy"])
+    if not collision:
+        assert web.calls[0][2]["json"]["session"] == web.calls[1][2]["json"]["session"]
+    assert web.closed
+
+
+@pytest.mark.asyncio
+async def test_cancelled_create_with_lost_response_cleans_random_candidate() -> None:
+    create_started = asyncio.Event()
+    release = asyncio.Event()
+
+    class LostCreateWeb(_FakeWeb):
+        async def request(self, method: str, url: str, **kwargs: Any) -> _Resp:
+            if kwargs["json"]["cmd"] == "sessions.create":
+                self.calls.append((method, url, kwargs))
+                create_started.set()
+                await release.wait()
+                raise RequestError(url, RequestFailure(kind=FailureKind.CURL, message="empty reply"))
+            return await super().request(method, url, **kwargs)
+
+    web = LostCreateWeb([{"status": "ok"}])
+    solver = SolverBackend(web_provider=lambda: web, url="http://solver.test", default_timeout=1000)  # type: ignore[arg-type]
+    task = asyncio.create_task(solver.get_page("https://a.example/", scope="site"))
+    await asyncio.wait_for(create_started.wait(), LOAD_TOLERANT_TIMEOUT)
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, LOAD_TOLERANT_TIMEOUT)
+    await solver.close()
+    assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create", "sessions.destroy"]
+    assert web.calls[0][2]["json"]["session"] == web.calls[1][2]["json"]["session"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_create_keeps_failed_cleanup_owned_until_close() -> None:
+    busy = RequestError("http://solver.test", RequestFailure(kind=FailureKind.HTTP_STATUS, status=409, message="busy"))
+    web = _GatedWeb([{"status": "ok"}, busy, {"status": "ok"}], gate_cmd="sessions.create")
+    solver = SolverBackend(web_provider=lambda: web, url="http://solver.test", default_timeout=1000)  # type: ignore[arg-type]
+    task = asyncio.create_task(solver.get_page("https://a.example/", scope="site"))
+    await asyncio.wait_for(web.get_answered.wait(), LOAD_TOLERANT_TIMEOUT)
+    task.cancel()
+    web.release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, LOAD_TOLERANT_TIMEOUT)
+    await solver.close()
+    assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create", "sessions.destroy", "sessions.destroy"]
+    assert len({call[2]["json"]["session"] for call in web.calls}) == 1
+
+
+@pytest.mark.asyncio
+async def test_solver_cookie_import_and_clearance_are_isolated_between_sources() -> None:
+    stored: dict[str, dict[str, str]] = {}
+
+    def respond(payload: dict[str, Any]) -> dict[str, Any]:
+        session = payload["session"]
+        if payload["cmd"] == "sessions.create":
+            stored[session] = {}
+            return {"status": "ok"}
+        jar = stored[session]
+        if "cookies" in payload:
+            jar.clear()
+            jar.update({cookie["name"]: cookie["value"] for cookie in payload["cookies"]})
+        if jar.get("age-verified") != "true":
+            return {"status": "ok", "solution": {"status": 403, "response": "<html>cookie missing</html>"}}
+        clearance = jar.setdefault("cf_clearance", payload["url"].rsplit("/", 1)[-1])
+        return {"status": "ok", "solution": {"status": 200, "response": f"<html>{clearance}</html>"}}
+
+    web = _SolverWeb(respond)
+    solver = SolverBackend(web_provider=lambda: web, url="http://solver.test", default_timeout=1000)  # type: ignore[arg-type]
+    cookies = {"age-verified": "true"}
+    for scope in ("first", "second"):
+        assert await solver.get_page(f"https://shared.example/{scope}", scope=scope, cookies=cookies) == (
+            f"<html>{scope}</html>",
+            None,
+        )
+    for scope in ("first", "second"):
+        assert await solver.get_page("https://shared.example/next", scope=scope, cookies=cookies) == (
+            f"<html>{scope}</html>",
+            None,
+        )
+
+    requests = [call for call in web.calls if call["cmd"] == "request.get"]
+    assert ["cookies" in request for request in requests] == [True, True, False, False]
+    assert requests[0]["session"] != requests[1]["session"]
+    assert [request["session"] for request in requests[:2]] == [request["session"] for request in requests[2:]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "message", "recreates"),
+    [(404, "Session not found", True), (410, "Session expired", True), (404, "Not found", False)],
+)
+async def test_solver_recreates_only_explicit_missing_http_session(status: int, message: str, recreates: bool) -> None:
+    error = RequestError(
+        "http://solver.test/v1",
+        RequestFailure(kind=FailureKind.HTTP_STATUS, status=status, message=f"HTTP {status}", body=message.encode()),
+    )
+    solver, web = _make_solver([{"status": "ok"}, _SOLVER_OK, error, {"status": "ok"}, _SOLVER_OK])
+    cookies = {"age-verified": "true"}
+    assert await solver.get_page("https://a.example/1", scope="site", cookies=cookies) == ("<html>ok</html>", None)
+
+    html, failure = await solver.get_page("https://a.example/2", scope="site", cookies=cookies)
+
+    if recreates:
+        assert (html, failure) == ("<html>ok</html>", None)
+        assert len(web.calls) == 5
+        assert web.calls[0][2]["json"]["session"] != web.calls[3][2]["json"]["session"]
+        assert "cookies" not in web.calls[2][2]["json"]
+        assert web.calls[4][2]["json"]["cookies"] == [{"name": "age-verified", "value": "true"}]
+    else:
+        assert html is None and failure is error.failure
+        assert len(web.calls) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "html", "reason"),
+    [
+        (403, "<script>_cf_chl_opt={}</script>", FailureReason.CLOUDFLARE_CHALLENGE),
+        (404, "<html>Not found</html>", FailureReason.NOT_FOUND),
+        (429, "<html>Slow down</html>", FailureReason.RATE_LIMITED),
+        (503, "<html>Unavailable</html>", FailureReason.SERVER_ERROR),
+    ],
+)
+async def test_solver_rejects_failed_target_status_in_success_envelope(
+    status: int, html: str, reason: FailureReason
+) -> None:
+    solver, web = _make_solver([{"status": "ok"}, {"status": "ok", "solution": {"status": status, "response": html}}])
+
+    content, failure = await solver.get_page("https://a.example/", scope="site")
+
+    assert content is None and failure is not None
+    assert failure.status == status and classify_request_error(failure) is reason
+    assert [call[2]["json"]["cmd"] for call in web.calls] == ["sessions.create", "request.get"]

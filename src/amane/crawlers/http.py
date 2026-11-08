@@ -128,7 +128,13 @@ class HttpClient:
         scope = self._scope(url)
         if self._policy.should_render(scope):
             return await self._render(url, headers=headers, cookies=cookies, wait_for=wait_for)
-        text = await self.get_text(url, headers=headers, cookies=cookies, encoding=encoding)
+        try:
+            text = await self.get_text(url, headers=headers, cookies=cookies, encoding=encoding)
+        except SourceError as exc:
+            # 挑战页也可能返回 403; HTTP 层已归类的失败与成功响应正文共用升级策略.
+            if self._policy.escalate(scope, exc.reason):
+                return await self._render(url, headers=headers, cookies=cookies, wait_for=wait_for)
+            raise
         reason = classify_block(text)
         if reason is None:
             if wait_for is not None:

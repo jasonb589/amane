@@ -39,16 +39,18 @@ CrawlerFactory (缓存实例)
 
 ## 番号入参
 
-`SearchQuery.number` 就是 `ScrapePayload.number`; Handler 不解析番号. 来源路径不同则字符串形态不同, 爬虫不能假设「一定已经带短横线、一定是大写」:
+`SearchQuery.number` 沿用本次执行的 `ScrapePayload.number`; 旧自动任务的恢复边界见 [task-system.md](task-system.md). 来源路径不同则字符串形态不同, 爬虫不能假设「一定已经带短横线、一定是大写」:
 
 | 来源路径 | 番号来源 | 是否重写 |
 |------|------------|------------|
 | 库扫描 / 按 `media_id` 刮削 | `parse_file_info(path).number` | **会.** 路径解析命中已知形态时改写成目录号 (插入 `-`、拆分前导零、FC2/HEYZO 族规则、字母大写、剥 CD / 字幕尾标). 规则只在 `parsing/file_info.py`, 本文不列出规则表 |
-| 用户任务只填 `number` | submission 字符串 | **不会.** 原样写入 payload; 空 `content_type` 只调用 `infer_content_type`. |
-| 按 `media_id` 同时填写 `number` | submission 字符串 | **不会.** 空白 `number` 视为未填写, 回退到只按路径解析. |
+| 用户任务只填 `number` | submission 字符串 | 除下述 FC2 归一外保持原样; 空 `content_type` 调用 `infer_content_type`, 显式类型优先. |
+| 按 `media_id` 同时填写 `number` | submission 字符串 | 同手填规则; 空白视为未填写, 回退到路径解析. |
 | RSS 自动入队 | `extract_number` | **会** (与路径同一套已知形态); 未命中则没有番号, **不会**把标题原文当番号. 源上设置了 `number_pattern` 时只采用该正则, 见 [feeds.md](feeds.md) |
 
 落库 `Metadata.number` 也是这份 payload 原样 (UNIQUE 忽略大小写, 保留首次写入的大小写), 因此补刮 / RESCRAPE 可能再次把无横线手填号送入爬虫.
+
+FC2 识别共用 `parsing/file_info.py::normalize_fc2_number`: 完整 FC2 与至少五位数字的 FC 简写先于通用字母号、日期号匹配, 短 FC 保留原义. API / Feed 仅将缺少 `2` 或全角前缀改写为规范 FC2, 已有 ASCII FC2 主键不重写; `crawlers/parsing.py::fc2_article_id` 复用归一并兼容既有短 FC2 号.
 
 ## 检索命中
 
@@ -81,15 +83,15 @@ CrawlerFactory (缓存实例)
 
 `WebClient` 按 host 解析代理: `scraping.site_config[site].proxy` 覆盖全局 `network.proxy`; 站点 `use_proxy=false` 表示该站点的 host 直连, 站点代理与全局代理都不使用. host 取自来源 profile 的 URL 与配置的 `base_url`, 与限速器是同一份集合, 不在其中的 host (CDN 等) 仍走全局代理; 多个站点共享 host 时按注册顺序最后一次写入生效. 代理按请求传入, 会话与 cookie 不随代理拆分; 调用方传 `use_proxy=False` 时强制直连, 站点级配置不参与 (本机 solver 服务用).
 
-浏览器通道 (patchright / camoufox / solver) 只有全局 `network.proxy`: 本地后端的代理由浏览器启动参数决定, solver 的代理属于该服务自身配置. 站点代理与站点级 `use_proxy` 都不改变它, 因此浏览器池的重建判据仍只看全局配置.
+浏览器通道只使用全局 `network.proxy`: 本地后端在启动时设置, solver 以标准代理对象在会话创建时固定, 无会话请求逐次传递; 连接 solver 本身始终直连. 站点代理与 `use_proxy` 不改变浏览器通道, 浏览器池重建判据仍只看全局配置.
 
 ## 浏览器指纹与渲染
 
 `WebClient` 基于 curl_cffi, 指纹按 host 记忆: 该 host 的首次请求取进程默认值 (构造期随机选定并记入日志), 命中 403/406 判定为站点拦下此指纹, 换下一个未试过的指纹重发, 换过的指纹对该 host 保持; 该 host 的指纹全部被拒后不再轮换. 轮换不占 `max_retries` / `max_attempts` 的重试预算, 单次尝试的探测同样会换指纹.
 
-Cloudflare managed challenge 只能执行 JS 越过, 因此受保护的来源由 `HttpClient` 的渲染路径经由浏览器: 后端由 `network.browser.backend` (`off` / `patchright` / `camoufox` / `bsk` / `solver`) 选择, 来源按 `SiteConfig.use_browser` 三档路由 (设置页可编辑): `auto` (默认) 先直连, 首次命中 `classify_block` 的 `cloudflare_challenge` 后该来源改用浏览器并保持; `always` 一律渲染; `off` 一律直连. `SiteConfig.browser_backend` 覆盖后端 (`off` 显式禁用; 可空枚举没有 UI 回退项, 覆盖只经 TOML/API 设置), 只在改用浏览器后生效; 仅 `always` 在无可用后端时于构造期告警. 判定集中在 `crawlers/http.py::RenderPolicy`, `get_html` 与基类 `check_connectivity` 共用; 渲染时本地引擎与 bsk 支持 `wait_for` 等元素可见, solver 不转发; 网络静默只在本地引擎上等 (状态式查询, 上限 3s); `get_text` / `get_json` / `get_bytes` / `download` 仍直连 (浏览器后端只产出渲染后的 HTML, solver 同样不返回正文字节: 二进制下载没有浏览器回退, 被拦时只由指纹轮换处理), 自定义 `check_connectivity` 自选传输. 输出仍按 `net/errors.py::classify_block` 判定拦截, 后端自身的失败以 `RequestFailure.reason` 表达——挑战未解决归为 `cloudflare_challenge`, 不因缺少正文退化成通用错误.
+Cloudflare managed challenge 需要执行 JS, 由 `HttpClient` 渲染路径处理; 后端由 `network.browser.backend` 选择. `SiteConfig.use_browser` 三档: `auto` 先直连, 成功正文或 HTTP 失败被归类为 `cloudflare_challenge` 后改用浏览器并保持; `always` 一律渲染; `off` 一律直连. 普通 403 与网络故障不触发升级. `SiteConfig.browser_backend` 覆盖后端 (`off` 显式禁用, 仅 TOML/API 可编辑), 只在渲染时生效; 仅 `always` 在无后端时于构造期告警. `crawlers/http.py::RenderPolicy` 供 `get_html` 与 `check_connectivity` 共用; 本地引擎与 bsk 支持 `wait_for`, solver 不转发; 网络静默仅本地引擎等待, 上限 3s. `get_text` 遵守已切换的渲染策略但不自行检查成功正文, `get_json` / `get_bytes` / `download` 始终直连; 二进制下载没有浏览器回退. 输出按 `net/errors.py::classify_block` 判定拦截, 后端失败使用 `RequestFailure.reason`; solver 目标 HTTP 失败仍按状态与正文上报, 不因外层接口成功而忽略.
 
-同一来源的连续请求复用同一个浏览器 context (solver 复用同名会话); 引擎惰性启动, camoufox 浏览器二进制在首次启动时下载, 空闲及进程退出 / 热重建时释放. 浏览器池只在 `network.browser` / `proxy` 变化时重建, 其余热重载保留已解决的 clearance; solver 经注入的 `WebClient` 出站, 地址来自 `network.browser.solver_url`, 不允许暴露到公网. FlareSolverr 的会话就是 solver 服务里的一张浏览器标签, 同一会话的并发页面请求会互相覆盖导航, 导致所有调用方读到同一份正文, 且以成功响应返回, 因此同一来源的并发渲染在 `SolverBackend` 里按会话排队. bsk 后端经 `bsk` CLI 驱动用户自装且已连接的浏览器, 要求 0.4.0 及以上: 0.4 起默认开启共享控制, 除空白标签页的首次导航外, 改动页面的命令都要带 `cooperate sync` 返回的一次性上下文. 因此每个请求各开一张标签页, 正文只走只读命令; 写 cookie、点 Turnstile 与关标签页各取一次上下文, 0.4.1 起关页与脚本执行还必须带这次同步的观察 ID. 取完即关: 观察在往返途中失效时重取一次再关, 页面不可同步 (共享控制的观察面不可用, 关页必然被拒) 时停掉会话, 连 Agent Window 与其中的标签页一起收掉 — 还有请求在等这个会话时只标记待回收, 由下一次取页前轮换. 会话只在实体消失或扩展断连时重建, 单个动作被拒直接上报; cookie 写入失败只冷却该组合, 不换会话也不永久放弃. 没有 cookie 与请求头注入, cookie 只能在目标域上用页面上下文写入; 扩展注入的样式节点在返回前剥掉. 浏览器侧只有事件式等待, `wait-for-navigation` 等的是之后的生命周期事件, 导航里等静默又会把提交与静默绑进同一个时限, 所以 bsk 不提供网络静默等待, 需要就绪时传 `wait_for`. 连接多个或扩展与 daemon 版本不匹配时探测即判不可用; 协议下限在宿主 Job 受限时探测不到, 要等前台 daemon 起来才生效 — 该场景由后台自己拉起 `bsk daemon start --foreground`, 进程随服务结束.
+同一来源复用浏览器 context; 引擎惰性启动, camoufox 二进制首次启动时下载, 空闲及退出 / 热重建时释放. 浏览器池只在 `network.browser` / `proxy` 变化时重建, 其余热重载保留 clearance. `SolverBackend` 经注入的 `WebClient` 访问 `network.browser.solver_url`, 服务不允许暴露公网; 按来源串行并使用实例独立的远端会话 ID, 仅销毁自身会话. 同会话同主机的配置 Cookie 未变化时不重复导入, 避免 Trawl 删除 clearance, 会话重建时重新导入. bsk 后端经 `bsk` CLI 驱动用户自装且已连接的浏览器, 要求 0.4.0 及以上: 0.4 起默认开启共享控制, 除空白标签页的首次导航外, 改动页面的命令都要带 `cooperate sync` 返回的一次性上下文. 因此每个请求各开一张标签页, 正文只走只读命令; 写 cookie、点 Turnstile 与关标签页各取一次上下文, 0.4.1 起关页与脚本执行还必须带这次同步的观察 ID. 取完即关: 观察在往返途中失效时重取一次再关, 页面不可同步 (共享控制的观察面不可用, 关页必然被拒) 时停掉会话, 连 Agent Window 与其中的标签页一起收掉 — 还有请求在等这个会话时只标记待回收, 由下一次取页前轮换. 会话只在实体消失或扩展断连时重建, 单个动作被拒直接上报; cookie 写入失败只冷却该组合, 不换会话也不永久放弃. 没有 cookie 与请求头注入, cookie 只能在目标域上用页面上下文写入; 扩展注入的样式节点在返回前剥掉. 浏览器侧只有事件式等待, `wait-for-navigation` 等的是之后的生命周期事件, 导航里等静默又会把提交与静默绑进同一个时限, 所以 bsk 不提供网络静默等待, 需要就绪时传 `wait_for`. 连接多个或扩展与 daemon 版本不匹配时探测即判不可用; 协议下限在宿主 Job 受限时探测不到, 要等前台 daemon 起来才生效 — 该场景由后台自己拉起 `bsk daemon start --foreground`, 进程随服务结束.
 
 改用浏览器的来源 (auto 切换后或 always) 实际入口不是 `base_url` 时必须覆盖 `check_connectivity` (如 minnano 探测 `search_result.php`), 否则首页可达会掩盖入口不可达. 插件来源没有浏览器入口, 始终使用 HTTP. `browser` 可选依赖不随 Docker 与桌面打包分发, 这两处只能用 `solver`, 或由用户自装 `bsk` 与浏览器扩展.
 

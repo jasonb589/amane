@@ -13,6 +13,8 @@ import time
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, AsyncExitStack, ExitStack
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
+from urllib.parse import unquote, urlsplit, urlunsplit
+from uuid import uuid4
 
 import structlog
 
@@ -558,8 +560,13 @@ class SolverBackend:
         self._web_provider = web_provider
         self._url = url.rstrip("/")
         self._default_timeout = default_timeout
-        self._proxy = proxy
+        self._proxy = _solver_proxy(proxy)
+        self._scope_sessions: dict[str, str] = {}
+        # 远端名称不能直接使用来源 ID: 多实例和热重建必须各自持有、销毁自己的会话.
         self._sessions: set[str] = set()
+        self._destroying_sessions: set[str] = set()
+        self._session_cookies: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {}
+        self._session_cookie_config: dict[str, tuple[tuple[str, str], ...]] = {}
         # 有些兼容服务 (见 trawl) 只在**无 session** 时响应, 会话绑定的请求会挂到超时:
         # 首次踩到就把该后端标记为不支持会话, 之后一律走一次性请求 (实例随热重建重置).
         self._sessionless = False
@@ -616,7 +623,7 @@ class SolverBackend:
             if not _solver_ok(data):
                 message = _solver_message(data)
                 if _is_missing_session(message) and not self._sessionless:
-                    self._sessions.discard(scope)
+                    self._forget_session(scope)
                     try:
                         data = await self._request(web, url, scope, effective, cookies)
                     except RequestError as exc:
@@ -632,6 +639,14 @@ class SolverBackend:
             html = solution.get("response")
             if not isinstance(html, str):
                 return None, RequestFailure(kind=FailureKind.UNEXPECTED, message="solver solution has no response")
+            status = solution.get("status")
+            if isinstance(status, int) and status >= 400:
+                return None, RequestFailure(
+                    kind=FailureKind.HTTP_STATUS,
+                    status=status,
+                    message=f"solver target HTTP {status}",
+                    body=html.encode("utf-8")[:65536],
+                )
             return html, None
 
     def _lock_for(self, scope: str) -> asyncio.Lock:
@@ -649,8 +664,15 @@ class SolverBackend:
         if self._sessionless:
             return await self._request_get(web, url, None, timeout_ms, cookies)
         try:
-            await self._ensure_session(web, scope)
-            return await self._request_get(web, url, scope, timeout_ms, cookies)
+            cookie_config = tuple(sorted((cookies or {}).items()))
+            previous = self._scope_sessions.get(scope)
+            if previous is not None and self._session_cookie_config.get(previous, ()) != cookie_config:
+                # 空数组不能清除 Trawl 的旧身份; 配置集合变化时重新建立本来源的会话.
+                self._detach_session(scope)
+                await self._destroy_session(web, previous)
+            session = await self._ensure_session(web, scope)
+            self._session_cookie_config[session] = cookie_config
+            return await self._request_get(web, url, session, timeout_ms, cookies)
         except RequestError as exc:
             # 兼容服务 (trawl 之类): sessions.create 正常返回, 但会话绑定的 request.get 会一直挂到超时,
             # 或等满 maxTimeout 后回 5xx. 只对这两类降级 —— 配置错、服务已关之类重试也没意义, 照常抛出.
@@ -658,49 +680,101 @@ class SolverBackend:
                 raise
             logger.warning("solver sessions unusable, fall back to sessionless", url=self._url, error=str(exc))
             self._sessionless = True
-            self._sessions.clear()
+            # 降级只停止复用, 已建立的会话仍由 close 销毁.
             return await self._request_get(web, url, None, timeout_ms, cookies)
 
     async def _request_get(
-        self, web: WebClient, url: str, scope: str | None, timeout_ms: float, cookies: Mapping[str, str] | None
+        self, web: WebClient, url: str, session: str | None, timeout_ms: float, cookies: Mapping[str, str] | None
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "cmd": "request.get",
             "url": url,
             "maxTimeout": int(timeout_ms),
         }
-        if self._proxy:
-            # 站点侧的出口代理 (面板「代理」): trawl 的 /v1 支持 per-request ``proxy``.
-            # 我们访问 solver 自身仍走直连 (见 ``use_proxy=False``), 否则等于自己绕自己.
+        if self._proxy and session is None:
+            # 有会话的请求只采用创建时的代理; 无会话请求按标准 FlareSolverr 对象传递.
             payload["proxy"] = self._proxy
-        if scope is not None:
-            payload["session"] = scope
-        if cookies:
+        if session is not None:
+            payload["session"] = session
+        cookie_key = (urlsplit(url).hostname or "", tuple(sorted((cookies or {}).items())))
+        import_cookies = bool(cookies) and (session is None or self._session_cookies.get(session) != cookie_key)
+        if import_cookies:
+            assert cookies is not None
+            # Trawl 导入非空 cookies 会删除整个 context 的旧 cookies, 重复导入会丢失已取得的 clearance.
+            if session is not None:
+                self._session_cookies.pop(session, None)
             payload["cookies"] = [{"name": name, "value": value} for name, value in cookies.items()]
-        return await self._post(web, payload, timeout_s=timeout_ms / 1000 + _SOLVER_HTTP_SLACK_S)
+        try:
+            data = await self._post(web, payload, timeout_s=timeout_ms / 1000 + _SOLVER_HTTP_SLACK_S)
+        except RequestError as exc:
+            failure = exc.failure
+            message = failure.body.decode("utf-8", errors="replace") if failure and failure.body else ""
+            if session is not None and failure and failure.status in {404, 410} and _is_missing_session(message):
+                # Trawl 用 HTTP 状态表达会话过期; 统一交给上层的一次重建, 不重复整个请求预算.
+                return {"status": "error", "message": message}
+            raise
+        if session is not None and import_cookies and _solver_ok(data) and not self._closed:
+            self._session_cookies[session] = cookie_key
+        return data
 
-    async def _ensure_session(self, web: WebClient, scope: str) -> None:
-        if scope in self._sessions:
-            return
+    async def _ensure_session(self, web: WebClient, scope: str) -> str:
+        if self._closed:
+            raise self._closed_error()
+        if scope in self._scope_sessions:
+            return self._scope_sessions[scope]
         async with self._lock:
             if self._closed:
                 raise self._closed_error()
-            if scope in self._sessions:
-                return
-            data = await self._post(
-                web,
-                {"cmd": "sessions.create", "session": scope},
-                timeout_s=_SOLVER_SESSION_TIMEOUT_S,
-            )
-            message = _solver_message(data)
-            # 同名会话已存在同样可用, 不视为失败.
-            if not _solver_ok(data) and not _is_existing_session(message):
-                raise RequestError(self._url, _solver_failure(message))
-            if self._closed:
-                # close 的销毁快照可能错过本次创建; 立即回收, 不写回 _sessions.
-                await self._destroy_session(web, scope)
+            if scope in self._scope_sessions:
+                return self._scope_sessions[scope]
+            session = f"amane-{uuid4().hex}"
+            payload: dict[str, Any] = {"cmd": "sessions.create", "session": session}
+            if self._proxy:
+                payload["proxy"] = self._proxy
+            try:
+                data, cancelled = await self._session_command(web, payload)
+            except asyncio.CancelledError as exc:
+                # 发送后失去应答仍可能已经建立远端会话; 随机 ID 只属于本次创建.
+                cause = exc.__cause__
+                collision = isinstance(cause, RequestError) and _is_existing_session(
+                    cause.message
+                    + (
+                        cause.failure.body.decode("utf-8", errors="replace")
+                        if cause.failure and cause.failure.body
+                        else ""
+                    )
+                )
+                if not collision:
+                    self._sessions.add(session)
+                    await self._destroy_session(web, session)
+                raise
+            if not _solver_ok(data) or _is_existing_session(_solver_message(data)):
+                # 明确冲突时不能接管或销毁其他实例的会话.
+                if cancelled:
+                    raise asyncio.CancelledError
+                raise RequestError(self._url, _solver_failure(_solver_message(data)))
+            if cancelled or self._closed:
+                # 取消或 close 可能早于创建结果; 取得结果后回收, 不写回会话索引.
+                self._sessions.add(session)
+                await self._destroy_session(web, session)
+                if cancelled:
+                    raise asyncio.CancelledError
                 raise self._closed_error()
-            self._sessions.add(scope)
+            self._sessions.add(session)
+            self._scope_sessions[scope] = session
+            return session
+
+    def _forget_session(self, scope: str) -> None:
+        session = self._detach_session(scope)
+        if session is not None:
+            self._sessions.discard(session)
+
+    def _detach_session(self, scope: str) -> str | None:
+        session = self._scope_sessions.pop(scope, None)
+        if session is not None:
+            self._session_cookies.pop(session, None)
+            self._session_cookie_config.pop(session, None)
+        return session
 
     def _closed_error(self) -> RequestError:
         return RequestError(self._url, RequestFailure(kind=FailureKind.UNEXPECTED, message="solver backend closed"))
@@ -724,20 +798,71 @@ class SolverBackend:
             )
         return data
 
+    async def _session_command(self, web: WebClient, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        """会话命令完成后再传播取消, 防止远端创建完成而本地丢失所有权. HTTP 时限限制等待."""
+        task = asyncio.create_task(self._bounded_session_post(web, payload))
+        cancelled = False
+        while True:
+            try:
+                return await asyncio.shield(task), cancelled
+            except asyncio.CancelledError:
+                if task.cancelled():
+                    raise
+                cancelled = True
+            except Exception as exc:
+                if cancelled:
+                    raise asyncio.CancelledError from exc
+                raise
+
+    async def _bounded_session_post(self, web: WebClient, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            async with asyncio.timeout(_SOLVER_SESSION_TIMEOUT_S):
+                return await self._post(web, payload, timeout_s=_SOLVER_SESSION_TIMEOUT_S)
+        except TimeoutError as exc:
+            raise RequestError(
+                self._url, RequestFailure(kind=FailureKind.TIMEOUT, message="solver session command timeout")
+            ) from exc
+
     async def close(self) -> None:
         self._closed = True
         sessions = list(self._sessions)
         self._sessions.clear()
+        self._scope_sessions.clear()
+        self._session_cookies.clear()
+        self._session_cookie_config.clear()
         if sessions:
             web = self._web_provider()
             with web.lease():
                 await asyncio.gather(*(self._destroy_session(web, scope) for scope in sessions))
 
     async def _destroy_session(self, web: WebClient, scope: str) -> None:
+        if scope in self._destroying_sessions:
+            return
+        self._destroying_sessions.add(scope)
         try:
-            await self._post(web, {"cmd": "sessions.destroy", "session": scope}, timeout_s=_SOLVER_SESSION_TIMEOUT_S)
-        except Exception as exc:
-            logger.debug("solver session destroy failed (ignored)", session=scope, error=str(exc))
+            try:
+                data, cancelled = await self._session_command(web, {"cmd": "sessions.destroy", "session": scope})
+            except Exception as exc:
+                logger.debug("solver session destroy failed (ignored)", session=scope, error=str(exc))
+                return
+            if _solver_ok(data) or _is_missing_session(_solver_message(data)):
+                self._sessions.discard(scope)
+            if cancelled:
+                raise asyncio.CancelledError
+        finally:
+            self._destroying_sessions.discard(scope)
+
+
+def _solver_proxy(value: str | None) -> dict[str, str] | None:
+    """标准 FlareSolverr 使用对象; Trawl 同时接受此形态. 认证字段单独传递, 保留 IPv6 地址."""
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    proxy = {"url": urlunsplit(parsed._replace(netloc=parsed.netloc.rsplit("@", 1)[-1]))}
+    if parsed.username is not None or parsed.password is not None:
+        proxy["username"] = unquote(parsed.username or "")
+        proxy["password"] = unquote(parsed.password or "")
+    return proxy
 
 
 def _solver_ok(data: dict[str, Any]) -> bool:
@@ -760,7 +885,9 @@ def _solver_failure(message: str) -> RequestFailure:
 
 def _is_missing_session(message: str) -> bool:
     lower = message.lower()
-    return "session" in lower and ("not found" in lower or "does not exist" in lower or "unknown" in lower)
+    return "session" in lower and any(
+        fragment in lower for fragment in ("not found", "does not exist", "unknown", "expired", "unavailable")
+    )
 
 
 def _session_fallback_allowed(failure: RequestFailure | None) -> bool:
