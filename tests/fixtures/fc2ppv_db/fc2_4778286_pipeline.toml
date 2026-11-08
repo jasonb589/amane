@@ -1,0 +1,24 @@
+# Capture: curl -L https://raw.githubusercontent.com/imbatony/pavone/cdada1e5ca3a20685e465f71c25f683bb10249c0/tests/sites/fc2ppv_db.html -o fc2ppv_db.html
+# Complete upstream saved response; SHA-256: c582eae188407cdd1a3769c7de9859f0d37fa5ee06774d0452bbb3651e9dbd71
+# Fixture license: PAVONE-LICENSE.txt. Live curl_cffi chrome access returned Cloudflare HTTP 403.
+site = "fc2ppv_db"
+
+[fetch]
+number = "FC2-4778286"
+responses = [{ url_contains = "/ja/videos/4778286", file = "fc2ppv_db.html" }]
+
+[fetch.expected]
+number = "FC2-4778286"
+title = "【3日間限定顔出し50%OFF】経験人数1人の極上ぴちぴちと生中出し！！純粋そうな顔がだんだん崩れていく様がエロすぎて種付け不可避。"
+actors = [{name = "ゆい", gender = "female"}]
+studio = "ぱすも"
+release = "2025-10-13"
+runtime = 52
+tags = ["中出し", "無修正", "黒髪", "清楚", "制服"]
+plot = "※素人の撮影です。また、個人の特定をする行為はおやめください。\n※本編は顔出し無修正です。\n◎レビュー特典\n事後に汚いちんぽをお掃除フェラ。\nーーーーーーーーーーーーーーーーーーーーーー\nどうも趣味でハメ撮りをしているものです。\n今回は初もんを仕入れました！！\nはじめましての、ゆいちゃん。最初は見た目通りおしとやかで、大人しいタイプでした。\nでもこういうタイプを沼に落とすのが大好きなんですよね。\n最初緊張していたのか恥ずかしがっている様子がとても可愛いですね。\nゆいちゃん、クリが弱いようで、ちょっといじってみたらさっきの大人しい感じとは一変。\n可愛い喘ぎ声を出しながら悶えてる姿がとってもえっちです。\n最初は緊張でイケないのかなと思いましたが、しっかりイクイク言ってて可愛かったです。\nしっかりおまんこもほぐれたところで、私の汚いちんぽをIN！！\n合法J.,.Kちゃんに最初に挿れるこの瞬間が一番気持ちいです。\n経験人数一人ということであんまり最初から激しいのはよくないかなと思い、気持ちいいいセックスを心がけます。\nもちろん最初は制服の着衣正常位からです。\nどんどんペースを上げていき、色んな体位をしていくうちにだんだん声もでるようになって、こっちのテンションも上がっていきます。\n最後はぴちぴちJ,.,Kの中に思いっきり中出し。\nいやあ気持ちよかったあ。\n最後ブチュブチュ言っててエロかったww\nーーーーーーーーーーーーーーーーーーーーーーーー\n※出演者の特定につながる書き込みご遠慮下さい。\nまた特定しても本人への連絡はお控えください。\n※出演者は18歳以上であることを身分証で確認しております。\n※無断転載を行う者には社会的制裁が発生します。"
+poster_urls = ["https://storage201000.contents.fc2.com/file/354/35350526/1760082011.32.jpg", "https://d39jz7pbpqkw9s.cloudfront.net/thumbnails/47/4778286.webp"]
+thumb_urls = ["https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082011.43.jpg", "https://d39jz7pbpqkw9s.cloudfront.net/samples/47/4778286/000.webp"]
+extrafanart = ["https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082011.43.jpg", "https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082011.84.jpg", "https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082012.32.jpg", "https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082012.78.jpg", "https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082013.25.jpg", "https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082013.71.jpg", "https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082014.17.jpg", "https://contents-thumbnail2.fc2.com/w480/storage201000.contents.fc2.com/file/354/35350526/1760082014.64.jpg"]
+score_is_none = true
+source_url = "https://fc2ppv-db.com/ja/videos/4778286"
+external_id = "4778286"

@@ -1,0 +1,10 @@
+# Original capture: CLI HTTP probe in this task; the refresh commands below reproduce the requests, not the original command log.
+# Refresh: curl_cffi.requests.get("https://javarchive.com/search?q=FC2-PPV-999999999999", impersonate="chrome131", timeout=30).content -> javarchive-empty.html
+# Complete saved HTTP response captured 2026-11-08; search input preserves the query and the page contains unrelated popular entries.
+# SHA-256: df79bfd2fdb1b54398e1f947c6dee18476c8d38e9dad2a8b8fe2332cd1435114
+site = "javarchive"
+
+[fetch]
+number = "FC2-999999999999"
+responses = [{ url_contains = "/search?q=FC2-PPV-999999999999", file = "javarchive-empty.html" }]
+expected_none = true

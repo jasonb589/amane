@@ -62,6 +62,8 @@ Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 work
 
 写 TOML 必须用临时文件 + `os.replace` 原子化 — 直接覆盖时写入中途进程中止会留下空文件. `tomli_w` 不接受 `None` / `set`, 持久化前须按 JSON 模式导出并剔除 `None` 与默认值.
 
+`ConfigManager.with_cold` 依据 TOML 的 `_format.version` 执行一次性升级并原子持久化; 存储版本不进入 `HotSettings`、API 或设置界面. FC2 来源升级前置原生来源及已有字段优先项, 保留显式空路由与字段排除; 升级后的手动排序与删除不再覆盖. 更高或无效的存储版本拒绝加载, 不重写原文件.
+
 `PATCH /api/config` 的 `_deep_merge` 只合并两层: 顶层 section 及其直接子对象. 更深的嵌套对象 (如 `network.browser`) 由 patch 整体替换, 未列出的子字段回退默认值. `site_config` / `rate_limits` 等字典依赖整体替换删除 key, 不允许改为递归合并.
 
 ## 配置项增补规范

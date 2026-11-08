@@ -627,8 +627,8 @@ class TestConfigManagerLoad:
         with open(config_path, "rb") as f:
             data = tomllib.load(f)
 
-        # 默认值不写入 TOML, 因此文件内容应为空
-        assert data == {}
+        # 默认业务配置不写入 TOML, 保留格式标记避免重复升级.
+        assert data == {"_format": {"version": 1}}
 
     def test_reads_existing_toml(self, tmp_path: Path):
         """从已有 TOML 文件读取配置值"""
@@ -738,7 +738,7 @@ class TestLLMConfig:
         with open(mgr.cold.config_path, "rb") as f:
             data = tomllib.load(f)
 
-        assert data == {}
+        assert "llm" not in data
         assert mgr.hot.llm.system_prompt is None
         assert mgr.hot.llm.field_prompts == {}
 

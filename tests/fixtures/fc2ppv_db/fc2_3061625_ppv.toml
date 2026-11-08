@@ -1,0 +1,24 @@
+# Capture: curl -L https://raw.githubusercontent.com/imbatony/pavone/cdada1e5ca3a20685e465f71c25f683bb10249c0/tests/sites/fc2ppv_db_sparse.html -o fc2ppv_db_sparse.html
+# Complete upstream saved response; SHA-256: d0a6247ea36d1370908dd8afb4c133043b62de2d074da913201ba932d8f4b369
+# Fixture license: PAVONE-LICENSE.txt. Live curl_cffi chrome access returned Cloudflare HTTP 403.
+site = "fc2ppv_db"
+
+[fetch]
+number = "FC2-PPV-3061625"
+responses = [{ url_contains = "/ja/videos/3061625", file = "fc2ppv_db_sparse.html" }]
+
+[fetch.expected]
+number = "FC2-3061625"
+title = "人生初めてのハメ撮り。そして中出し。学年一の美●女が覆面男の精子に汚される瞬間！"
+actors = [{name = "あすか", gender = "female"}]
+studio_is_none = true
+release_is_none = true
+runtime_is_none = true
+tags = []
+plot_is_none = true
+poster_urls = ["https://d39jz7pbpqkw9s.cloudfront.net/thumbnails/30/3061625.webp"]
+thumb_urls = ["https://d39jz7pbpqkw9s.cloudfront.net/thumbnails/30/3061625.webp"]
+extrafanart = []
+score = 100.0
+source_url = "https://fc2ppv-db.com/ja/videos/3061625"
+external_id = "3061625"

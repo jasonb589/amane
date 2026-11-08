@@ -148,7 +148,9 @@
             "wikipedia": "wikipedia",
             "javtxt": "javtxt",
             "xchina": "xChina",
-            "xcity": "xcity"
+            "xcity": "xcity",
+            "fc2ppv_db": "FC2PPV-DB",
+            "javarchive": "JavArchive"
           },
           "$": {
             "options": {
@@ -183,7 +185,9 @@
               "wikipedia": "wikipedia",
               "javtxt": "javtxt",
               "xchina": "xChina",
-              "xcity": "xcity"
+              "xcity": "xcity",
+              "fc2ppv_db": "FC2PPV-DB",
+              "javarchive": "JavArchive"
             }
           }
         }
@@ -241,7 +245,9 @@
             "wikipedia": "wikipedia",
             "javtxt": "javtxt",
             "xchina": "xChina",
-            "xcity": "xcity"
+            "xcity": "xcity",
+            "fc2ppv_db": "FC2PPV-DB",
+            "javarchive": "JavArchive"
           },
           "$": {
             "options": {
@@ -276,7 +282,9 @@
               "wikipedia": "wikipedia",
               "javtxt": "javtxt",
               "xchina": "xChina",
-              "xcity": "xcity"
+              "xcity": "xcity",
+              "fc2ppv_db": "FC2PPV-DB",
+              "javarchive": "JavArchive"
             }
           }
         }
@@ -344,7 +352,9 @@
           "wikipedia": "wikipedia",
           "javtxt": "javtxt",
           "xchina": "xChina",
-          "xcity": "xcity"
+          "xcity": "xcity",
+          "fc2ppv_db": "FC2PPV-DB",
+          "javarchive": "JavArchive"
         },
         "$": {
           "base_url": {
@@ -485,7 +495,9 @@
             "wikipedia": "wikipedia",
             "javtxt": "javtxt",
             "xchina": "xChina",
-            "xcity": "xcity"
+            "xcity": "xcity",
+            "fc2ppv_db": "FC2PPV-DB",
+            "javarchive": "JavArchive"
           },
           "$": {
             "options": {
@@ -520,7 +532,9 @@
               "wikipedia": "wikipedia",
               "javtxt": "javtxt",
               "xchina": "xChina",
-              "xcity": "xcity"
+              "xcity": "xcity",
+              "fc2ppv_db": "FC2PPV-DB",
+              "javarchive": "JavArchive"
             }
           }
         }
@@ -660,8 +674,14 @@
         "label": "通知渠道",
         "description": "每个渠道一条通知; 选 Telegram / Bark / 企业微信 只需填 Token 与正文, 或选自定义 HTTP 自己写 url/body",
         "$": {
-          "name": { "label": "渠道名", "description": "只用于日志与错误提示" },
-          "enabled": { "label": "启用这个渠道", "description": "关掉可以临时停用它" },
+          "name": {
+            "label": "渠道名",
+            "description": "只用于日志与错误提示"
+          },
+          "enabled": {
+            "label": "启用这个渠道",
+            "description": "关掉可以临时停用它"
+          },
           "url": {
             "label": "请求地址",
             "description": "仅自定义 HTTP: 支持 {变量}, 例如 https://api.telegram.org/bot<TOKEN>/sendMessage"
@@ -669,9 +689,15 @@
           "method": {
             "label": "请求方法",
             "description": "POST 发送 body; GET 只请求 url",
-            "options": { "post": "POST", "get": "GET" }
+            "options": {
+              "post": "POST",
+              "get": "GET"
+            }
           },
-          "headers": { "label": "请求头", "description": "键值对, 例如 Authorization: Bearer xxx" },
+          "headers": {
+            "label": "请求头",
+            "description": "键值对, 例如 Authorization: Bearer xxx"
+          },
           "body": {
             "label": "请求体模板",
             "description": "仅自定义 HTTP: 以花括号开头时字符串按 JSON 转义"
@@ -795,7 +821,10 @@
             "label": "合并上限(秒)",
             "description": "任务一直不停时的最长等待, 到点先发一条再继续攒; 0 = 不设上限. 合并多项时可用 {batch} 输出「共 N 项: 番号…」"
           },
-          "timeout": { "label": "超时", "description": "单次请求超时 (秒)" }
+          "timeout": {
+            "label": "超时",
+            "description": "单次请求超时 (秒)"
+          }
         }
       }
     },

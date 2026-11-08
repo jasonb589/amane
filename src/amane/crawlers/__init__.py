@@ -26,11 +26,13 @@ from .sites import (
     FC2ClubCrawler,
     FC2Crawler,
     FC2PPVDBCrawler,
+    FC2PPVDBIndexCrawler,
     FreejavbtCrawler,
     GetchuCrawler,
     GigaCrawler,
     IqqtvCrawler,
     Jav321Crawler,
+    JavArchiveCrawler,
     JavBusCrawler,
     JavDBCrawler,
     JavLibraryCrawler,
@@ -65,6 +67,8 @@ registry.register(GigaCrawler)
 registry.register(Kin8Crawler)
 registry.register(FC2ClubCrawler)
 registry.register(FC2PPVDBCrawler)
+registry.register(FC2PPVDBIndexCrawler)
+registry.register(JavArchiveCrawler)
 registry.register(GetchuCrawler)
 registry.register(IqqtvCrawler)
 registry.register(PrestigeCrawler)
@@ -91,6 +95,7 @@ __all__ = [
     "FC2ClubCrawler",
     "FC2Crawler",
     "FC2PPVDBCrawler",
+    "FC2PPVDBIndexCrawler",
     "FalenoCrawler",
     "FetchOptions",
     "FilmActor",
@@ -101,6 +106,7 @@ __all__ = [
     "HttpClient",
     "IqqtvCrawler",
     "Jav321Crawler",
+    "JavArchiveCrawler",
     "JavBusCrawler",
     "JavDBActorCrawler",
     "JavDBCrawler",

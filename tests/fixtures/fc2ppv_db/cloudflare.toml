@@ -1,0 +1,8 @@
+# Capture: curl_cffi.requests.get("https://fc2ppv-db.com/", impersonate="chrome", timeout=30).content
+# HTTP 403 captured 2026-11-08; complete challenge response.
+site = "fc2ppv_db"
+
+[fetch]
+number = "FC2-4778286"
+responses = [{ url_contains = "/ja/videos/4778286", file = "cloudflare.html" }]
+expected_error = "cloudflare_challenge"

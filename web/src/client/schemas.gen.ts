@@ -3158,6 +3158,8 @@ export const HotSettingsSchema = {
                         'freejavbt'
                     ],
                     fc2: [
+                        'javarchive',
+                        'fc2ppv_db',
                         'javdb',
                         'fc2ppvdb',
                         'fc2',
@@ -3314,6 +3316,18 @@ export const HotSettingsSchema = {
                         use_browser: 'auto',
                         use_proxy: true
                     },
+                    fc2ppv_db: {
+                        cookie: {},
+                        languages: [
+                            'zh',
+                            'ja',
+                            'en'
+                        ],
+                        official_routes: {},
+                        rate_limit: 2,
+                        use_browser: 'auto',
+                        use_proxy: true
+                    },
                     fc2ppvdb: {
                         cookie: {},
                         languages: [
@@ -3387,6 +3401,18 @@ export const HotSettingsSchema = {
                         use_proxy: true
                     },
                     jav321: {
+                        cookie: {},
+                        languages: [
+                            'zh',
+                            'ja',
+                            'en'
+                        ],
+                        official_routes: {},
+                        rate_limit: 2,
+                        use_browser: 'auto',
+                        use_proxy: true
+                    },
+                    javarchive: {
                         cookie: {},
                         languages: [
                             'zh',
@@ -8734,12 +8760,14 @@ export const ScrapingConfigSchema = {
                         'faleno',
                         'fc2',
                         'fc2club',
+                        'fc2ppv_db',
                         'fc2ppvdb',
                         'freejavbt',
                         'getchu',
                         'giga',
                         'iqqtv',
                         'jav321',
+                        'javarchive',
                         'javbus',
                         'javdb',
                         'javlibrary',
@@ -8780,12 +8808,14 @@ export const ScrapingConfigSchema = {
                         'faleno',
                         'fc2',
                         'fc2club',
+                        'fc2ppv_db',
                         'fc2ppvdb',
                         'freejavbt',
                         'getchu',
                         'giga',
                         'iqqtv',
                         'jav321',
+                        'javarchive',
                         'javbus',
                         'javdb',
                         'javlibrary',
@@ -8826,12 +8856,14 @@ export const ScrapingConfigSchema = {
                         'faleno',
                         'fc2',
                         'fc2club',
+                        'fc2ppv_db',
                         'fc2ppvdb',
                         'freejavbt',
                         'getchu',
                         'giga',
                         'iqqtv',
                         'jav321',
+                        'javarchive',
                         'javbus',
                         'javdb',
                         'javlibrary',
@@ -9508,6 +9540,7 @@ export const SiteNameSchema = {
         'faleno',
         'fc2',
         'fc2club',
+        'fc2ppv_db',
         'fc2ppvdb',
         'freejavbt',
         'getchu',
@@ -9515,6 +9548,7 @@ export const SiteNameSchema = {
         'giga',
         'iqqtv',
         'jav321',
+        'javarchive',
         'javbus',
         'javdb',
         'javlibrary',

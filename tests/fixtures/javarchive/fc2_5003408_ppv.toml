@@ -1,0 +1,25 @@
+# Original capture: CLI HTTP probe in this task; the refresh commands below reproduce the requests, not the original command log.
+# Refresh: curl_cffi.requests.get("https://javarchive.com/search?q=FC2-PPV-5003408", impersonate="chrome131", timeout=30).content -> javarchive-search.html
+# Refresh: curl_cffi.requests.get(Path("javarchive-detail-url.txt").read_text(encoding="utf-8").strip(), impersonate="chrome131", timeout=30).content -> javarchive-detail.html
+# Complete saved HTTP responses captured 2026-11-08; original detail URL is in javarchive-detail-url.txt.
+# Search SHA-256: 8db06dbacd1cb26ec0962375d9067b8a8e94a1eaff1dff1251a3576eda08546d
+# Detail SHA-256: 609187371e141da0638869feaa3ad13f289dcd8d358ee1fdaaf63edc7e642f5a
+site = "javarchive"
+
+[fetch]
+number = "FC2-PPV-5003408"
+responses = [{ url_contains = "/search?q=FC2-PPV-5003408", file = "javarchive-search.html" }, { url_contains = "/1174735-FC2-PPV-5003408-", file = "javarchive-detail.html" }]
+
+[fetch.expected]
+number = "FC2-5003408"
+title = "【廃版】これがラスト！スタイル抜群の脱力系アイドル美女。人生最後のハメ撮り作品。"
+actors = []
+tags = []
+poster_urls = ["http://img2.javstore.net/images/2026/11/05/5003408ps.jpg"]
+thumb_urls = ["http://img2.javstore.net/images/2026/11/05/5003408pl.jpg"]
+extrafanart = ["https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781993.97.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781994.45.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781994.94.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781995.42.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781995.9.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781996.4.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781996.87.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781997.36.jpg", "https://contents-thumbnail2.fc2.com/w1280/storage202000.contents.fc2.com/file/393/39282012/1793781997.84.jpg"]
+release_is_none = true
+runtime_is_none = true
+score_is_none = true
+plot_is_none = true
+source_url = "https://javarchive.com/1174735-FC2-PPV-5003408-【廃版】これがラスト！スタイル抜群の脱力系アイドル美女。人生最後のハメ撮り作品。-pn.html"

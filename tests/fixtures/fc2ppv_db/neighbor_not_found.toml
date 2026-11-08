@@ -1,0 +1,8 @@
+# Capture: curl -L https://raw.githubusercontent.com/imbatony/pavone/cdada1e5ca3a20685e465f71c25f683bb10249c0/tests/sites/fc2ppv_db.html -o fc2ppv_db.html
+# Complete saved response for 4778286 returned for a neighboring product URL.
+site = "fc2ppv_db"
+
+[fetch]
+number = "FC2-47782860"
+responses = [{ url_contains = "/ja/videos/47782860", file = "fc2ppv_db.html" }]
+expected_none = true

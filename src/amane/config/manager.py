@@ -88,6 +88,8 @@ _DEFAULT_CONTENT_ROUTES: dict[ContentType, list[SiteName]] = {
         SiteName.FREEJAVBT,
     ],
     ContentType.FC2: [
+        SiteName.JAVARCHIVE,
+        SiteName.FC2PPV_DB,
         SiteName.JAVDB,
         SiteName.FC2PPVDB,
         SiteName.FC2,
@@ -1073,6 +1075,28 @@ def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+class _ConfigFileFormat(BaseModel):
+    """TOML 存储版本, 不进入热配置与设置界面."""
+
+    model_config = {"extra": "forbid"}
+    version: int = Field(default=0, ge=0, le=1, strict=True)
+
+
+def _upgrade_fc2_sources(hot: HotSettings) -> HotSettings:
+    """仅用于旧文件的一次升级; 后续手动删除或重排来源不得再次被覆盖."""
+    route = hot.scraping.content_routes[ContentType.FC2]
+    if not route:
+        return hot
+    preferred = [str(SiteName.JAVARCHIVE), str(SiteName.FC2PPV_DB)]
+    routes = dict(hot.scraping.content_routes)
+    routes[ContentType.FC2] = list(dict.fromkeys([*preferred, *route]))
+    priorities = {
+        field: list(dict.fromkeys([*preferred, *sites])) for field, sites in hot.scraping.field_priority.items()
+    }
+    scraping = hot.scraping.model_copy(update={"content_routes": routes, "field_priority": priorities})
+    return hot.model_copy(update={"scraping": scraping})
+
+
 class ConfigManager:
     """热重载配置. 加载优先级: TOML 文件值 > 代码默认值."""
 
@@ -1101,14 +1125,16 @@ class ConfigManager:
                 toml_data = tomllib.load(f)
         else:
             toml_data = {}
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            default_content = HotSettings().model_dump(mode="json", exclude_none=True, exclude_defaults=True)
-            cls._write_toml(config_path, default_content)
 
+        file_format = _ConfigFileFormat.model_validate(toml_data.pop("_format", {}))
         # 解析器会忽略无效正则; 保留旧配置供界面修正, 不使升级后的启动失败.
         hot = HotSettings.model_validate(toml_data, context={"preserve_legacy_filename_filters": True})
-
-        return cls(cold=cold, hot=hot)
+        if file_format.version < 1:
+            hot = _upgrade_fc2_sources(hot)
+        manager = cls(cold=cold, hot=hot)
+        if file_format.version < 1:
+            manager._persist(hot)
+        return manager
 
     def update(self, patch: HotSettings | dict) -> None:
         """校验通过后持久化并交换引用. 校验失败不改动当前配置."""
@@ -1140,6 +1166,7 @@ class ConfigManager:
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         data = hot.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+        data["_format"] = {"version": 1}
         self._write_toml(config_path, data)
 
     @staticmethod

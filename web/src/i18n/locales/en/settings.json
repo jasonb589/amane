@@ -148,7 +148,9 @@
             "wikipedia": "wikipedia",
             "javtxt": "javtxt",
             "xchina": "xChina",
-            "xcity": "xcity"
+            "xcity": "xcity",
+            "fc2ppv_db": "FC2PPV-DB",
+            "javarchive": "JavArchive"
           },
           "$": {
             "options": {
@@ -183,7 +185,9 @@
               "wikipedia": "wikipedia",
               "javtxt": "javtxt",
               "xchina": "xChina",
-              "xcity": "xcity"
+              "xcity": "xcity",
+              "fc2ppv_db": "FC2PPV-DB",
+              "javarchive": "JavArchive"
             }
           }
         }
@@ -241,7 +245,9 @@
             "wikipedia": "wikipedia",
             "javtxt": "javtxt",
             "xchina": "xChina",
-            "xcity": "xcity"
+            "xcity": "xcity",
+            "fc2ppv_db": "FC2PPV-DB",
+            "javarchive": "JavArchive"
           },
           "$": {
             "options": {
@@ -276,7 +282,9 @@
               "wikipedia": "wikipedia",
               "javtxt": "javtxt",
               "xchina": "xChina",
-              "xcity": "xcity"
+              "xcity": "xcity",
+              "fc2ppv_db": "FC2PPV-DB",
+              "javarchive": "JavArchive"
             }
           }
         }
@@ -344,7 +352,9 @@
           "wikipedia": "wikipedia",
           "javtxt": "javtxt",
           "xchina": "xChina",
-          "xcity": "xcity"
+          "xcity": "xcity",
+          "fc2ppv_db": "FC2PPV-DB",
+          "javarchive": "JavArchive"
         },
         "$": {
           "base_url": {
@@ -485,7 +495,9 @@
             "wikipedia": "wikipedia",
             "javtxt": "javtxt",
             "xchina": "xChina",
-            "xcity": "xcity"
+            "xcity": "xcity",
+            "fc2ppv_db": "FC2PPV-DB",
+            "javarchive": "JavArchive"
           },
           "$": {
             "options": {
@@ -520,7 +532,9 @@
               "wikipedia": "wikipedia",
               "javtxt": "javtxt",
               "xchina": "xChina",
-              "xcity": "xcity"
+              "xcity": "xcity",
+              "fc2ppv_db": "FC2PPV-DB",
+              "javarchive": "JavArchive"
             }
           }
         }
@@ -675,7 +689,10 @@
           "method": {
             "label": "Method",
             "description": "POST sends the body; GET only requests the url",
-            "options": { "post": "POST", "get": "GET" }
+            "options": {
+              "post": "POST",
+              "get": "GET"
+            }
           },
           "headers": {
             "label": "Headers",
@@ -804,7 +821,10 @@
             "label": "Max merge wait (s)",
             "description": "Upper bound while a pipeline keeps running; 0 = no limit. Use {batch} in the body to print a summary like 共 N 项: numbers"
           },
-          "timeout": { "label": "Timeout", "description": "Per-request timeout (seconds)" }
+          "timeout": {
+            "label": "Timeout",
+            "description": "Per-request timeout (seconds)"
+          }
         }
       }
     },

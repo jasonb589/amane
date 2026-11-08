@@ -155,6 +155,16 @@ async def test_remote_photo_can_use_original_cached_dimensions(resource_store: R
         ("https://pics.dmm.co.jp/mono/movie/adult/x/xps.jpg", {}, "DMM 原生海报"),
         (
             "https://cdn.example/cover.jpg",
+            {"javarchive": {"poster_urls": ["https://cdn.example/cover.jpg"]}},
+            "JavArchive 原生海报",
+        ),
+        (
+            "https://cdn.example/cover.jpg",
+            {"fc2ppv_db": {"poster_urls": ["https://cdn.example/cover.jpg"]}},
+            "FC2PPV-DB 原生海报",
+        ),
+        (
+            "https://cdn.example/cover.jpg",
             {"custom.provider:jp": {"poster_urls": ["https://cdn.example/cover.jpg"]}},
             "custom.provider 原生海报",
         ),

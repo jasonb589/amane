@@ -1,0 +1,2 @@
+# 完整 HTTP 响应保留原始字节与空白, 禁止行尾转换改变采集证据.
+*.html -text -whitespace

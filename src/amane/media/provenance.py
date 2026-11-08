@@ -33,7 +33,13 @@ class ImageProvenance(BaseModel):
     def label(self) -> str:
         if not self.source_url:
             return "来源未知"
-        source = {"amazon": "Amazon", "tenhow": "Tenhow", "dmm": "DMM"}.get(self.source, self.source)
+        source = {
+            "amazon": "Amazon",
+            "tenhow": "Tenhow",
+            "dmm": "DMM",
+            "javarchive": "JavArchive",
+            "fc2ppv_db": "FC2PPV-DB",
+        }.get(self.source, self.source)
         source = source or "来源未知"
         source_size = (
             (self.source_width, self.source_height)
