@@ -2,7 +2,8 @@
 # Amane 元数据管理服务
 
 # --- 前端构建阶段 ---
-FROM node:26-slim AS web-builder
+# 静态前端与目标架构无关, 使用构建机原生平台, 避免 ARM64 经 QEMU 重复编译.
+FROM --platform=$BUILDPLATFORM node:26-slim AS web-builder
 WORKDIR /app/web
 RUN npm install -g pnpm@11
 # pnpm-workspace.yaml 含 allowBuilds; 必须在 install 前拷入, 否则 ERR_PNPM_IGNORED_BUILDS
