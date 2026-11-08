@@ -68,7 +68,7 @@ macOS UI argv (`AmaneUI --base-url http://127.0.0.1:PORT [--token <token>] [--wa
 
 ## 打包
 
-自定义镜像发布使用 `just bump custom`, 版本写入 `_custom_version.py`, 不修改产品版本. `CHANGELOG.md` 对应 `-custom.N` 节提供发布说明; CLI 发布跳过该类标签, 镜像由 `custom-image.yml` 构建.
+自定义镜像发布使用 `just bump custom`, 版本写入 `_custom_version.py`, 不修改产品版本. 公开说明遵守 `AGENTS.md`, 完整记录留存仓库外; `-custom.N` 仅由 `custom-image.yml` 构建, 不触发 CLI、桌面包或上游镜像发布, 构建不上传摘要与记录附件.
 
 macOS: `scripts/build_macos_app.sh` (`just macos-app`), 需要 Swift 工具链 — PyInstaller 打成 onedir 后再组装 `.app`, `AmaneUI` 包成 `Contents/Resources/AmaneUI.app`, Info.plist 补 `LSUIElement` / `LSMultipleInstancesProhibited` / `CFBundleIconFile`. Windows: `scripts/build_windows_app.ps1` (`just windows-app`), **必须在 Windows 上运行** (PyInstaller 与 Native AOT 都不能从 macOS 交叉), 需要 .NET 8 SDK + 能链 Native AOT 的 MSVC.
 

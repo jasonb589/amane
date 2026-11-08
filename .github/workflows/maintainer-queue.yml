@@ -28,6 +28,7 @@ concurrency:
 
 jobs:
   update:
+    if: github.repository == 'sqzw-x/amane'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
