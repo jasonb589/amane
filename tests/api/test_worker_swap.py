@@ -129,6 +129,10 @@ async def _settle_retired_network(runtime: AppRuntime) -> None:
     async with asyncio.timeout(LOAD_TOLERANT_TIMEOUT):
         await asyncio.gather(*tuple(runtime._retire_tasks))
         await asyncio.gather(*tuple(runtime._network_tasks))
+        # 已完成任务的 gather 可立即返回; 等待本轮已排队的 done callback 更新资源跟踪集合.
+        callbacks_done = asyncio.Event()
+        asyncio.get_running_loop().call_soon(callbacks_done.set)
+        await callbacks_done.wait()
 
 
 @pytest.mark.asyncio(loop_scope="function")
