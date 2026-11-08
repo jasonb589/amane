@@ -20,6 +20,7 @@ from amane.config import HotSettings
 from amane.config.manager import NotifyChannelConfig
 from amane.db.models import Task, TaskType
 from amane.db.repository import Repository
+from amane.enums import BrowserBackendName
 from amane.handlers.models import RefreshPayload, RefreshResult
 from amane.handlers.protocol import TaskHandler, TaskResult
 from amane.scheduler.worker import CANCEL_ERROR
@@ -32,6 +33,8 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from amane.app.runtime import AppRuntime
+    from amane.net.browser import BrowserPageResult
+    from amane.net.http import WebClient
 
 
 @dataclass
@@ -104,6 +107,170 @@ async def _await_status(
             if body["status"] == status:
                 return body
             await asyncio.sleep(0.02)
+
+
+@dataclass
+class SessionCloseTracker:
+    calls: int = 0
+    completed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def install(self, web: WebClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = web._session.close
+
+        async def close() -> None:
+            self.calls += 1
+            await original()
+            self.completed.set()
+
+        monkeypatch.setattr(web._session, "close", close)
+
+
+async def _settle_retired_network(runtime: AppRuntime) -> None:
+    async with asyncio.timeout(LOAD_TOLERANT_TIMEOUT):
+        await asyncio.gather(*tuple(runtime._retire_tasks))
+        await asyncio.gather(*tuple(runtime._network_tasks))
+
+
+@pytest.mark.asyncio(loop_scope="function")
+@pytest.mark.parametrize("shutdown_with_active_workers", [False, True])
+async def test_three_network_generations_release_shared_provider_once(
+    swap_client: tuple[AsyncClient, BlockingRefresh, AppRuntime],
+    safe_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    shutdown_with_active_workers: bool,
+) -> None:
+    """B 已排空时 A 仍可使用共享池的 B 通道; 关停与正常排空都只关闭每代一次."""
+    client, blocker, runtime = swap_client
+    library_id = await _create_library(client, safe_path)
+    first_worker = runtime.worker
+    first_pool = runtime.browser
+    assert first_pool is not None
+    trackers = [SessionCloseTracker()]
+    trackers[0].install(runtime.web_client, monkeypatch)
+    first = await _submit_refresh(client, library_id)
+    await asyncio.wait_for(blocker.generations[0][1].wait(), LOAD_TOLERANT_TIMEOUT)
+    try:
+        changed = await client.patch("config", json={"watermark": {"enabled": True}})
+        assert changed.status_code == 200
+        assert runtime.browser is first_pool
+        trackers.append(SessionCloseTracker())
+        trackers[-1].install(runtime.web_client, monkeypatch)
+        second = await _submit_refresh(client, library_id)
+        await asyncio.wait_for(blocker.generations[1][1].wait(), LOAD_TOLERANT_TIMEOUT)
+        first_retire_tasks = runtime._retire_tasks.copy()
+
+        changed = await client.patch("config", json={"network": {"browser": {"timeout": 31000}}})
+        assert changed.status_code == 200
+        second_pool = runtime.browser
+        assert second_pool is not None and second_pool is not first_pool
+        trackers.append(SessionCloseTracker())
+        trackers[-1].install(runtime.web_client, monkeypatch)
+        second_retire_tasks = runtime._retire_tasks - first_retire_tasks
+        assert second_retire_tasks
+        third = await _submit_refresh(client, library_id)
+        await asyncio.wait_for(blocker.generations[2][1].wait(), LOAD_TOLERANT_TIMEOUT)
+
+        blocker.generations[1][2].set()
+        await _await_status(client, second, "done")
+        await asyncio.wait_for(asyncio.gather(*second_retire_tasks), LOAD_TOLERANT_TIMEOUT)
+        assert [entry.worker for entry in runtime._retiring] == [first_worker]
+        assert [tracker.calls for tracker in trackers] == [0, 0, 0]
+        assert not first_pool._closed
+
+        if not shutdown_with_active_workers:
+            blocker.generations[0][2].set()
+            await _await_status(client, first, "done")
+            await _settle_retired_network(runtime)
+            assert first_pool._closed and not second_pool._closed
+            assert [tracker.calls for tracker in trackers] == [1, 1, 0]
+            blocker.generations[2][2].set()
+            await _await_status(client, third, "done")
+
+        await asyncio.wait_for(runtime.stop_workers(), LOAD_TOLERANT_TIMEOUT)
+        await runtime.notifier.close()
+        await asyncio.wait_for(runtime.close_network(), LOAD_TOLERANT_TIMEOUT)
+        assert first_pool._closed and second_pool._closed
+        assert [tracker.calls for tracker in trackers] == [1, 1, 1]
+        assert all(tracker.completed.is_set() for tracker in trackers)
+        assert not runtime._retiring and not runtime._retire_tasks and not runtime._network_tasks
+        if shutdown_with_active_workers:
+            assert (await client.get(f"tasks/{first}")).json()["status"] == "failed"
+            assert (await client.get(f"tasks/{third}")).json()["status"] == "failed"
+        await runtime.close_network()
+        assert [tracker.calls for tracker in trackers] == [1, 1, 1]
+    finally:
+        for _hot, _started, release in blocker.generations:
+            release.set()
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_idle_rebuilds_release_previous_sessions_without_accumulation(
+    swap_client: tuple[AsyncClient, BlockingRefresh, AppRuntime], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _blocker, runtime = swap_client
+    trackers: list[SessionCloseTracker] = []
+    for generation in range(4):
+        tracker = SessionCloseTracker()
+        tracker.install(runtime.web_client, monkeypatch)
+        trackers.append(tracker)
+        response = await client.patch("config", json={"watermark": {"enabled": generation % 2 == 0}})
+        assert response.status_code == 200
+        await _settle_retired_network(runtime)
+        assert all(item.calls == 1 for item in trackers)
+        assert not runtime._retiring and not runtime._network_tasks
+    current = SessionCloseTracker()
+    current.install(runtime.web_client, monkeypatch)
+    await runtime.stop_workers()
+    await runtime.notifier.close()
+    await asyncio.wait_for(runtime.close_network(), LOAD_TOLERANT_TIMEOUT)
+    assert current.calls == 1 and all(item.calls == 1 for item in trackers)
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_network_cleanup_survives_worker_recorder_and_browser_close_errors(
+    swap_client: tuple[AsyncClient, BlockingRefresh, AppRuntime],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client, _blocker, runtime = swap_client
+    previous = SessionCloseTracker()
+    previous.install(runtime.web_client, monkeypatch)
+    original_drain = runtime.worker.drain
+
+    async def failed_recorder_drain() -> None:
+        await original_drain()
+        raise OSError("recorder close failed")
+
+    monkeypatch.setattr(runtime.worker, "drain", failed_recorder_drain)
+    response = await client.patch("config", json={"watermark": {"enabled": True}})
+    assert response.status_code == 200
+    await _settle_retired_network(runtime)
+    assert previous.calls == 1 and not runtime._retiring and not runtime._network_tasks
+    assert "retiring worker cleanup failed" in caplog.text
+
+    class BrokenBackend:
+        closes = 0
+
+        async def get_page(self, url: str, **kwargs: Any) -> BrowserPageResult:
+            return "<html>ok</html>", None
+
+        async def close(self) -> None:
+            self.closes += 1
+            raise OSError("browser close failed")
+
+    backend = BrokenBackend()
+    pool = runtime.browser
+    assert pool is not None
+    pool._instances[BrowserBackendName.CAMOUFOX] = backend
+    current = SessionCloseTracker()
+    current.install(runtime.web_client, monkeypatch)
+    await runtime.stop_workers()
+    await runtime.notifier.close()
+    await asyncio.wait_for(runtime.close_network(), LOAD_TOLERANT_TIMEOUT)
+    assert pool._closed and backend.closes == 1
+    assert previous.calls == current.calls == 1
+    assert not runtime._network_tasks
+    assert "network cleanup failed" in caplog.text
 
 
 @pytest.mark.asyncio(loop_scope="function")

@@ -27,7 +27,7 @@ from ...utils.dates import normalize_calendar_date
 from ...utils.model import to_resp
 from ...utils.path import path_key
 from ...utils.threads import in_thread
-from ..deps import RepoDep, RuntimeDep
+from ..deps import NetworkDep, RepoDep, RuntimeDep
 from ..models import (
     CommentResponse,
     CropPosterRequest,
@@ -452,6 +452,7 @@ async def crop_poster_from_thumb(
     req: CropPosterRequest,
     repo: RepoDep,
     runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> MetadataResponse:
     """从封面 (thumb) 按像素框裁切海报, 写入派生 Resource 并更新 poster_urls.
 
@@ -472,8 +473,8 @@ async def crop_poster_from_thumb(
             thumb_url,
             box,
             runtime.resource_store,
-            runtime.web_client,
-            runtime.config.hot,
+            network.web_client,
+            network.hot,
             runtime.config.cold.data_dir,
             subject="封面图",
             rotation=req.rotation,

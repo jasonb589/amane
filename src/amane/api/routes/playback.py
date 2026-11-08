@@ -13,7 +13,7 @@ from ...playback.href import playlist_href, stream_href, subtitle_href
 from ...playback.proxy import NOSNIFF
 from ...playback.query import playback_query
 from ...plugins.api import PATH_SEGMENT_PATTERN, FilePlaybackTarget, PlaybackQuery, UpstreamPlaybackTarget
-from ..deps import RepoDep, RuntimeDep
+from ..deps import NetworkDep, RepoDep
 from ..models.playback import (
     PlaybackSourceListResponse,
     PlaybackSourceOption,
@@ -86,9 +86,9 @@ def _playback_http_error(exc: SourceError) -> HTTPException:
 
 
 @router.get("/sources", response_model=PlaybackSourceListResponse)
-async def list_playback_sources(runtime: RuntimeDep) -> Response:
+async def list_playback_sources(network: NetworkDep) -> Response:
     """列出可选的播放源; 不调用插件, 因此不发任何上游请求."""
-    factory = runtime.playback_factory
+    factory = network.playback_factory
     if factory is None:
         raise HTTPException(status_code=503, detail="播放源未初始化")
     body = PlaybackSourceListResponse(
@@ -104,14 +104,14 @@ async def list_playback_streams(
     source_id: str,
     metadata_id: Annotated[int, Path(ge=1)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
     """探测一个来源在这个条目上的流.
 
     由前端在切到该来源时调用, 因此没有人工预算: 慢就慢在用户等待的那一次, 结果按来源与条目缓存
     一小段时间, 来回切换不重复探测. 探测失败也是一行不可用记录, 前端按 ``detail`` 显示原因.
     """
-    factory = await _require_factory(source_id, runtime)
+    factory = await _require_factory(source_id, network)
     query = await _load_query(repo, metadata_id, None)
     listed = await factory.list_streams(source_id, query)
     body = PlaybackStreamListResponse(items=[_stream_item(row, metadata_id) for row in listed])
@@ -124,9 +124,9 @@ async def play_metadata_playlist(
     source_id: str,
     metadata_id: Annotated[int, Path(ge=1)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _playlist(request, source_id, metadata_id, None, repo, runtime)
+    return await _playlist(request, source_id, metadata_id, None, repo, network)
 
 
 @router.head("/{source_id}/{metadata_id}/index.m3u8", include_in_schema=False)
@@ -135,9 +135,9 @@ async def play_metadata_playlist_head(
     source_id: str,
     metadata_id: Annotated[int, Path(ge=1)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _playlist(request, source_id, metadata_id, None, repo, runtime)
+    return await _playlist(request, source_id, metadata_id, None, repo, network)
 
 
 @router.get("/{source_id}/{metadata_id}/streams/{key}/index.m3u8")
@@ -147,9 +147,9 @@ async def play_stream_playlist(
     metadata_id: Annotated[int, Path(ge=1)],
     key: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _playlist(request, source_id, metadata_id, key, repo, runtime)
+    return await _playlist(request, source_id, metadata_id, key, repo, network)
 
 
 @router.head("/{source_id}/{metadata_id}/streams/{key}/index.m3u8", include_in_schema=False)
@@ -159,9 +159,9 @@ async def play_stream_playlist_head(
     metadata_id: Annotated[int, Path(ge=1)],
     key: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _playlist(request, source_id, metadata_id, key, repo, runtime)
+    return await _playlist(request, source_id, metadata_id, key, repo, network)
 
 
 @router.get("/{source_id}/{metadata_id}/hls/{token}")
@@ -170,9 +170,9 @@ async def play_metadata_hls_part(
     source_id: str,
     metadata_id: Annotated[int, Path(ge=1)],
     token: Annotated[str, Path(pattern=_TOKEN_PATTERN)],
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _hls_part(request, source_id, metadata_id, None, token, runtime)
+    return await _hls_part(request, source_id, metadata_id, None, token, network)
 
 
 @router.head("/{source_id}/{metadata_id}/hls/{token}", include_in_schema=False)
@@ -181,9 +181,9 @@ async def play_metadata_hls_part_head(
     source_id: str,
     metadata_id: Annotated[int, Path(ge=1)],
     token: Annotated[str, Path(pattern=_TOKEN_PATTERN)],
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _hls_part(request, source_id, metadata_id, None, token, runtime)
+    return await _hls_part(request, source_id, metadata_id, None, token, network)
 
 
 @router.get("/{source_id}/{metadata_id}/streams/{key}/hls/{token}")
@@ -193,9 +193,9 @@ async def play_stream_hls_part(
     metadata_id: Annotated[int, Path(ge=1)],
     key: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     token: Annotated[str, Path(pattern=_TOKEN_PATTERN)],
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _hls_part(request, source_id, metadata_id, key, token, runtime)
+    return await _hls_part(request, source_id, metadata_id, key, token, network)
 
 
 @router.head("/{source_id}/{metadata_id}/streams/{key}/hls/{token}", include_in_schema=False)
@@ -205,9 +205,9 @@ async def play_stream_hls_part_head(
     metadata_id: Annotated[int, Path(ge=1)],
     key: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     token: Annotated[str, Path(pattern=_TOKEN_PATTERN)],
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _hls_part(request, source_id, metadata_id, key, token, runtime)
+    return await _hls_part(request, source_id, metadata_id, key, token, network)
 
 
 @router.get("/{source_id}/{metadata_id}/subtitles/{track_id}")
@@ -217,9 +217,9 @@ async def play_metadata_subtitle(
     metadata_id: Annotated[int, Path(ge=1)],
     track_id: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _subtitle(request, source_id, metadata_id, None, track_id, repo, runtime)
+    return await _subtitle(request, source_id, metadata_id, None, track_id, repo, network)
 
 
 @router.get("/{source_id}/{metadata_id}/streams/{key}/subtitles/{track_id}")
@@ -230,9 +230,9 @@ async def play_stream_subtitle(
     key: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     track_id: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _subtitle(request, source_id, metadata_id, key, track_id, repo, runtime)
+    return await _subtitle(request, source_id, metadata_id, key, track_id, repo, network)
 
 
 @router.get("/{source_id}/{metadata_id}")
@@ -241,9 +241,9 @@ async def play_metadata(
     source_id: str,
     metadata_id: Annotated[int, Path(ge=1)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _play(request, source_id, metadata_id, None, repo, runtime)
+    return await _play(request, source_id, metadata_id, None, repo, network)
 
 
 @router.head("/{source_id}/{metadata_id}", include_in_schema=False)
@@ -252,9 +252,9 @@ async def play_metadata_head(
     source_id: str,
     metadata_id: Annotated[int, Path(ge=1)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _play(request, source_id, metadata_id, None, repo, runtime)
+    return await _play(request, source_id, metadata_id, None, repo, network)
 
 
 @router.get("/{source_id}/{metadata_id}/streams/{key}")
@@ -264,9 +264,9 @@ async def play_stream(
     metadata_id: Annotated[int, Path(ge=1)],
     key: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _play(request, source_id, metadata_id, key, repo, runtime)
+    return await _play(request, source_id, metadata_id, key, repo, network)
 
 
 @router.head("/{source_id}/{metadata_id}/streams/{key}", include_in_schema=False)
@@ -276,15 +276,15 @@ async def play_stream_head(
     metadata_id: Annotated[int, Path(ge=1)],
     key: Annotated[str, Path(pattern=_PATH_SEGMENT_PATTERN)],
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    return await _play(request, source_id, metadata_id, key, repo, runtime)
+    return await _play(request, source_id, metadata_id, key, repo, network)
 
 
-async def _require_factory(source_id: str, runtime: RuntimeDep) -> PlaybackFactory:
+async def _require_factory(source_id: str, network: NetworkDep) -> PlaybackFactory:
     if len(source_id) > SOURCE_ID_MAX_LEN:
         raise HTTPException(status_code=404, detail="播放源不存在")
-    factory = runtime.playback_factory
+    factory = network.playback_factory
     if factory is None:
         raise HTTPException(status_code=503, detail="播放源未初始化")
     if not factory.known_source(source_id) or not factory.enabled(source_id):
@@ -298,9 +298,9 @@ async def _playlist(
     metadata_id: int,
     selected_key: str | None,
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    factory = await _require_factory(source_id, runtime)
+    factory = await _require_factory(source_id, network)
     query = await _load_query(repo, metadata_id, selected_key)
     try:
         text = await factory.hls_playlist_text(source_id, query)
@@ -317,9 +317,9 @@ async def _hls_part(
     metadata_id: int,
     selected_key: str | None,
     token: str,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    factory = await _require_factory(source_id, runtime)
+    factory = await _require_factory(source_id, network)
     try:
         return await factory.serve_hls_part(
             request,
@@ -341,9 +341,9 @@ async def _subtitle(
     selected_key: str | None,
     track_id: str,
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    factory = await _require_factory(source_id, runtime)
+    factory = await _require_factory(source_id, network)
     query = await _load_query(repo, metadata_id, selected_key)
     try:
         result = await factory.load_subtitle(source_id, query, track_id)
@@ -366,9 +366,9 @@ async def _play(
     metadata_id: int,
     selected_key: str | None,
     repo: RepoDep,
-    runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> Response:
-    factory = await _require_factory(source_id, runtime)
+    factory = await _require_factory(source_id, network)
     query = await _load_query(repo, metadata_id, selected_key)
     try:
         target = await factory.resolve(source_id, query)

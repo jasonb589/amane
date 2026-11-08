@@ -4,6 +4,7 @@
 """
 
 import os
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import pytest
@@ -66,6 +67,9 @@ def make_app(
 
 class _SilentFeedHttp:
     """API 测试不打真网: 创建源时的即时拉取立刻失败返回."""
+
+    def lease(self) -> nullcontext[None]:
+        return nullcontext()
 
     async def request(
         self,

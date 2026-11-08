@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 
 from ...net.egress import EgressPolicy
 from ...net.errors import EgressRejected, RequestError
-from ..deps import RuntimeDep
+from ..deps import NetworkDep, RuntimeDep
 from ..support.http_cache import RESOURCE_CACHE_HEADERS, format_etag, maybe_not_modified
 from ..support.media_type import media_type_and_headers
 
@@ -41,7 +41,10 @@ def _image_response(request: Request, path: Path, content_hash: str | None) -> R
 
 @router.get("/proxy")
 async def proxy_image(
-    runtime: RuntimeDep, request: Request, url: Annotated[str, Query(description="External image URL to proxy")]
+    runtime: RuntimeDep,
+    network: NetworkDep,
+    request: Request,
+    url: Annotated[str, Query(description="External image URL to proxy")],
 ) -> Response:
     """上游失败记入进程内负缓存 (15 分钟), 窗口内同 URL 直接 502.
     同 URL 进行中请求合并为一次 acquire.
@@ -83,7 +86,7 @@ async def proxy_image(
     # 否则等待同一 URL 的请求也会占额度.
     async def _acquire() -> Path | None:
         async with runtime.proxy_downloads:
-            return await store.acquire(url, runtime.web_client, egress=_PROXY_EGRESS, max_bytes=_PROXY_MAX_BYTES)
+            return await store.acquire(url, network.web_client, egress=_PROXY_EGRESS, max_bytes=_PROXY_MAX_BYTES)
 
     local_path = await failures.coalesce(url, _acquire)
     if local_path is None:

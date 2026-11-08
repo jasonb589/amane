@@ -97,10 +97,10 @@ async def run_record(record_path: Path, *, online: bool = False) -> int:
                 "failed_sites": list(result.result.failed_sites) if result.result else [],
             }
             print(json.dumps(out, ensure_ascii=False, indent=2))  # noqa: T201
-            if isinstance(web, WebClient):
-                await web.close()
             if browser is not None:
                 await browser.close()
+            if isinstance(web, WebClient):
+                await web.close()
             if isinstance(r18_db, R18Database):
                 await r18_db.close()
             await engine.dispose()

@@ -694,6 +694,12 @@ class NotificationService:
         # enabled 已保证 web 非空; send_test 也会先判空, 这里只是兜底.
         if web is None:
             return False, "网络客户端未就绪"
+        with web.lease():
+            return await self._send_with_web(channel, variables, web)
+
+    async def _send_with_web(
+        self, channel: NotifyChannelConfig, variables: dict[str, Any], web: WebClient
+    ) -> tuple[bool, str]:
         label = channel.name or str(channel.provider)
         if channel.provider is not NotifyProvider.CUSTOM:
             if not channel.token.strip():

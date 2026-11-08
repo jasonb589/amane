@@ -452,7 +452,7 @@ _CHUNK = 256 * 1024
 _THRESHOLD = 512 * 1024  # NetworkConfig 的分块阈值下界
 
 
-def _network_client(
+async def _network_client(
     monkeypatch: pytest.MonkeyPatch, session: _RangeStubSession, *, threshold: int = _THRESHOLD, max_retries: int = 2
 ) -> WebClient:
     """按热配置经网络栈构造客户端: 分块参数的取值与接线在同一处断言."""
@@ -460,7 +460,9 @@ def _network_client(
     hot.network.chunked_threshold = threshold
     hot.network.chunk_size = _CHUNK
     hot.network.max_retries = max_retries
-    client = build_network_stack(hot).web_client
+    stack = build_network_stack(hot)
+    await stack.browser.close()
+    client = stack.web_client
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     monkeypatch.setattr(client, "_session", session)
     return client
@@ -471,7 +473,7 @@ class TestChunkedDownload:
     async def test_parts_follow_network_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
         """分片区间来自 ``network`` 配置, 经网络栈落到下载路径."""
         session = _RangeStubSession(_CHUNK_BODY)
-        client = _network_client(monkeypatch, session)
+        client = await _network_client(monkeypatch, session)
 
         assert await client.download("https://pics.example/a.jpg", tmp_path / "a.jpg") is True
 
@@ -492,7 +494,7 @@ class TestChunkedDownload:
     ):
         """超过阈值才分块; 阈值及以下整份下载."""
         session = _RangeStubSession(_CHUNK_BODY[:file_size])
-        client = _network_client(monkeypatch, session)
+        client = await _network_client(monkeypatch, session)
 
         assert await client.download("https://pics.example/a.jpg", tmp_path / "a.jpg") is True
 
@@ -503,7 +505,7 @@ class TestChunkedDownload:
     async def test_chunk_failure_fails_whole_download(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
         """任一分片重试用尽即整份失败; 无外层重试, 每个区间只请求一次."""
         session = _RangeStubSession(_CHUNK_BODY, fail_times={_CHUNK: 1})
-        client = _network_client(monkeypatch, session, max_retries=0)
+        client = await _network_client(monkeypatch, session, max_retries=0)
 
         assert await client.download("https://pics.example/a.jpg", tmp_path / "a.jpg") is False
 
@@ -518,7 +520,7 @@ class TestChunkedDownload:
     async def test_retry_inside_chunk_covers_transient_failure(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
         """分片内的重试按 ``network.max_retries`` 重发同一区间, 覆盖瞬时失败."""
         session = _RangeStubSession(_CHUNK_BODY, fail_times={_CHUNK: 2})
-        client = _network_client(monkeypatch, session)
+        client = await _network_client(monkeypatch, session)
 
         assert await client.download("https://pics.example/a.jpg", tmp_path / "a.jpg") is True
 
@@ -795,7 +797,7 @@ class TestBoundedDownload:
     async def test_chunk_count_capped(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
         """上游自称的长度决定区间数: 超过上限直接放弃, 不构造区间列表也不发起 Range 请求."""
         session = _RangeStubSession(b"x" * 5000)
-        client = _network_client(monkeypatch, session)
+        client = await _network_client(monkeypatch, session)
         monkeypatch.setattr(client, "_chunk_size", 1)
         monkeypatch.setattr(client, "_chunked_threshold", 1)
 

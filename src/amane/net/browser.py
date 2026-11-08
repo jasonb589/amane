@@ -11,7 +11,7 @@ import asyncio
 import os
 import time
 from abc import ABC, abstractmethod
-from contextlib import AsyncExitStack
+from contextlib import AbstractContextManager, AsyncExitStack, ExitStack
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
 import structlog
@@ -19,6 +19,7 @@ import structlog
 from ..enums import BrowserBackendName
 from .bsk import BskBackend
 from .errors import FailureKind, FailureReason, RequestError, RequestFailure, classify_block
+from .lifetime import AsyncLifetime
 from .recording import skip_body_recording
 
 if TYPE_CHECKING:
@@ -103,6 +104,9 @@ class BrowserPool:
         self._bsk_path = bsk_path
         self._instances: dict[BrowserBackendName, BrowserBackend] = {}
         self._closed = False
+        self._lifetime = AsyncLifetime(self._close)
+        self._web_lease = web_client.lease()
+        self._web_lease.__enter__()
 
     def resolve(self, override: BrowserBackendName | None) -> BrowserBackendName | None:
         """来源覆盖优先; 覆盖为 ``off`` 表示显式禁用, 结果为 None."""
@@ -111,8 +115,19 @@ class BrowserPool:
         return None if self._default is BrowserBackendName.OFF else self._default
 
     def rebind_web_client(self, web_client: WebClient) -> None:
-        """热重建复用本实例时同步新的 HTTP 通道 (solver 经它出站)."""
-        self._web = web_client
+        """先持有新通道再释放旧通道; 进行中的 solver 操作另持有自己的通道租约."""
+        with self.lease():
+            replacement = web_client.lease()
+            replacement.__enter__()
+            previous, self._web_lease = self._web_lease, replacement
+            self._web = web_client
+            previous.__exit__(None, None, None)
+
+    def lease(self) -> AbstractContextManager[None]:
+        return self._lifetime.lease()
+
+    def retire(self) -> None:
+        self._lifetime.retire()
 
     async def get_page(
         self,
@@ -129,21 +144,25 @@ class BrowserPool:
         name = self.resolve(backend)
         if name is None:
             return None, RequestFailure(kind=FailureKind.UNEXPECTED, message="browser backend disabled")
-        if self._closed:
-            return None, RequestFailure(kind=FailureKind.UNEXPECTED, message="browser pool closed")
-        instance = self._instances.get(name)
-        if instance is None:
-            instance = self._create(name)
-            self._instances[name] = instance
-        return await instance.get_page(
-            url,
-            scope=scope,
-            cookies=cookies,
-            headers=headers,
-            wait_for=wait_for,
-            timeout=timeout if timeout is not None else self._timeout_ms,
-            network_idle_timeout=network_idle_timeout,
-        )
+        with ExitStack() as operation:
+            try:
+                operation.enter_context(self.lease())
+            except RuntimeError:
+                return None, RequestFailure(kind=FailureKind.UNEXPECTED, message="browser pool closed")
+            operation.enter_context(self._web.lease())
+            instance = self._instances.get(name)
+            if instance is None:
+                instance = self._create(name)
+                self._instances[name] = instance
+            return await instance.get_page(
+                url,
+                scope=scope,
+                cookies=cookies,
+                headers=headers,
+                wait_for=wait_for,
+                timeout=timeout if timeout is not None else self._timeout_ms,
+                network_idle_timeout=network_idle_timeout,
+            )
 
     def _create(self, name: BrowserBackendName) -> BrowserBackend:
         match name:
@@ -166,11 +185,20 @@ class BrowserPool:
                 raise ValueError(f"unsupported browser backend: {name}")
 
     async def close(self) -> None:
+        await self._lifetime.aclose()
+
+    async def _close(self) -> None:
         self._closed = True
         instances = list(self._instances.values())
         self._instances.clear()
-        for instance in instances:
-            await instance.close()
+        try:
+            results = await asyncio.gather(*(instance.close() for instance in instances), return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
+        finally:
+            # solver 销毁远端会话仍需 HTTP 通道, 必须最后释放池对该通道的持有.
+            self._web_lease.__exit__(None, None, None)
 
 
 class _ChallengeUnresolved(Exception):
@@ -551,12 +579,38 @@ class SolverBackend:
         timeout: float | None = None,
         network_idle_timeout: float | None = None,
     ) -> BrowserPageResult:
+        if self._closed:
+            return None, self._closed_error().failure
+        web = self._web_provider()
+        with web.lease():
+            return await self._get_page(
+                web,
+                url,
+                scope=scope,
+                cookies=cookies,
+                wait_for=wait_for,
+                timeout=timeout,
+                network_idle_timeout=network_idle_timeout,
+            )
+
+    async def _get_page(
+        self,
+        web: WebClient,
+        url: str,
+        *,
+        scope: str,
+        cookies: Mapping[str, str] | None,
+        wait_for: str | None,
+        timeout: float | None,
+        network_idle_timeout: float | None,
+    ) -> BrowserPageResult:
+        """取页全程使用同一通道, 包含会话创建、排队与降级重试之间的等待."""
         if wait_for is not None or network_idle_timeout is not None:
             logger.debug("solver ignores wait_for and network idle timeout", scope=scope)
         effective = timeout if timeout is not None else self._default_timeout
         async with self._semaphore, self._lock_for(scope):
             try:
-                data = await self._request(url, scope, effective, cookies)
+                data = await self._request(web, url, scope, effective, cookies)
             except RequestError as exc:
                 return None, exc.failure or RequestFailure(kind=FailureKind.UNEXPECTED, message=exc.message)
             if not _solver_ok(data):
@@ -564,7 +618,7 @@ class SolverBackend:
                 if _is_missing_session(message) and not self._sessionless:
                     self._sessions.discard(scope)
                     try:
-                        data = await self._request(url, scope, effective, cookies)
+                        data = await self._request(web, url, scope, effective, cookies)
                     except RequestError as exc:
                         return None, exc.failure or RequestFailure(kind=FailureKind.UNEXPECTED, message=exc.message)
                     if not _solver_ok(data):
@@ -589,14 +643,14 @@ class SolverBackend:
         return lock
 
     async def _request(
-        self, url: str, scope: str, timeout_ms: float, cookies: Mapping[str, str] | None
+        self, web: WebClient, url: str, scope: str, timeout_ms: float, cookies: Mapping[str, str] | None
     ) -> dict[str, Any]:
         """一次取页: 优先复用会话; 该后端不吃会话时降级为无会话请求."""
         if self._sessionless:
-            return await self._request_get(url, None, timeout_ms, cookies)
+            return await self._request_get(web, url, None, timeout_ms, cookies)
         try:
-            await self._ensure_session(scope)
-            return await self._request_get(url, scope, timeout_ms, cookies)
+            await self._ensure_session(web, scope)
+            return await self._request_get(web, url, scope, timeout_ms, cookies)
         except RequestError as exc:
             # 兼容服务 (trawl 之类): sessions.create 正常返回, 但会话绑定的 request.get 会一直挂到超时,
             # 或等满 maxTimeout 后回 5xx. 只对这两类降级 —— 配置错、服务已关之类重试也没意义, 照常抛出.
@@ -605,10 +659,10 @@ class SolverBackend:
             logger.warning("solver sessions unusable, fall back to sessionless", url=self._url, error=str(exc))
             self._sessionless = True
             self._sessions.clear()
-            return await self._request_get(url, None, timeout_ms, cookies)
+            return await self._request_get(web, url, None, timeout_ms, cookies)
 
     async def _request_get(
-        self, url: str, scope: str | None, timeout_ms: float, cookies: Mapping[str, str] | None
+        self, web: WebClient, url: str, scope: str | None, timeout_ms: float, cookies: Mapping[str, str] | None
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "cmd": "request.get",
@@ -623,9 +677,9 @@ class SolverBackend:
             payload["session"] = scope
         if cookies:
             payload["cookies"] = [{"name": name, "value": value} for name, value in cookies.items()]
-        return await self._post(payload, timeout_s=timeout_ms / 1000 + _SOLVER_HTTP_SLACK_S)
+        return await self._post(web, payload, timeout_s=timeout_ms / 1000 + _SOLVER_HTTP_SLACK_S)
 
-    async def _ensure_session(self, scope: str) -> None:
+    async def _ensure_session(self, web: WebClient, scope: str) -> None:
         if scope in self._sessions:
             return
         async with self._lock:
@@ -634,6 +688,7 @@ class SolverBackend:
             if scope in self._sessions:
                 return
             data = await self._post(
+                web,
                 {"cmd": "sessions.create", "session": scope},
                 timeout_s=_SOLVER_SESSION_TIMEOUT_S,
             )
@@ -643,15 +698,14 @@ class SolverBackend:
                 raise RequestError(self._url, _solver_failure(message))
             if self._closed:
                 # close 的销毁快照可能错过本次创建; 立即回收, 不写回 _sessions.
-                await self._destroy_session(scope)
+                await self._destroy_session(web, scope)
                 raise self._closed_error()
             self._sessions.add(scope)
 
     def _closed_error(self) -> RequestError:
         return RequestError(self._url, RequestFailure(kind=FailureKind.UNEXPECTED, message="solver backend closed"))
 
-    async def _post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
-        web = self._web_provider()
+    async def _post(self, web: WebClient, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
         # solver 响应内嵌目标页 HTML, 只记 meta 避免任务记录膨胀.
         with skip_body_recording():
             resp = await web.request(
@@ -674,11 +728,14 @@ class SolverBackend:
         self._closed = True
         sessions = list(self._sessions)
         self._sessions.clear()
-        await asyncio.gather(*(self._destroy_session(scope) for scope in sessions))
+        if sessions:
+            web = self._web_provider()
+            with web.lease():
+                await asyncio.gather(*(self._destroy_session(web, scope) for scope in sessions))
 
-    async def _destroy_session(self, scope: str) -> None:
+    async def _destroy_session(self, web: WebClient, scope: str) -> None:
         try:
-            await self._post({"cmd": "sessions.destroy", "session": scope}, timeout_s=_SOLVER_SESSION_TIMEOUT_S)
+            await self._post(web, {"cmd": "sessions.destroy", "session": scope}, timeout_s=_SOLVER_SESSION_TIMEOUT_S)
         except Exception as exc:
             logger.debug("solver session destroy failed (ignored)", session=scope, error=str(exc))
 

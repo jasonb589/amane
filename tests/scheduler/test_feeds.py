@@ -1,17 +1,22 @@
 """FeedService / RSS 解析 / 番号提取契约."""
 
+import asyncio
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from warnings import catch_warnings, filterwarnings
 
 import pytest
+from curl_cffi import Response
 
 from amane.db.models import TaskType
 from amane.db.repository import Repository
 from amane.net.errors import FailureKind, RequestError, RequestFailure
+from amane.net.http import RateLimiters, WebClient
 from amane.parsing import ContentType
 from amane.scheduler.feeds import FeedService, apply_number_pattern, resolve_entry_number
 from amane.scheduler.rss import ParsedFeedEntry, parse_feed_bytes
+from tests.helpers import LOAD_TOLERANT_TIMEOUT
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -68,6 +73,9 @@ class FakeWeb:
         self.resp = resp
         self.failure = failure
         self.calls: list[dict[str, object]] = []
+
+    def lease(self) -> nullcontext[None]:
+        return nullcontext()
 
     async def request(
         self,
@@ -204,6 +212,57 @@ async def test_poll_auto_enqueue_false_records_without_scrape(repo: Repository):
     assert refreshed.last_error is None
     assert refreshed.last_enqueued == 0
     assert refreshed.next_fetch_at is not None
+
+
+@pytest.mark.asyncio
+async def test_rebind_keeps_active_poll_client_and_uses_new_client_next(
+    repo: Repository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    feed = await repo.create_feed(name="t", url="https://example.com/rss.xml", auto_enqueue=False)
+    assert feed.id is not None
+    old_web = WebClient(limiters=RateLimiters(default_rate=10000))
+    new_web = WebClient(limiters=RateLimiters(default_rate=10000))
+    entered, release, old_closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    old_response, new_response = Response(), Response()
+    old_response.content, new_response.content = RSS_TWO_ITEMS, ATOM_ONE
+
+    async def old_transport(*args: object, **kwargs: object) -> Response:
+        entered.set()
+        await release.wait()
+        assert not old_closed.is_set()
+        return old_response
+
+    async def close_old() -> None:
+        old_closed.set()
+
+    old_request = AsyncMock(side_effect=old_transport)
+    new_request = AsyncMock(return_value=new_response)
+    monkeypatch.setattr(old_web._session, "request", old_request)
+    monkeypatch.setattr(new_web._session, "request", new_request)
+    monkeypatch.setattr(old_web._session, "close", close_old)
+    monkeypatch.setattr(new_web._session, "close", AsyncMock())
+    service = FeedService(repo, old_web)
+    polling = asyncio.create_task(service.poll_one(feed.id))
+    try:
+        await asyncio.wait_for(entered.wait(), LOAD_TOLERANT_TIMEOUT)
+        service.set_web_client(new_web)
+        old_web.retire()
+        assert not old_closed.is_set()
+        release.set()
+        await asyncio.wait_for(polling, LOAD_TOLERANT_TIMEOUT)
+        await asyncio.wait_for(old_closed.wait(), LOAD_TOLERANT_TIMEOUT)
+        old_request.assert_awaited_once()
+        new_request.assert_not_awaited()
+        assert (await repo.list_feed_items(feed.id, state="all"))[1] == 3
+        await service.poll_one(feed.id)
+        new_request.assert_awaited_once()
+        rows, total = await repo.list_feed_items(feed.id, state="all")
+        assert total == 4 and any(item.item_key == "atom-1" for item, _ in rows)
+    finally:
+        release.set()
+        await asyncio.gather(polling, return_exceptions=True)
+        await old_web.close()
+        await new_web.close()
 
 
 @pytest.mark.asyncio

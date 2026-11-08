@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from contextlib import suppress
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -49,7 +49,7 @@ from ..scheduler.worker import MAIN_LOOP_STOP_TIMEOUT, AsyncWorker
 from ..semantic import SemanticService
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Generator, Sequence
 
     from ..agent import AgentService
     from ..config import BrowserConfig, ConfigManager, HotSettings
@@ -78,6 +78,29 @@ class NetworkStack:
     http_client: HttpClient
     factory: CrawlerFactory
     browser: BrowserPool
+
+
+@dataclass(frozen=True)
+class NetworkSnapshot:
+    """一次 API 操作使用的网络依赖; 不随配置更新替换其中的对象."""
+
+    web_client: WebClient
+    http_client: HttpClient
+    factory: CrawlerFactory
+    browser: BrowserPool | None
+    playback_factory: PlaybackFactory | None
+    hot: HotSettings
+    plugin_manager: PluginManager | None
+
+    @contextmanager
+    def lease(self) -> Generator[None]:
+        with ExitStack() as stack:
+            stack.enter_context(self.web_client.lease())
+            if self.browser is not None:
+                stack.enter_context(self.browser.lease())
+            if self.playback_factory is not None:
+                stack.enter_context(self.playback_factory.lease())
+            yield
 
 
 def build_network_stack(
@@ -206,11 +229,12 @@ class R18Handle:
 
 @dataclass(eq=False)
 class RetiringWorker:
-    """已退役、正在排空的 worker 及其使用的 r18 句柄与浏览器池."""
+    """已退役、正在排空的 worker 及其网络租约与 r18 句柄."""
 
     worker: AsyncWorker
     r18: R18Handle | None
     browser: BrowserPool | None
+    network_lease: ExitStack
 
 
 @dataclass
@@ -250,6 +274,8 @@ class AppRuntime:
     _rebuild_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     _retiring: list[RetiringWorker] = field(default_factory=list, repr=False)
     _retire_tasks: set[asyncio.Task[None]] = field(default_factory=set, repr=False)
+    _network_tasks: set[asyncio.Task[None]] = field(default_factory=set, repr=False)
+    _worker_network: ExitStack = field(default_factory=ExitStack, repr=False)
     _closing: bool = field(default=False, repr=False)
     _stopped: bool = field(default=False, repr=False)
 
@@ -259,12 +285,35 @@ class AppRuntime:
         if self.r18_handle is None and self.r18_db is not None:
             self.r18_handle = R18Handle(self.r18_db)
         self._browser_key = self._current_browser_key()
+        self._worker_network = self._hold_worker_network()
         if self.semantic is None:
             self.semantic = SemanticService(
                 self.repo, self.resource_store, self.config.cold.data_dir, self.config.hot.semantic
             )
         self.repo.set_media_hook(self.semantic)
         self._bind_semantic_bridge()
+
+    def network_snapshot(self) -> NetworkSnapshot:
+        return NetworkSnapshot(
+            self.web_client,
+            self.http_client,
+            self.factory,
+            self.browser,
+            self.playback_factory,
+            self.config.hot,
+            self.plugin_manager,
+        )
+
+    def _hold_worker_network(self) -> ExitStack:
+        stack = ExitStack()
+        try:
+            stack.enter_context(self.web_client.lease())
+            if self.browser is not None:
+                stack.enter_context(self.browser.lease())
+        except BaseException:
+            stack.close()
+            raise
+        return stack
 
     def _bind_semantic_bridge(self) -> None:
         """Agent 的语义工具只经 bridge 获取检索能力, 不直接依赖运行时. 热重载替换服务后须重新绑定."""
@@ -319,6 +368,7 @@ class AppRuntime:
         self.http_client = stack.http_client
         self.factory = stack.factory
         self.browser = stack.browser
+        self._worker_network = self._hold_worker_network()
         if self.feed_service is not None:
             self.feed_service.set_web_client(self.web_client)
 
@@ -445,34 +495,48 @@ class AppRuntime:
         old_worker = self.worker
         old_r18 = self.r18_handle
         old_browser = self.browser
+        old_web = self.web_client
+        old_network_lease = self._worker_network
         self._rebuild()
         old_worker.retire()
         self.worker.start()
-        self._retire_worker(old_worker, old_r18, old_browser)
+        self._stopped = False
+        self._retire_worker(old_worker, old_r18, old_browser, old_network_lease)
+        old_web.retire()
+        self._track_network_close(old_web.close())
+        if old_browser is not None and old_browser is not self.browser:
+            old_browser.retire()
+            self._track_network_close(old_browser.close())
         if self._retiring:
             logger.warning("workers retiring", count=len(self._retiring))
         if old_playback is not None:
-            await old_playback.aclose()
+            old_playback.retire()
+            self._track_network_close(old_playback.aclose())
 
-    def _retire_worker(self, worker: AsyncWorker, r18: R18Handle | None, browser: BrowserPool | None) -> None:
-        entry = RetiringWorker(worker=worker, r18=r18, browser=browser)
+    def _retire_worker(
+        self, worker: AsyncWorker, r18: R18Handle | None, browser: BrowserPool | None, network_lease: ExitStack
+    ) -> None:
+        entry = RetiringWorker(worker=worker, r18=r18, browser=browser, network_lease=network_lease)
         self._retiring.append(entry)
         task = asyncio.create_task(self._drain_and_close(entry))
         self._retire_tasks.add(task)
 
     async def _drain_and_close(self, entry: RetiringWorker) -> None:
-        """等退役 worker 排空后释放其 r18 句柄与浏览器池; 不获取 ``_rebuild_lock``."""
+        """排空后释放 worker 的持有权; 网络关闭不阻塞 worker 或通知的关闭编排."""
         try:
             await entry.worker.drain()
-            self._retiring.remove(entry)
-            if entry.r18 is not None:
-                await self._release_r18(entry.r18)
-            if entry.browser is not None:
-                await self._release_browser(entry.browser)
         except Exception:
             logger.exception("retiring worker cleanup failed")
         finally:
-            self._retire_tasks.discard(asyncio.current_task())
+            try:
+                # drain 的记录器收尾可能失败; 已排空的 worker 仍须释放网络与引擎.
+                if entry.worker.active_count == 0:
+                    entry.network_lease.close()
+                    self._retiring.remove(entry)
+                    if entry.r18 is not None:
+                        await self._release_r18(entry.r18)
+            finally:
+                self._retire_tasks.discard(asyncio.current_task())
         logger.info("worker retired", active_count=entry.worker.active_count)
 
     async def _release_r18(self, handle: R18Handle) -> None:
@@ -484,13 +548,27 @@ class AppRuntime:
         handle.closed = True
         await handle.engine.close()
 
-    async def _release_browser(self, browser: BrowserPool) -> None:
-        """池不再被当前或任何退役 worker 使用时关闭."""
-        if browser is self.browser:
-            return
-        if any(entry.browser is browser for entry in self._retiring):
-            return
-        await browser.close()
+    def _track_network_close(self, close: Awaitable[None]) -> None:
+        async def finish() -> None:
+            try:
+                await close
+            except Exception:
+                logger.exception("retired network cleanup failed")
+
+        task = asyncio.create_task(finish())
+        self._network_tasks.add(task)
+        task.add_done_callback(self._network_tasks.discard)
+
+    async def close_network(self) -> None:
+        """worker 与通知结束后关闭当前依赖, 并等待所有退役网络资源释放."""
+        pending: list[Awaitable[None]] = [self.web_client.close(), *self._network_tasks]
+        if self.playback_factory is not None:
+            pending.append(self.playback_factory.aclose())
+        if self.browser is not None:
+            pending.append(self.browser.close())
+        for result in await asyncio.gather(*pending, return_exceptions=True):
+            if isinstance(result, BaseException):
+                logger.error("network cleanup failed", error=str(result))
 
     async def cancel_task(self, task_id: int) -> bool:
         """当前 worker 与退役 worker 都能命中."""
@@ -509,7 +587,8 @@ class AppRuntime:
             if closing:
                 self._closing = True
             workers = [self.worker, *(entry.worker for entry in self._retiring)]
-            self._retire_worker(self.worker, self.r18_handle, self.browser)
+            self._retire_worker(self.worker, self.r18_handle, self.browser, self._worker_network)
+            self._worker_network = ExitStack()
             for worker in workers:
                 worker.retire()
             for worker in workers:

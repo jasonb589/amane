@@ -4,21 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from curl_cffi import Response
 
 from amane.config.manager import NotifyChannelConfig, NotifyConfig, NotifyProvider, NotifyTaskType
 from amane.db.models import TaskType
 from amane.events import Event, EventType
 from amane.net.errors import RequestError
+from amane.net.http import RateLimiters, WebClient
 from amane.notify.service import NotificationService, _local_time, _read_tail, build_request
 from amane.notify.telegram import clip_html, plain_html, text_length
 from amane.notify.templates import render
 from amane.parsing import ContentType
+from tests.helpers import LOAD_TOLERANT_TIMEOUT
 
 
 def _channel(**values: Any) -> NotifyChannelConfig:
@@ -35,6 +39,9 @@ class _Web:
     def __init__(self, *responses: _Response | Exception) -> None:
         self.responses = list(responses)
         self.calls: list[dict[str, Any]] = []
+
+    def lease(self) -> nullcontext[None]:
+        return nullcontext()
 
     async def request(self, method: str, url: str, **kwargs: Any) -> _Response:
         self.calls.append({"method": method, "url": url, **kwargs})
@@ -159,6 +166,96 @@ async def test_rate_limit_obeys_retry_after_and_has_one_retry_layer(monkeypatch:
     assert all(
         call["max_attempts"] == 1 and call["method"] == "POST" and not call["allow_redirects"] for call in web.calls
     )
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_keeps_retired_client_until_rate_limit_retry_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_web = WebClient(limiters=RateLimiters(default_rate=10000))
+    new_web = WebClient(limiters=RateLimiters(default_rate=10000))
+    retry_waiting, release_retry, old_closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    limited = Response()
+    limited.status_code = 429
+    limited.content = b'{"ok":false,"error_code":429,"parameters":{"retry_after":1}}'
+    delivered = Response()
+    delivered.content = b'{"ok":true}'
+    old_request = AsyncMock(side_effect=[limited, delivered])
+    new_request = AsyncMock(return_value=delivered)
+
+    async def close_old() -> None:
+        old_closed.set()
+
+    async def retry_delay(delay: float) -> None:
+        assert delay == 1
+        retry_waiting.set()
+        await release_retry.wait()
+        assert not old_closed.is_set()
+
+    monkeypatch.setattr(old_web._session, "request", old_request)
+    monkeypatch.setattr(new_web._session, "request", new_request)
+    monkeypatch.setattr(old_web._session, "close", close_old)
+    monkeypatch.setattr(new_web._session, "close", AsyncMock())
+    monkeypatch.setattr("amane.notify.service.asyncio.sleep", retry_delay)
+    channel = _channel()
+    config = NotifyConfig(enabled=True, channels=[channel])
+    service = NotificationService()
+    service.configure(config, web_client=old_web, repo=None, log_dir=None)
+    sending = asyncio.create_task(service.send_test(channel))
+    try:
+        await asyncio.wait_for(retry_waiting.wait(), LOAD_TOLERANT_TIMEOUT)
+        service.configure(config, web_client=new_web, repo=None, log_dir=None)
+        old_web.retire()
+        assert not old_closed.is_set()
+        release_retry.set()
+        assert (await asyncio.wait_for(sending, LOAD_TOLERANT_TIMEOUT))[0]
+        await asyncio.wait_for(old_closed.wait(), LOAD_TOLERANT_TIMEOUT)
+        assert old_request.await_count == 2
+        new_request.assert_not_awaited()
+        assert (await service.send_test(channel))[0]
+        new_request.assert_awaited_once()
+    finally:
+        release_retry.set()
+        await asyncio.gather(sending, return_exceptions=True)
+        await service.close()
+        await old_web.close()
+        await new_web.close()
+
+
+@pytest.mark.asyncio
+async def test_queued_notification_uses_client_selected_after_reconfigure(monkeypatch: pytest.MonkeyPatch) -> None:
+    old_web = WebClient(limiters=RateLimiters(default_rate=10000))
+    new_web = WebClient(limiters=RateLimiters(default_rate=10000))
+    delivered = Response()
+    delivered.content = b'{"ok":true}'
+    old_request, new_request = AsyncMock(return_value=delivered), AsyncMock(return_value=delivered)
+    monkeypatch.setattr(old_web._session, "request", old_request)
+    monkeypatch.setattr(new_web._session, "request", new_request)
+    monkeypatch.setattr(old_web._session, "close", AsyncMock())
+    monkeypatch.setattr(new_web._session, "close", AsyncMock())
+    channel = _channel()
+    config = NotifyConfig(enabled=True, channels=[channel])
+    service = NotificationService()
+    service.configure(config, web_client=old_web, repo=None, log_dir=None)
+    for _ in range(4):
+        await service._slots.acquire()
+    queued = asyncio.create_task(service.send_test(channel))
+    try:
+        await asyncio.sleep(0)
+        assert not queued.done()
+        service.configure(config, web_client=new_web, repo=None, log_dir=None)
+        old_web.retire()
+        await asyncio.wait_for(old_web.close(), LOAD_TOLERANT_TIMEOUT)
+        service._slots.release()
+        assert (await asyncio.wait_for(queued, LOAD_TOLERANT_TIMEOUT))[0]
+        old_request.assert_not_awaited()
+        new_request.assert_awaited_once()
+    finally:
+        service._slots.release()
+        await asyncio.gather(queued, return_exceptions=True)
+        await service.close()
+        await old_web.close()
+        await new_web.close()
 
 
 @pytest.mark.asyncio

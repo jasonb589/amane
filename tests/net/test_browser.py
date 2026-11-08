@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Sequence
-from contextlib import AsyncExitStack
+from contextlib import AbstractContextManager, AsyncExitStack
 from typing import Any
 
 import pytest
 
 from amane.enums import BrowserBackendName
-from amane.net.browser import BrowserPageResult, BrowserPool, SolverBackend, _Cookie, _is_timeout, _LocalBackend
+from amane.net.browser import (
+    BrowserBackend,
+    BrowserPageResult,
+    BrowserPool,
+    SolverBackend,
+    _Cookie,
+    _is_timeout,
+    _LocalBackend,
+)
 from amane.net.errors import FailureKind, FailureReason, RequestError, RequestFailure, classify_request_error
+from amane.net.lifetime import AsyncLifetime
+from tests.helpers import LOAD_TOLERANT_TIMEOUT
 
 
 class _Resp:
@@ -22,14 +32,40 @@ class _Resp:
         return self._payload
 
 
-class _FakeWeb:
+class _LeasedWeb:
+    """使用生产生命周期管理器; 关闭时记录事件, 请求在关闭后调用即失败."""
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.close_count = 0
+        self.closed_event = asyncio.Event()
+        self._lifetime = AsyncLifetime(self._close)
+
+    def lease(self) -> AbstractContextManager[None]:
+        return self._lifetime.lease()
+
+    def retire(self) -> None:
+        self._lifetime.retire()
+
+    async def close(self) -> None:
+        await self._lifetime.aclose()
+
+    async def _close(self) -> None:
+        self.close_count += 1
+        self.closed = True
+        self.closed_event.set()
+
+
+class _FakeWeb(_LeasedWeb):
     """WebClient 的最小替代实现: 记录出站请求, 按编程应答."""
 
     def __init__(self, responses: list[object]) -> None:
+        super().__init__()
         self._responses = list(responses)
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
 
     async def request(self, method: str, url: str, **kwargs: Any) -> _Resp:
+        assert not self.closed
         self.calls.append((method, url, kwargs))
         result = self._responses.pop(0)
         if isinstance(result, Exception):
@@ -51,10 +87,11 @@ class _GatedWeb(_FakeWeb):
         if kwargs.get("json", {}).get("cmd") == self.gate_cmd:
             self.get_answered.set()
             await self.release.wait()
+        assert not self.closed
         return result
 
 
-class _SolverWeb:
+class _SolverWeb(_LeasedWeb):
     """可注入应答的 solver 通道: 统计 ``request.get`` 的同时执行数, 令指定 cmd 的首次调用挂起.
 
     ``delay`` 是页面请求的应答滞后, 供测试在 ``request.get`` 上开出真实交错窗口.
@@ -67,6 +104,7 @@ class _SolverWeb:
         delay: float = 0.0,
         gate_cmd: str | None = None,
     ) -> None:
+        super().__init__()
         self._handler = handler
         self._delay = delay
         self._gate_cmd = gate_cmd
@@ -82,6 +120,7 @@ class _SolverWeb:
         return [call["url"] for call in self.calls if call["cmd"] == "request.get"]
 
     async def request(self, method: str, url: str, **kwargs: Any) -> _Resp:
+        assert not self.closed
         payload = kwargs["json"]
         self.calls.append(payload)
         tracked = payload["cmd"] == "request.get"
@@ -95,6 +134,7 @@ class _SolverWeb:
                 await self.release.wait()
             if tracked and self._delay:
                 await asyncio.sleep(self._delay)
+            assert not self.closed
             result = self._handler(payload)
         finally:
             if tracked:
@@ -506,6 +546,173 @@ def _make_solver(responses: list[object]) -> tuple[SolverBackend, _FakeWeb]:
     return SolverBackend(web_provider=lambda: web, url="http://solver.test:8191/", default_timeout=1000), web  # type: ignore[arg-type]
 
 
+def _solver_timeout() -> RequestError:
+    """solver 侧超时: 会话绑定的取页挂住时客户端收到的错误形态."""
+    return RequestError("solver", RequestFailure(kind=FailureKind.TIMEOUT, message="timeout"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gate_cmd", "responses", "expected_cmds"),
+    [
+        ("sessions.create", [{"status": "ok"}, _SOLVER_OK], ["sessions.create", "request.get"]),
+        (
+            "request.get",
+            [{"status": "ok"}, {"status": "error", "message": "Session not found"}, {"status": "ok"}, _SOLVER_OK],
+            ["sessions.create", "request.get", "sessions.create", "request.get"],
+        ),
+        (
+            "request.get",
+            [{"status": "ok"}, _solver_timeout(), _SOLVER_OK],
+            ["sessions.create", "request.get", "request.get"],
+        ),
+    ],
+)
+async def test_pool_rebind_preserves_started_solver_operation(
+    gate_cmd: str, responses: list[object], expected_cmds: list[str]
+) -> None:
+    """热重建发生在会话建立或重试间隙时, 同次取页仍使用旧通道, 完成后才释放."""
+    replies = responses.copy()
+    previous = _SolverWeb(lambda payload: replies.pop(0), gate_cmd=gate_cmd)
+    replacement = _SolverWeb(_solver_responder)
+    pool = BrowserPool(
+        default_backend=BrowserBackendName.SOLVER,
+        solver_url="http://solver.test:8191",
+        proxy=None,
+        web_client=previous,  # type: ignore[arg-type]
+        timeout_ms=1000,
+    )
+    task = asyncio.create_task(pool.get_page("https://a.example/1", scope="site-a"))
+    try:
+        await asyncio.wait_for(previous.gated.wait(), LOAD_TOLERANT_TIMEOUT)
+        pool.rebind_web_client(replacement)  # type: ignore[arg-type]
+        previous.retire()
+        assert not previous.closed
+        assert replacement.calls == []
+
+        previous.release.set()
+        assert await asyncio.wait_for(task, LOAD_TOLERANT_TIMEOUT) == ("<html>ok</html>", None)
+        await asyncio.wait_for(previous.closed_event.wait(), LOAD_TOLERANT_TIMEOUT)
+        assert [call["cmd"] for call in previous.calls] == expected_cmds
+
+        assert await pool.get_page("https://b.example/2", scope="site-b") == ("<html>https://b.example/2</html>", None)
+        assert replacement.requested_urls == ["https://b.example/2"]
+    finally:
+        previous.release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await pool.close()
+        await previous.close()
+        await replacement.close()
+    assert previous.close_count == replacement.close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retired_pool_keeps_provider_until_last_worker_and_session_cleanup() -> None:
+    """旧 worker 可在新通道所属代已退役后继续取页; 会话销毁完成前通道仍可用."""
+    previous = _SolverWeb(_solver_responder)
+    replacement = _SolverWeb(_solver_responder, gate_cmd="sessions.destroy")
+    pool = BrowserPool(
+        default_backend=BrowserBackendName.SOLVER,
+        solver_url="http://solver.test:8191",
+        proxy=None,
+        web_client=previous,  # type: ignore[arg-type]
+        timeout_ms=1000,
+    )
+    try:
+        with pool.lease():
+            pool.rebind_web_client(replacement)  # type: ignore[arg-type]
+            previous.retire()
+            replacement.retire()
+            pool.retire()
+            await asyncio.wait_for(previous.closed_event.wait(), LOAD_TOLERANT_TIMEOUT)
+            assert await pool.get_page("https://a.example/1", scope="site-a") == (
+                "<html>https://a.example/1</html>",
+                None,
+            )
+            assert not replacement.closed
+
+        await asyncio.wait_for(replacement.gated.wait(), LOAD_TOLERANT_TIMEOUT)
+        assert not replacement.closed
+        replacement.release.set()
+        await asyncio.wait_for(pool.close(), LOAD_TOLERANT_TIMEOUT)
+        await asyncio.wait_for(replacement.closed_event.wait(), LOAD_TOLERANT_TIMEOUT)
+        assert [call["cmd"] for call in replacement.calls] == ["sessions.create", "request.get", "sessions.destroy"]
+        html, failure = await pool.get_page("https://a.example/2", scope="site-a")
+        assert html is None and failure is not None and failure.message == "browser pool closed"
+        with pytest.raises(RuntimeError):
+            pool.rebind_web_client(previous)  # type: ignore[arg-type]
+    finally:
+        replacement.release.set()
+        await pool.close()
+        await previous.close()
+        await replacement.close()
+    assert previous.close_count == replacement.close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_pool_request_releases_retired_resources() -> None:
+    web = _SolverWeb(_solver_responder, gate_cmd="request.get")
+    pool = BrowserPool(
+        default_backend=BrowserBackendName.SOLVER,
+        solver_url="http://solver.test:8191",
+        proxy=None,
+        web_client=web,  # type: ignore[arg-type]
+        timeout_ms=1000,
+    )
+    task = asyncio.create_task(pool.get_page("https://a.example/1", scope="site-a"))
+    try:
+        await asyncio.wait_for(web.gated.wait(), LOAD_TOLERANT_TIMEOUT)
+        pool.retire()
+        web.retire()
+        assert not web.closed
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.wait_for(pool.close(), LOAD_TOLERANT_TIMEOUT)
+        await asyncio.wait_for(web.closed_event.wait(), LOAD_TOLERANT_TIMEOUT)
+        assert [call["cmd"] for call in web.calls] == ["sessions.create", "request.get", "sessions.destroy"]
+        assert web.close_count == 1
+    finally:
+        web.release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await pool.close()
+        await web.close()
+
+
+@pytest.mark.asyncio
+async def test_pool_close_failure_still_destroys_solver_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
+    web = _SolverWeb(_solver_responder)
+    pool = BrowserPool(
+        default_backend=BrowserBackendName.CAMOUFOX,
+        solver_url="http://solver.test:8191",
+        proxy=None,
+        web_client=web,  # type: ignore[arg-type]
+        timeout_ms=1000,
+    )
+
+    class BrokenBackend(_RecordingBackend):
+        async def close(self) -> None:
+            await super().close()
+            raise OSError("browser shutdown failed")
+
+    backend = BrokenBackend()
+    create = pool._create
+
+    def create_with_failure(name: BrowserBackendName) -> BrowserBackend:
+        return backend if name is BrowserBackendName.CAMOUFOX else create(name)
+
+    monkeypatch.setattr(pool, "_create", create_with_failure)
+    await pool.get_page("https://a.example/1", scope="site-a")
+    await pool.get_page("https://b.example/2", scope="site-b", backend=BrowserBackendName.SOLVER)
+    web.retire()
+    with pytest.raises(OSError, match="browser shutdown failed"):
+        await asyncio.wait_for(pool.close(), LOAD_TOLERANT_TIMEOUT)
+    await asyncio.wait_for(web.closed_event.wait(), LOAD_TOLERANT_TIMEOUT)
+    assert backend.closed
+    assert [call["cmd"] for call in web.calls] == ["sessions.create", "request.get", "sessions.destroy"]
+    assert web.close_count == 1
+
+
 @pytest.mark.asyncio
 async def test_solver_creates_session_and_reuses_it():
     solver, web = _make_solver([{"status": "ok"}, _SOLVER_OK, _SOLVER_OK])
@@ -551,11 +758,6 @@ async def test_solver_recreates_missing_session_once():
         "sessions.create",
         "request.get",
     ]
-
-
-def _solver_timeout() -> RequestError:
-    """solver 侧超时: 会话绑定的取页挂住时客户端收到的错误形态."""
-    return RequestError("solver", RequestFailure(kind=FailureKind.TIMEOUT, message="timeout"))
 
 
 @pytest.mark.asyncio

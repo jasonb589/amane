@@ -55,7 +55,7 @@ OpenAPI 列出参数, 不表达组合语义:
 
 ## 依赖注入
 
-端点经 `Depends` 读取 `app.state.runtime`; `agent_service` 未接入时 `AgentDep` 返回 503. Starlette WS 不支持 `Depends`, `ws.py` 手动读取同一 runtime; 插件路由经 `PluginManagerDep` 读取当前进程内的来源目录. 插件代码不从路由直接暴露 Repository 或 FastAPI 状态.
+端点经 `Depends` 读取 `app.state.runtime`; 网络调用使用 `NetworkDep` 的同代快照与请求租约, 生命周期见 [config.md](config.md); `agent_service` 未接入时 `AgentDep` 返回 503. Starlette WS 不支持 `Depends`, `ws.py` 手动读取同一 runtime; 插件路由经 `PluginManagerDep` 读取当前进程内的来源目录. 插件代码不从路由直接暴露 Repository 或 FastAPI 状态.
 
 ## 中间件顺序
 

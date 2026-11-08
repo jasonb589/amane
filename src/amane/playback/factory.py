@@ -12,6 +12,7 @@ from fastapi import Request
 from starlette.responses import Response
 
 from ..net.errors import FailureReason, SourceError
+from ..net.lifetime import AsyncLifetime
 from ..plugins.api import (
     FilePlaybackTarget,
     HlsLocator,
@@ -39,6 +40,8 @@ from .href import hls_part_href
 from .proxy import HLS_KEY_CACHE_CONTROL, NOSNIFF, StreamClient
 
 if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
+
     from ..crawlers.http import HttpClient
     from ..net.http import WebClient
     from ..plugins.manager import PluginManager
@@ -156,6 +159,7 @@ class PlaybackFactory:
         self._web_client = web_client
         self._data_dir = data_dir
         self._stream = StreamClient(proxy=proxy)
+        self._lifetime = AsyncLifetime(self._stream.aclose)
         shared = state if state is not None else PlaybackState()
         # 每个 Factory 实例对应一份热配置快照: 配置改动可能更换凭据, 上一份配置解析出的目标
         # 必须失效. token 表与探测缓存不在这里清 (见 PlaybackState).
@@ -165,7 +169,13 @@ class PlaybackFactory:
         self._hls = shared.hls
 
     async def aclose(self) -> None:
-        await self._stream.aclose()
+        await self._lifetime.aclose()
+
+    def lease(self) -> AbstractContextManager[None]:
+        return self._lifetime.lease()
+
+    def retire(self) -> None:
+        self._lifetime.retire()
 
     @property
     def stream(self) -> StreamClient:

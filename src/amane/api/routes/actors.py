@@ -11,7 +11,7 @@ from ...handlers import ActorScrapePayload
 from ...media import manual_crop_image
 from ...utils.dates import normalize_calendar_date
 from ...utils.model import to_resp
-from ..deps import RepoDep, RuntimeDep
+from ..deps import NetworkDep, RepoDep, RuntimeDep
 from ..models import (
     ActorClearPersonBatchRequest,
     ActorClearPersonBatchResponse,
@@ -204,6 +204,7 @@ async def crop_actor_avatar(
     req: CropAvatarRequest,
     repo: RepoDep,
     runtime: RuntimeDep,
+    network: NetworkDep,
 ) -> ActorResponse:
     """从当前主图 (image_urls[0]) 按像素框裁切头像, 结果前插为主图并保留原图.
 
@@ -222,8 +223,8 @@ async def crop_actor_avatar(
             image_urls[0],
             box,
             runtime.resource_store,
-            runtime.web_client,
-            runtime.config.hot,
+            network.web_client,
+            network.hot,
             runtime.config.cold.data_dir,
             subject="头像",
             rotation=req.rotation,

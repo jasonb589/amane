@@ -91,11 +91,7 @@ class AppSession:
             await self._cron_task
         await self.runtime.stop_workers()
         await self.runtime.notifier.close()
-        if self.runtime.playback_factory is not None:
-            await self.runtime.playback_factory.aclose()
-        if self.runtime.browser is not None:
-            await self.runtime.browser.close()
-        await self.runtime.web_client.close()
+        await self.runtime.close_network()
         if self.runtime.translation_cache is not None:
             await self.runtime.translation_cache.close()
         if self.runtime.semantic is not None:

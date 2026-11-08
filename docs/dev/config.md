@@ -50,11 +50,13 @@ RateLimiters → WebClient → HttpClient → CrawlerFactory
 
 `watcher.escape_strings` 由 `src/amane/app/bootstrap.py::start_app` 在启动 worker / watcher 前安装, 热更新经 `src/amane/app/runtime.py::AppRuntime._rebuild`. 过滤只影响 `src/amane/parsing/file_info.py::parse_file_info` 的识别输入, `raw_name` 保留实际文件名; schema 按行拆分以保留正则逗号. `src/amane/config/manager.py::ConfigManager` 读取旧 TOML 或修改其他字段时保留无效正则供界面修正, 警告后忽略其解析效果; 显式提交过滤列表则严格校验, 无效正则返回 422.
 
-Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 worker `retire()` (停止认领并退出主循环), 新 worker 立即开始认领; 旧 worker 的已认领任务继续运行, 清零后由后台释放其持有的 r18 句柄与浏览器池, 连续变更可同时存在多个退役 worker. 配置 PATCH、插件启用 / 禁用、插件安装 / 卸载 / 重新扫描都经由 `AppRuntime.apply_rebuild()`, 串行化这段替换. 归属以认领开始时刻为准: 变更发生时尚未结算的认领属于旧 worker, 每次退役至多带走一个旧配置任务.
+Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 worker `retire()` (停止认领并退出主循环), 新 worker 立即开始认领; 旧 worker 的已认领任务继续运行, 清零后由后台归还其网络租约与 r18 句柄, 连续变更可同时存在多个退役 worker. 配置 PATCH、插件启用 / 禁用、插件安装 / 卸载 / 重新扫描都经由 `AppRuntime.apply_rebuild()`, 串行化这段替换. 归属以认领开始时刻为准: 变更发生时尚未结算的认领属于旧 worker, 每次退役至多带走一个旧配置任务.
 
 **r18 只读引擎**: 只在 `hot.r18` 实际变化时重建. 旧引擎由 `R18Handle` 标记所有权, 等使用它的退役 worker 排空且无其它 worker 引用后由后台关闭; `AppRuntime.stop_workers()` 在关闭时负责当前句柄. 契约见 [task-system.md](task-system.md).
 
-**浏览器池**: 只在 `network.browser` / `network.proxy` 变化时重建 (见 `src/amane/app/runtime.py::AppRuntime._rebuild`), 其余热重载复用同一实例以保留已解决的挑战会话; 被替换的旧池由 `_release_browser()` 在引用它的退役 worker 排空后关闭.
+**网络生命周期**: `src/amane/net/lifetime.py::AsyncLifetime` 在资源退役且操作租约清零后执行一次异步关闭. Worker 持有整代网络租约, 通知与 Feed 持有完整操作租约; API 通过 `src/amane/api/deps.py::NetworkDep` 固定同代依赖并持有至响应体结束. 配置与插件修改仍经 `RuntimeDep` 操作当前运行时. `AppRuntime` 分别追踪 worker 排空与网络关闭, 关停顺序为停止 worker、结束通知、收齐全部网络关闭; 禁止在 worker 排空中等待通知的租约.
+
+**浏览器池**: 只在 `network.browser` / `network.proxy` 变化时重建, 其余热重载复用会话. 池独立持有当前 WebClient, 重新绑定先持有新通道再释放旧通道; Solver 单次取页固定通道, 会话销毁后才释放池的通道租约. 旧池等待 worker 与 API 操作全部结束, 不依赖对应代 worker 的完成顺序.
 
 ## TOML 持久化
 

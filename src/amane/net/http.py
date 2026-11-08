@@ -18,11 +18,13 @@ from curl_cffi.requests import AsyncSession, BrowserTypeLiteral, Response
 
 from .egress import EgressPolicy, ensure_http_scheme
 from .errors import FailureKind, FailureReason, RequestError, RequestFailure, classify_request_error
+from .lifetime import AsyncLifetime
 from .recording import get_bound_http_recorder, skip_body_recording
 from .redact import redact_text, redact_url
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
     from curl_cffi.requests.session import HttpMethod
@@ -249,6 +251,7 @@ class WebClient:
             timeout=timeout,
             impersonate=self._fingerprints.default,
         )
+        self._lifetime = AsyncLifetime(self._close_session)
         # 日志给出进程默认指纹, 便于判断某站点是否按 TLS 指纹放行.
         logger.info("web client created", impersonate=self._fingerprints.default)
 
@@ -290,60 +293,63 @@ class WebClient:
 
         ``egress`` 给定时重定向不由 curl 跟随, 而是每一跳先过 ``EgressPolicy.ensure_allowed`` 再发,
         ``allow_redirects`` 因此不再生效; URL 来自第三方数据时使用 (见 ``docs/dev/api.md``).
-        ``stream=True`` 返回未读完的应答, 调用方用 ``_close`` 收尾.
+        ``stream=True`` 返回未读完的应答, 调用方须持有 ``lease()`` 至正文读取及 ``_close`` 完成.
 
         403/406 另按「站点拦下此指纹」处理: 换下一个未试过的指纹重发, 换过的指纹对该 host 保持.
         轮换不占重试次数, 单次请求最多换 ``_MAX_IMPERSONATE_ROTATIONS`` 次; 该 host 的指纹全部被拒后
         不再轮换, 按原状态失败.
         """
-        ensure_http_scheme(url)
-        if egress is None:
-            return await self._send(
-                method,
-                url,
-                headers=headers,
-                cookies=cookies,
-                data=data,
-                json=json,
-                use_proxy=use_proxy,
-                timeout=timeout,
-                allow_redirects=allow_redirects,
-                ok_statuses=ok_statuses,
-                max_attempts=max_attempts,
-                stream=stream,
-            )
+        with self.lease():
+            ensure_http_scheme(url)
+            if egress is None:
+                return await self._send(
+                    method,
+                    url,
+                    headers=headers,
+                    cookies=cookies,
+                    data=data,
+                    json=json,
+                    use_proxy=use_proxy,
+                    timeout=timeout,
+                    allow_redirects=allow_redirects,
+                    ok_statuses=ok_statuses,
+                    max_attempts=max_attempts,
+                    stream=stream,
+                )
 
-        current_method: HttpMethod = method
-        current_url = url
-        for _ in range(egress.max_redirects + 1):
-            # 逐跳复查: curl 自带的跟随只看首跳, 一个公网 URL 可以 302 到内网.
-            await egress.ensure_allowed(current_url)
-            resp = await self._send(
-                current_method,
-                current_url,
-                headers=headers,
-                cookies=cookies,
-                data=data,
-                json=json,
-                use_proxy=use_proxy,
-                timeout=timeout,
-                allow_redirects=False,
-                ok_statuses=ok_statuses,
-                max_attempts=max_attempts,
-                stream=stream,
-            )
-            location = resp.headers.get("Location") if resp.status_code in _REDIRECT_STATUSES else None
-            if not location:
-                return resp
-            await self._close(resp)
-            current_url = urljoin(current_url, location)
-            if _rewrites_to_get(resp.status_code, current_method):
-                current_method = "GET"
-                # 改写成 GET 的跳转按语义丢弃请求体; 否则 curl 会把 body 重新设回去.
-                data = None
-                json = None
+            current_method: HttpMethod = method
+            current_url = url
+            for _ in range(egress.max_redirects + 1):
+                # 逐跳复查: curl 自带的跟随只看首跳, 一个公网 URL 可以 302 到内网.
+                await egress.ensure_allowed(current_url)
+                resp = await self._send(
+                    current_method,
+                    current_url,
+                    headers=headers,
+                    cookies=cookies,
+                    data=data,
+                    json=json,
+                    use_proxy=use_proxy,
+                    timeout=timeout,
+                    allow_redirects=False,
+                    ok_statuses=ok_statuses,
+                    max_attempts=max_attempts,
+                    stream=stream,
+                )
+                location = resp.headers.get("Location") if resp.status_code in _REDIRECT_STATUSES else None
+                if not location:
+                    return resp
+                await self._close(resp)
+                current_url = urljoin(current_url, location)
+                if _rewrites_to_get(resp.status_code, current_method):
+                    current_method = "GET"
+                    # 改写成 GET 的跳转按语义丢弃请求体; 否则 curl 会把 body 重新设回去.
+                    data = None
+                    json = None
 
-        raise RequestError(url, RequestFailure(kind=FailureKind.CURL, message=f"重定向超过 {egress.max_redirects} 跳"))
+            raise RequestError(
+                url, RequestFailure(kind=FailureKind.CURL, message=f"重定向超过 {egress.max_redirects} 跳")
+            )
 
     async def _send(
         self,
@@ -649,34 +655,35 @@ class WebClient:
         或直接不给长度时, 整份读入内存会耗尽进程内存. 返回 False 时 ``dest`` 可能已有部分内容,
         由调用方决定清理.
         """
-        if max_bytes is not None:
-            return await self._download_bounded(url, dest, use_proxy=use_proxy, egress=egress, max_bytes=max_bytes)
+        with self.lease():
+            if max_bytes is not None:
+                return await self._download_bounded(url, dest, use_proxy=use_proxy, egress=egress, max_bytes=max_bytes)
 
-        file_size, _ = await self._probe(url, use_proxy=use_proxy, egress=egress)
+            file_size, _ = await self._probe(url, use_proxy=use_proxy, egress=egress)
 
-        if file_size and file_size > self._chunked_threshold:
-            return await self._download_chunked(url, dest, file_size, use_proxy=use_proxy, egress=egress)
+            if file_size and file_size > self._chunked_threshold:
+                return await self._download_chunked(url, dest, file_size, use_proxy=use_proxy, egress=egress)
 
-        try:
-            content = await self.get_bytes(url, use_proxy=use_proxy, egress=egress)
-        except RequestError as e:
-            logger.error(
-                "download failed",
-                url=redact_url(url),
-                status=e.failure.status if e.failure else None,
-                reason=e.reason,
-                error=redact_text(e.message),
-            )
-            return False
+            try:
+                content = await self.get_bytes(url, use_proxy=use_proxy, egress=egress)
+            except RequestError as e:
+                logger.error(
+                    "download failed",
+                    url=redact_url(url),
+                    status=e.failure.status if e.failure else None,
+                    reason=e.reason,
+                    error=redact_text(e.message),
+                )
+                return False
 
-        try:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(dest, "wb") as f:
-                await f.write(content)
-            return True
-        except Exception as e:
-            logger.error("file write failed", path=str(dest), error=redact_text(str(e)))
-            return False
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                async with aiofiles.open(dest, "wb") as f:
+                    await f.write(content)
+                return True
+            except Exception as e:
+                logger.error("file write failed", path=str(dest), error=redact_text(str(e)))
+                return False
 
     async def _download_bounded(
         self,
@@ -784,7 +791,17 @@ class WebClient:
         logger.info("chunked download complete", url=redact_url(url))
         return True
 
+    def lease(self) -> AbstractContextManager[None]:
+        """保持整个操作可用, 包括重试等待、分片与响应正文读取."""
+        return self._lifetime.lease()
+
+    def retire(self) -> None:
+        self._lifetime.retire()
+
     async def close(self) -> None:
+        await self._lifetime.aclose()
+
+    async def _close_session(self) -> None:
         try:
             await self._session.close()
         except Exception as e:

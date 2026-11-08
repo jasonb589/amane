@@ -107,9 +107,11 @@ class FeedService:
     async def poll_one(self, feed_id: int) -> None:
         lock = await self._feed_lock(feed_id)
         async with lock:
-            await self._poll_locked(feed_id)
+            web = self._web
+            with web.lease():
+                await self._poll_locked(feed_id, web)
 
-    async def _poll_locked(self, feed_id: int) -> None:
+    async def _poll_locked(self, feed_id: int, web: WebClient) -> None:
         feed = await self._repo.get_feed(feed_id)
         if feed is None:
             return
@@ -124,7 +126,7 @@ class FeedService:
         next_fetch = now + timedelta(seconds=feed.interval_seconds)
 
         try:
-            resp = await self._web.request(
+            resp = await web.request(
                 "GET",
                 feed.url,
                 headers=headers or None,

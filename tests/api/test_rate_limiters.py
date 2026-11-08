@@ -40,6 +40,7 @@ async def test_all_crawler_domains_have_limiters():
     assert not bare, "裸域名:\n" + "\n".join(bare)
     assert not missing, "未预创建限速器:\n" + "\n".join(missing)
 
+    await stack.browser.close()
     await stack.web_client.close()
 
 

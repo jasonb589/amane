@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,9 @@ class _StubWeb:
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+
+    def lease(self) -> nullcontext[None]:
+        return nullcontext()
 
     async def request(self, method: str, url: str, **kwargs: Any) -> Any:
         self.calls.append({"method": method, "url": url, **kwargs})
@@ -168,6 +172,9 @@ class _RecordingWeb:
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+
+    def lease(self) -> nullcontext[None]:
+        return nullcontext()
 
     async def request(self, method: str, url: str, **kwargs: Any) -> _NotifyResponse:
         self.calls.append(str(kwargs.get("data") or ""))

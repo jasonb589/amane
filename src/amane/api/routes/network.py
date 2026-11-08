@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query
 
 from ...crawlers.connectivity import ConnectivityChecker, SourceCheck
 from ...net.backends import BackendProbe, probe_backends
-from ..deps import RepoDep, RuntimeDep
+from ..deps import NetworkDep, RepoDep, RuntimeDep
 from ..models import (
     BrowserBackendItemResponse,
     BrowserBackendReportResponse,
@@ -73,7 +73,7 @@ async def browser_backends(runtime: RuntimeDep) -> BrowserBackendReportResponse:
 
 @router.post("/check", response_model=ConnectivityReportResponse)
 async def check_connectivity(
-    runtime: RuntimeDep,
+    network: NetworkDep,
     req: ConnectivityCheckRequest | None = None,
 ) -> ConnectivityReportResponse:
     """探测来源连通性.
@@ -81,7 +81,7 @@ async def check_connectivity(
     单个来源失败只体现在自己的条目里, 端点始终 200 — 与 ``GET /api/system/release`` 同一取向:
     探测结果本身就是响应体, 用 5xx 表达「上游不通」会让前端无法展示逐来源原因.
     """
-    checker = ConnectivityChecker(runtime.factory, runtime.config.hot, runtime.plugin_manager)
+    checker = ConnectivityChecker(network.factory, network.hot, network.plugin_manager)
     checks = await checker.check(req.source_ids if req is not None else None)
     return ConnectivityReportResponse(items=[_item(check) for check in checks])
 
