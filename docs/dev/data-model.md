@@ -14,6 +14,7 @@
 | `Metadata` | 番号级聚合元数据 | `number` UNIQUE (**大小写不敏感**; 存库保留首次写入的原始大小写) |
 | `Resource` | URL 级下载缓存 | `url` UNIQUE |
 | `Task` | 持久化任务队列 | `id` |
+| `ScrapeGroup` | 同轮文件任务共用的影片刮削结果 | `id` |
 | `Library` | 媒体库: 根目录 + 路径模板 + 整理方式 + 自动化级别 | `id` |
 | `Feed` | 远程 RSS / Atom 发现源 (间隔与刮削属性按源绑定; 分组是字符串伪路径, 不建目录表) | `url` UNIQUE |
 | `FeedItem` | 某源曾见过的条目 (去重 + 历史 + 阅读器正文快照) | `(feed_id, item_key)` UNIQUE |
@@ -24,6 +25,8 @@
 | `Comment` | 绑定于 Metadata 的用户评论 | `id` |
 
 `MediaFile` 与 `Metadata` 解耦: **Metadata 是一等公民** (用户直接管理的番号级条目), 有效性不依赖本地文件; `MediaFile` 是磁盘视频的索引, 能对应到某条 Metadata 时以多对一绑定 `metadata_id`. `metadata_id IS NULL` 的文件 (解析失败 / 尚未刮削) 与**没有任何 MediaFile 的 Metadata** (by-number 刮削、只囤元数据) 都是常态, 不是待清理的对象.
+
+`ScrapeGroup` 与 TaskLink 任务树独立, 同组任务仍各自归属原链. 影片结果保存后不因生产任务的文件侧失败回滚, 删除生产任务保留其它成员所需结果; 最后一个成员任务删除时回收组. 组内 Metadata 删除或身份变化时拒绝复用, 不自动重新联网. 认领与结算契约见 [task-system.md](task-system.md)「同番号与站点复用」.
 
 类型 (`content_type`) 是**番号的属性**, 落在 `Metadata`: 只在条目创建时落定 (有发现路径时随其路径关键词, 否则只依据番号), 番号不可改, 因此不随文件增删或后续刮削漂移; 它决定刮削路由, 也供「类型」筛选与有码 / 无码角标使用, 不进对外 PATCH. `ContentType.chinese` 是国产, 不是中字.
 

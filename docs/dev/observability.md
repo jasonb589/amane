@@ -59,6 +59,8 @@ Feed 失败记在源的 `last_error`, 不写入站点 outcome 表.
 
 **新增字段时只修改一处**: 扩展 `SiteOutcomeRecord` 字段 → 上游上报点补参数 → summary.json 与任务结果 / 前端同步获得, 无需跨层拼接字符串. SCRAPE 的 `config.hot.json` 含 `scraping` / `network` / `llm` / `r18` / `plugins`, 插件配置按字段名中的 `api_key` / `token` / `secret` / `password` / `cookie` / `credential` / `dsn` 规则脱敏.
 
+同轮分集复用由 `src/amane/handlers/scrape_reuse.py` 将成功来源记为 CACHE_HIT, 保留本轮失败来源的原因, 日志注明生产任务 id; 这些失败不是等待分集的再次请求, HTTP 记录只在实际生产任务中. 默认新文件复用既有 Metadata 时只记录现存来源命中, 不推测历史失败.
+
 ### 落盘时机
 
 | 内容 | 时机 |

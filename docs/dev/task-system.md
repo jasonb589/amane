@@ -49,9 +49,13 @@ ORGANIZE 只整理范围内的 `MediaFile` 行: 缺省为该库全部索引, 显
 
 文件注册 (watcher 与 REFRESH 共用 `register_media_file`) 只写路径, 不计算 oshash; 指纹只在 SCRAPE 时按需计算 (本次可用来源中有声明 `uses_file_hash` trait 且 `oshash` 为空), 失败留 `None`, 不阻断刮削. REFRESH 仅在指定 library 下运行, 提交不接受裸 path; 不入库只刮削由 `ScrapeSubmission` 的 by-number 纯查询路径表达.
 
-## 站点级复用
+## 同番号与站点复用
 
-SCRAPE **没有**「缓存命中即整体跳过爬取」的快速返回 — 完全不联网的纯整理由 ORGANIZE 承担. 它总是进入聚合, 但当 `CacheKind.metadata ∈ use_cache` 时把 `Metadata.raw` 作为 `cache` 传入, 请求某站前按 `cache_key` (`site` 或 `site:lang`) 查快照, 命中即还原并跳过爬虫调用, 未命中的站点按获取图请求. 不含 `metadata` 时全部站点强制重爬; 不含 `trans` 时跳过译文缓存读取 (仍写入), 见 [llm.md](llm.md). 复用与新结果统一写入 `fetched`; 写回时以库内 `raw` 为基础, 本次结果按站点覆盖既有快照, 本次未取得的站点 (移出类型路由 / 未安装 / 禁用) 保留. 不含 `metadata` 时 `raw` 仍由本次结果整体替换. 快照含非法字段时降级为正常 fetch.
+文件 SCRAPE 经 `src/amane/db/repos/scrape_groups.py::assign_scrape_group` 将同番号、类型、URL、缓存策略与新文件关联意图一致的活动任务归入同轮, 各文件任务和后继仍独立. 同一文件再次提交、显式重试与无文件的按番号查询不复用上一轮. `claim_next_task` 让首个实际认领者执行影片级流程, 同组等待者保持 QUEUED, 不占 worker 容量; 失败、取消、删除生产任务或重启会结束本轮等待, 不自动逐分集重试来源. 旧任务无分组列值时沿用独立执行.
+
+`src/amane/handlers/scrape.py::ScrapeHandler.handle_task` 在 Metadata 写入后、文件关联前保存共享结果; 等待者只验证影片身份并执行各自关联与 ORGANIZE, 不重复聚合、翻译、图片物化或演员后继. 分组以入队番号作为影片身份, 首个文件的指纹辅助定位, 其它分集不重复指纹查询. 本轮使用生产者配置, 热重载不拆分已建立的组; 后续新轮采用当前配置. 共享结果生命周期见 [data-model.md](data-model.md).
+
+默认两类缓存均开启、无指定 URL、未关联且 PENDING 的新文件, 可直接使用同类型且有 raw 的既有 Metadata; 不补前次失败站点. 已关联文件、非默认缓存策略与按番号重新刮削仍进入聚合: 启用 metadata 缓存时按站点/语言复用 `Metadata.raw`, 缺失或非法快照才请求; 关闭时重新请求本轮各来源. trans 控制译文缓存读取, 见 [llm.md](llm.md). 启用 metadata 缓存时 raw 只更新本次取得的站点, 关闭时整体替换.
 
 ## 字段级多源聚合
 
@@ -63,7 +67,7 @@ SCRAPE **没有**「缓存命中即整体跳过爬取」的快速返回 — 完�
 
 ## TaskHandler 契约
 
-`src/amane/handlers/protocol.py::TaskHandler[P, R]` 用泛型固定 payload / result 类型. 入队 `model_dump(mode="json")` 序列化为 JSON, 出队 `model_validate(raw)` 还原并校验; payload 字段带默认值时旧 task 出队不会 KeyError, 字段约束 (range / enum) 在反序列化阶段拒绝并直接 `fail_task`.
+`src/amane/handlers/protocol.py::TaskHandler[P, R]` 用泛型固定 payload / result 类型. Worker 调用 `handle_task(payload, task_id)`, 默认委派 `handle`, 调度身份不依赖可选 Recorder; 直接 `handle` 供独立调用与回放, 不参与任务分组. 入队按 JSON 序列化, 出队还原并校验; 默认字段兼容旧载荷, 约束失败直接 `fail_task`.
 
 **约束**: 不允许重命名已持久化的 payload 字段, 否则队列中的旧 dict 无法还原; 新增字段必须带默认值.
 
@@ -71,7 +75,7 @@ SCRAPE **没有**「缓存命中即整体跳过爬取」的快速返回 — 完�
 
 ### 进度上报
 
-Worker 在 `handle()` 前注入 `report_progress` 回调, 经 EventBus 发 `task.progress` (`{task_id, current, total, message}`); 前端写 `web/src/stores/progress.ts`. **契约**: `total > 0` 时前端按 `current/total` 显示百分比, 未上报则回退 indeterminate, Handler 不调用时静默忽略.
+Worker 在执行前注入 `report_progress` 回调, 经 EventBus 发 `task.progress`; 每个 handler 的 ContextVar 隔离并发任务, 完成时只清除本执行上下文. 前端写 `web/src/stores/progress.ts`; total 为正时显示百分比, 未上报则显示不定进度, 无回调时静默忽略.
 
 ### 站点结果上报
 

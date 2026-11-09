@@ -32,7 +32,7 @@ pysqlite 只在 DML 之前发出 `BEGIN`, 纯 SELECT 落在事务之外 (SQLAlch
 
 连接级 PRAGMA (WAL / `synchronous=NORMAL` / `busy_timeout` / 外键) 只能在 `db/engine.py` 的连接钩子里逐连接下发, 别处另开业务引擎会退回驱动默认. 写锁被占用时连接等待至多 `busy_timeout` 才报 `database is locked`, 临界区短于该值即不失败. `synchronous=NORMAL` 的取舍限于 WAL 已开启: 掉电丢最近若干已提交事务而不损坏库, 换掉逐笔 fsync 拉长的持锁时间.
 
-入队互斥用 Repository 上的进程内锁串行化, 见 [task-system.md](task-system.md).
+任务入队、认领、结算与共享组清理使用 `BEGIN IMMEDIATE`; 入队另保留 Repository 进程内锁, 保证子任务创建与父完成同事务. 分组等待不持有数据库事务, 见 [task-system.md](task-system.md).
 
 FC2 分集计划的整组预留与条件更新同样使用 `BEGIN IMMEDIATE`; 文件身份读取在事务外, 编号与目标的不可变约束由 `src/amane/db/repos/fc2_parts.py` 在事务内复核. 生命周期见 [data-model.md](data-model.md)「Library 整理布局」.
 

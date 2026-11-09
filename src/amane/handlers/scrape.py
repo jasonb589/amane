@@ -7,7 +7,7 @@ from structlog.contextvars import bind_contextvars
 from ..aggregate import SCALAR_FIELDS, AggregatedMetadata, CrawlerLike, FieldLanguage, aggregate, compile_priority
 from ..crawlers.models import SearchQuery
 from ..crawlers.site_roles import builtin_descriptors
-from ..db.models import Library, MediaFile, MediaFileStatus, TaskType
+from ..db.models import Library, MediaFile, MediaFileStatus, TaskStatus, TaskType
 from ..enums import ActorGender, MetadataField, SiteName
 from ..media import materialize_images
 from ..observability import current
@@ -18,6 +18,7 @@ from ..utils.threads import path_exists
 from ._common import ensure_oshash, finalize_media_file, register_media_file
 from .models import ActorScrapePayload, CacheKind, OrganizePayload, ScrapePayload, ScrapeResult
 from .protocol import FollowupTask, TaskHandler, TaskResult
+from .scrape_reuse import existing_file_scrape_result, reused_scrape_result
 
 if TYPE_CHECKING:
     from ..config import HotSettings
@@ -62,6 +63,12 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
         self._file_hash_sources = frozenset(d.id for d in catalog if SourceTrait.USES_FILE_HASH in d.traits)
 
     async def handle(self, payload: ScrapePayload) -> TaskResult[ScrapeResult]:
+        return await self._handle(payload)
+
+    async def handle_task(self, payload: ScrapePayload, task_id: int) -> TaskResult[ScrapeResult]:
+        return await self._handle(payload, task_id=task_id)
+
+    async def _handle(self, payload: ScrapePayload, *, task_id: int | None = None) -> TaskResult[ScrapeResult]:
         file = await self._repo.get_media_file(payload.media_file_id) if payload.media_file_id is not None else None
         existing = await self._repo.get_metadata_by_number(payload.number)
         recovered = await self._recover_file_fc2_alias(payload, file, existing)
@@ -69,6 +76,25 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             payload = recovered
             existing = await self._repo.get_metadata_by_number(payload.number)
         bind_contextvars(number=payload.number)
+
+        group = await self._repo.get_scrape_group_for_task(task_id) if task_id is not None else None
+        if group is not None:
+            if group.status in {TaskStatus.DONE, TaskStatus.FAILED}:
+                reused = await reused_scrape_result(self._repo, group, payload)
+                if reused.success and reused.result is not None:
+                    await finalize_media_file(self._repo, payload.media_file_id, reused.result.metadata_id)
+                    reused.followups = await self._auto_organize_followups(payload, file, reused.result.metadata_id)
+                await self.report_progress(1, 1, "done")
+                return reused
+            if group.status is not TaskStatus.RUNNING or group.producer_task_id != task_id:
+                return TaskResult(success=False, error="同番号刮削尚未完成，等待任务不可提前执行")
+            if reused_result := existing_file_scrape_result(payload, file, existing):
+                assert task_id is not None
+                await self._repo.complete_scrape_group(task_id, reused_result.model_dump(mode="json"))
+                await finalize_media_file(self._repo, payload.media_file_id, reused_result.metadata_id)
+                followups = await self._auto_organize_followups(payload, file, reused_result.metadata_id)
+                await self.report_progress(1, 1, "done")
+                return TaskResult(success=True, result=reused_result, followups=followups)
 
         content_type = payload.content_type
         progress_total = len(SCALAR_FIELDS) + _PROGRESS_POST_STEPS
@@ -227,6 +253,17 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             merge_raw=use_metadata_cache,
         )
 
+        assert meta.id is not None
+        shared_result = ScrapeResult(
+            metadata_id=meta.id,
+            field_sources=result.field_sources,
+            failed_sites=result.failed_sites,
+            outcomes=current().site_outcomes(),
+        )
+        # 影片结果先于单文件关联持久化; 文件侧异常不得使其它分集重新请求来源.
+        if group is not None and task_id is not None:
+            await self._repo.complete_scrape_group(task_id, shared_result.model_dump(mode="json"))
+
         await finalize_media_file(self._repo, payload.media_file_id, meta.id)
 
         # 为尚未刮削的演员扇出 ACTOR_SCRAPE.
@@ -246,15 +283,9 @@ class ScrapeHandler(TaskHandler[ScrapePayload, ScrapeResult]):
             organize_followups=len(organize_followups),
         )
 
-        assert meta.id is not None
         return TaskResult(
             success=True,
-            result=ScrapeResult(
-                metadata_id=meta.id,
-                field_sources=result.field_sources,
-                failed_sites=result.failed_sites,
-                outcomes=current().site_outcomes(),
-            ),
+            result=shared_result,
             followups=[*actor_followups, *organize_followups],
         )
 
