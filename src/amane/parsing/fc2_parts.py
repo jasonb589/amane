@@ -22,7 +22,7 @@ _EXPLICIT_MAIN = re.compile(r"(?:CD|PART)\s*(?P<part>0?[1-9]|[1-9][0-9])(?=$|[-_
 _BARE_MAIN = re.compile(r"(?P<part>0?[1-9]|[1-9][0-9]|[AB])(?=$|[-_.\s])")
 _SEPARATORS = re.compile(r"[-_.\s]+")
 _DEFINITION = re.compile(r"(?:[48]K(?:S)?[0-9]*|(?:2160|1440|1080|720|480)P[0-9]*|HD|SD)")
-_DOMAIN_PREFIX = re.compile(r"(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}@")
+_DOMAIN_PREFIX = re.compile(r"(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?[._])+[A-Z]{2,63}@")
 _KNOWN_EXTENSIONS = frozenset(
     {
         ".mp4",
@@ -116,7 +116,7 @@ class Fc2Member(BaseModel):
 
 
 def parse_fc2_member(filename: str) -> Fc2Member | None:
-    """仅解析明确的 FC2 文件名; 未知尾标不推测角色或顺序, 返回 None."""
+    """SP 可位于已知相位标签前后; 多重角色与未知尾标不推测顺序, 返回 None."""
     normalized = _normalized_stem(filename)
     if normalized is None:
         return None
@@ -129,23 +129,27 @@ def parse_fc2_member(filename: str) -> Fc2Member | None:
     tail = normalized[head.end() :]
     role: Literal["main", "special"] = "main"
     part: int | None = None
-    if tail:
+    special: str | None = None
+    special_tokens = [token for token in _SEPARATORS.split(tail) if token.startswith("SP")]
+    if special_tokens:
+        if len(special_tokens) != 1 or (marker := _SPECIAL.fullmatch(special_tokens[0])) is None:
+            return None
+        special = special_tokens[0]
+        role = "special"
+        part = int(marker["part"]) if marker["part"] else None
+    elif tail:
         separator = _SEPARATORS.match(tail)
         if separator is None:
             return None
         body = tail[separator.end() :]
-        if marker := _SPECIAL.match(body):
-            role = "special"
-            part = int(marker["part"]) if marker["part"] else None
-            tail = body[marker.end() :]
-        elif marker := _EXPLICIT_MAIN.match(body):
+        if marker := _EXPLICIT_MAIN.match(body):
             part = int(marker["part"])
             tail = body[marker.end() :]
         elif separator.group() in {"-", "_"} and (marker := _BARE_MAIN.match(body)):
             value = marker["part"]
             part = ord(value) - ord("A") + 1 if value in {"A", "B"} else int(value)
             tail = body[marker.end() :]
-    if not _known_phase_tail(tail):
+    if not _known_phase_tail(tail, special=special):
         return None
     # 添加扩展名以保留正文中的点分隔标记; 垃圾串已经过滤, 不重复应用配置正则.
     info = parse_file_info(text=f"{normalized}.mp4", escape_strings=[])
@@ -160,7 +164,7 @@ def parse_fc2_member(filename: str) -> Fc2Member | None:
 
 
 def has_fc2_special_marker(filename: str) -> bool:
-    """商品号后任一独立 SP 尾标均触发核对; 未知前缀、错位标记与非法序号仍由严格解析拒绝."""
+    """商品号后任一独立 SP 尾标均触发核对; 未知前缀、多重角色与非法序号仍由严格解析拒绝."""
     normalized = _normalized_stem(filename)
     if normalized is None:
         return False
@@ -175,19 +179,22 @@ def _normalized_stem(filename: str) -> str | None:
     normalized = unicodedata.normalize("NFKC", strip_filename_junk(filename)).strip().upper()
     if "/" in normalized or "\\" in normalized:
         return None
-    # 发布站域名只作前缀过滤, 不参与画质标记检测; 任意文本加 @ 不属于域名.
+    # 发布站域名兼容点号改写为下划线; 前缀不参与画质检测, 任意文本加 @ 不属于域名.
     if domain := _DOMAIN_PREFIX.match(normalized):
         normalized = normalized[domain.end() :]
     suffix = Path(normalized).suffix
     return normalized[: -len(suffix)] if suffix.lower() in _KNOWN_EXTENSIONS else normalized
 
 
-def _known_phase_tail(tail: str) -> bool:
+def _known_phase_tail(tail: str, *, special: str | None = None) -> bool:
     if not tail:
         return True
     if re.fullmatch(r"(?:[-_.\s]+[^-_.\s]+)+", tail) is None:
         return False
-    return all(token in _PHASE_TAGS or _DEFINITION.fullmatch(token) for token in _SEPARATORS.split(tail)[1:])
+    return all(
+        token == special or token in _PHASE_TAGS or _DEFINITION.fullmatch(token)
+        for token in _SEPARATORS.split(tail)[1:]
+    )
 
 
 def plan_fc2_parts(members: Sequence[Fc2Member]) -> list[int | None]:

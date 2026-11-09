@@ -122,7 +122,7 @@ PATCH 三态: **省略键** = 不更新 (`exclude_unset`); **显式值** = 写�
 
 普通分集由 `parsing/file_info.py::parse_file_info` 识别并渲染 `{cd?}`, 不单独落库. 裸数字或字母尾标须位于完整商品号之后, 商品号内部连接符不作分集. 文件名无分集时可采用直接父目录的完整 CD / PART 标记. 写出的分集 / 中字 / 马赛克 / 分辨率须能被同一解析器反推, 保持再次整理幂等.
 
-FC2 特集由 `parsing/fc2_parts.py` 独立分类; `handlers/fc2_parts.py::resolve_fc2_part` 在同库整理锁内读取原始直接父目录, 按规范番号分组, 正片先于特集. 首次移动前经 `db/repos/fc2_parts.py` 固定整组成员、源身份与 CD, 移动前预留目标, 视频就位后先记录目标身份再处理附属文件. `Fc2PartPlan` 随 Library 保留, 不依赖 Metadata、MediaFile 或 NFO; 索引删除、失败重试与进程重启不得重排. 无法确定顺序、文件替换或固定后新增成员均拒绝整理. 目录读取沿用视频扩展名与跳过规则, 不按扫描 glob 截断分组.
+FC2 影片与字幕共用 `parsing/fc2_parts.py` 分类, 特集标记与相位标签的先后顺序不影响角色; `handlers/fc2_parts.py::resolve_fc2_part` 在库整理锁内读取原始父目录, 按规范番号分组, 正片先于特集. 首次移动前经 `db/repos/fc2_parts.py` 固定整组成员、源身份与 CD, 移动前预留目标, 视频就位后先记录目标身份再处理附属文件. `Fc2PartPlan` 随 Library 保留, 不依赖 Metadata、MediaFile 或 NFO; 索引删除、失败重试与进程重启不得重排. 无法确定顺序、文件替换或固定后新增成员均拒绝整理. 目录读取沿用视频扩展名与跳过规则, 不按扫描 glob 截断分组.
 
 字幕: ORGANIZE 在视频移动前检查直接父目录, 扩展名由库 `subtitle_extensions` 配置; 多个字幕均采用视频的 `move_mode` 放置. 普通字幕只按文件名调用 `parse_file_info(text=...)`, 番号相同后按分集配对, 无番号才回退独立目录规则. FC2 特集计划按源角色与局部序号配对, 按输出 CD 命名; 无番号时仅明确语言名可属于首段正片, 已输出文件按 CD 配对. 中字落盘 (`{sub?}` 与封面角标) 仍使用 `MediaFile.has_external_subtitle` 与文件名标记, 不按字幕配对重算.
 

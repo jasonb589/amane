@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -122,6 +123,113 @@ async def test_reverse_single_file_tasks_keep_cd_after_external_move_and_handler
     assert all(member.placed and member.target_mtime_ns is not None for member in plan.members)
     assert not list(group.output_dir.glob("*.nfo"))
     assert not (group.output_dir / f"{group.metadata.number}.mp4").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filenames", "expected_members"),
+    [
+        (
+            ("FC2-3049697-4K.mp4", "hhd800_com@fc3049697_4K_sp.mp4"),
+            (("main", None), ("special", None)),
+        ),
+        (
+            (
+                "FC2-3049697_1_4K.mp4",
+                "FC2-3049697_2_4K.mp4",
+                "hhd800_com@fc3049697_4K_sp1.mp4",
+                "hhd800.com@fc3049697_4K_sp2.mp4",
+            ),
+            (("main", 1), ("main", 2), ("special", 1), ("special", 2)),
+        ),
+    ],
+    ids=["main-and-post-quality-special", "two-main-and-two-post-quality-specials"],
+)
+async def test_post_quality_specials_keep_video_subtitle_and_nfo_cd_after_separate_moves(
+    repo: Repository,
+    resource_store: ResourceStore,
+    tmp_path: Path,
+    filenames: tuple[str, ...],
+    expected_members: tuple[tuple[Literal["main", "special"], int | None], ...],
+) -> None:
+    incoming = tmp_path / "incoming"
+    source_dir = incoming / "source"
+    source_dir.mkdir(parents=True)
+    output_dir = tmp_path / "organized"
+    library = await repo.create_library(
+        name="FC2 real filename integration",
+        path=str(incoming),
+        video_template=f"{output_dir.as_posix()}/{{number}}[-CD{{cd?}}].{{ext}}",
+        subtitle_template="{video_dir}/{video_name}.{ext}",
+        subtitle_extensions=[".srt"],
+        write_nfo=True,
+        copy_resources=[],
+        move_mode=MoveMode.MOVE,
+    )
+    assert library.id is not None
+    metadata = await repo.upsert_metadata(number="FC2-3049697", title="Special group", content_type=ContentType.FC2)
+    assert metadata.id is not None
+    files = tuple(source_dir / filename for filename in filenames)
+    originals = tuple(f"video-{index}:{filename}".encode() for index, filename in enumerate(filenames))
+    subtitles = tuple(path.with_suffix(".chs.srt") for path in files)
+    subtitle_contents = tuple(f"subtitle-{index}:{filename}" for index, filename in enumerate(filenames))
+    media_ids: list[int] = []
+    for path, content, subtitle, subtitle_content in zip(files, originals, subtitles, subtitle_contents, strict=True):
+        path.write_bytes(content)
+        subtitle.write_text(subtitle_content, encoding="utf-8")
+        media = await repo.create_media_file(
+            library.id,
+            path=str(path),
+            number=metadata.number,
+            metadata_id=metadata.id,
+            status=MediaFileStatus.SCRAPED,
+        )
+        assert media.id is not None
+        media_ids.append(media.id)
+    group = _Group(library, metadata, source_dir, output_dir, files, tuple(media_ids))
+    expected_assignments = {
+        str(path): (role, part, cd)
+        for cd, (path, (role, part)) in enumerate(zip(files, expected_members, strict=True), start=1)
+    }
+    frozen_plan_id: int | None = None
+
+    # 先移走最后一份特集, 每次使用独立处理器, 后续正片仍沿用第一次保存的编号.
+    for index in reversed(range(len(files))):
+        outcome = await _organize_one(repo, resource_store, group, media_ids[index], tmp_path)
+        assert (outcome.organized, outcome.failed, outcome.conflicted) == (1, 0, 0)
+        target = _output(group, index + 1)
+        assert target.read_bytes() == originals[index]
+        assert target.with_suffix(".srt").read_text(encoding="utf-8") == subtitle_contents[index]
+        assert not files[index].exists() and not subtitles[index].exists()
+        assert await repo.get_media_file(media_ids[index]) is None
+        for remaining in range(index):
+            assert files[remaining].read_bytes() == originals[remaining]
+            assert subtitles[remaining].read_text(encoding="utf-8") == subtitle_contents[remaining]
+
+        nfo_path = target.with_suffix(".nfo")
+        nfo = ET.parse(nfo_path).getroot()
+        assert nfo.findtext("num") == metadata.number
+        assert nfo.findtext("title") == "FC2-3049697 Special group"
+        nfo_output = await repo.get_nfo_output(nfo_path)
+        assert nfo_output is not None
+        assert (nfo_output.library_id, nfo_output.metadata_id) == (library.id, metadata.id)
+        assert Path(nfo_output.video_path) == target
+
+        plan = await repo.get_fc2_part_plan(library.id, source_dir, metadata.number)
+        assert plan is not None and plan.id is not None
+        if frozen_plan_id is None:
+            frozen_plan_id = plan.id
+        assert plan.id == frozen_plan_id
+        assert {
+            member.source_path: (member.role, member.part, member.cd) for member in plan.members
+        } == expected_assignments
+        assert {member.source_path for member in plan.members if member.placed} == {str(path) for path in files[index:]}
+        assert all(member.target_mtime_ns is not None for member in plan.members if member.placed)
+
+    assert len(list(output_dir.glob("*.mp4"))) == len(files)
+    assert len(list(output_dir.glob("*.srt"))) == len(files)
+    assert len(list(output_dir.glob("*.nfo"))) == len(files)
+    assert len(await repo.list_nfo_outputs(metadata.id)) == len(files)
 
 
 @pytest.mark.asyncio
@@ -325,7 +433,7 @@ async def test_scan_glob_does_not_exclude_special_from_organize_plan(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("special_name", ["fc4800334_4K_sp.mp4", "release-copy@fc4800334_sp.mp4"])
+@pytest.mark.parametrize("special_name", ["fc4800334_4K_sp0.mp4", "release-copy@fc4800334_sp.mp4"])
 async def test_unparsed_special_intent_blocks_even_when_selected_file_is_main(
     repo: Repository, resource_store: ResourceStore, tmp_path: Path, special_name: str
 ) -> None:
