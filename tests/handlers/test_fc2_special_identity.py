@@ -3,7 +3,7 @@
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 from structlog.testing import capture_logs
@@ -11,6 +11,7 @@ from structlog.testing import capture_logs
 import amane.handlers.file as file_handler
 from amane.db.models import MediaFileStatus
 from amane.enums import MoveMode
+from tests.handlers.test_fc2_append import _add_member
 from tests.handlers.test_fc2_specials import _make_group, _organize_one, _output
 
 if TYPE_CHECKING:
@@ -136,3 +137,50 @@ async def test_hardlinked_source_in_another_group_cannot_claim_existing_output(
     assert all(member.target_path is None and not member.placed for member in second_plan.members)
     repeated = await _organize_one(repo, resource_store, group, group.media_ids[1], tmp_path)
     assert (repeated.organized, repeated.failed, repeated.conflicted) == (1, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["missing", "size", "mtime"])
+async def test_late_fix_rejects_missing_or_replaced_completed_target_before_extending_plan(
+    repo: Repository,
+    resource_store: ResourceStore,
+    tmp_path: Path,
+    change: Literal["missing", "size", "mtime"],
+) -> None:
+    group = await _make_group(repo, tmp_path, ("_4K", "_sp1"))
+    for media_id in group.media_ids:
+        outcome = await _organize_one(repo, resource_store, group, media_id, tmp_path)
+        assert (outcome.organized, outcome.failed, outcome.conflicted) == (1, 0, 0)
+        assert await repo.get_media_file(media_id) is None
+    assert not any(path.exists() for path in group.files)
+    assert group.library.id is not None
+    before = await repo.get_fc2_part_plan(group.library.id, group.source_dir, group.metadata.number)
+    assert before is not None and all(member.placed for member in before.members)
+    target = _output(group, 1)
+    original_stat = target.stat()
+    if change == "missing":
+        target.unlink()
+        reason = "不存在"
+    elif change == "size":
+        target.write_bytes(b"replacement-video-with-a-different-file-size")
+        reason = "已变化"
+    else:
+        target.write_bytes(b"X" * original_stat.st_size)
+        os.utime(target, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns + 7_000_000_000))
+        reason = "已变化"
+    outputs_before = {path.name: path.read_bytes() for path in group.output_dir.iterdir()}
+    late, late_id = await _add_member(repo, group, "_4K_fix")
+    content = late.read_bytes()
+
+    with capture_logs() as records:
+        rejected = await _organize_one(repo, resource_store, group, late_id, tmp_path)
+
+    assert (rejected.organized, rejected.failed, rejected.conflicted) == (0, 1, 0)
+    assert any(reason in str(record.get("error", "")) for record in records)
+    assert late.read_bytes() == content
+    retained = await repo.get_media_file(late_id)
+    assert retained is not None and retained.path == str(late)
+    after = await repo.get_fc2_part_plan(group.library.id, group.source_dir, group.metadata.number)
+    assert after is not None and after.id == before.id and after.members == before.members
+    assert {path.name: path.read_bytes() for path in group.output_dir.iterdir()} == outputs_before
+    assert not _output(group, 3).exists()

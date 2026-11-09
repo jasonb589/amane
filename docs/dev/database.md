@@ -34,7 +34,7 @@ pysqlite 只在 DML 之前发出 `BEGIN`, 纯 SELECT 落在事务之外 (SQLAlch
 
 任务入队、认领、结算与共享组清理使用 `BEGIN IMMEDIATE`; 入队另保留 Repository 进程内锁, 保证子任务创建与父完成同事务. 分组等待不持有数据库事务, 见 [task-system.md](task-system.md).
 
-FC2 分集计划的整组预留与条件更新同样使用 `BEGIN IMMEDIATE`; 文件身份读取在事务外, 编号与目标的不可变约束由 `src/amane/db/repos/fc2_parts.py` 在事务内复核. 生命周期见 [data-model.md](data-model.md)「Library 整理布局」.
+FC2 分集计划的预留、尾部追加与条件更新使用 `BEGIN IMMEDIATE`; 文件身份在事务外读取, 编号顺序、既有身份不变与跨组目标占用由 `src/amane/db/repos/fc2_parts.py` 在事务内复核. 生命周期见 [data-model.md](data-model.md)「Library 整理布局」.
 
 ## 启动期自动迁移与安全网
 

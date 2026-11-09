@@ -1,4 +1,4 @@
-"""FC2 正片与特集跨独立整理任务保留分集计划, 不依赖 NFO 或源索引."""
+"""FC2 正片、特集与修复版跨独立整理任务保留分集计划, 不依赖 NFO 或源索引."""
 
 from __future__ import annotations
 
@@ -100,9 +100,13 @@ def _output(group: _Group, cd: int) -> Path:
 @pytest.mark.parametrize(
     "suffixes",
     [
+        ("_4K",),
+        ("_1_4K", "_2_4K"),
         ("_4K", "_sp_4K"),
         ("_1_4K", "_2_4K", "_sp_4K"),
         ("_1_4K", "_2_4K", "_sp1_4K", "_sp2_4K"),
+        ("_1_4K", "_2_4K", "_4K_sp", "_4K_fix"),
+        ("_4K", "_fix1_4K", "_4K_fix2"),
     ],
 )
 async def test_reverse_single_file_tasks_keep_cd_after_external_move_and_handler_rebuild(
@@ -142,15 +146,28 @@ async def test_reverse_single_file_tasks_keep_cd_after_external_move_and_handler
             ),
             (("main", 1), ("main", 2), ("special", 1), ("special", 2)),
         ),
+        (
+            (
+                "FC2-3049697_1_4K.mp4",
+                "FC2-3049697_2_4K.mp4",
+                "hhd800_com@fc3049697_4K_sp.mp4",
+                "hhd800.com@fc3049697_4K_fix.mp4",
+            ),
+            (("main", 1), ("main", 2), ("special", None), ("fix", None)),
+        ),
     ],
-    ids=["main-and-post-quality-special", "two-main-and-two-post-quality-specials"],
+    ids=[
+        "main-and-post-quality-special",
+        "two-main-and-two-post-quality-specials",
+        "two-main-special-and-fix",
+    ],
 )
 async def test_post_quality_specials_keep_video_subtitle_and_nfo_cd_after_separate_moves(
     repo: Repository,
     resource_store: ResourceStore,
     tmp_path: Path,
     filenames: tuple[str, ...],
-    expected_members: tuple[tuple[Literal["main", "special"], int | None], ...],
+    expected_members: tuple[tuple[Literal["main", "special", "fix"], int | None], ...],
 ) -> None:
     incoming = tmp_path / "incoming"
     source_dir = incoming / "source"
@@ -193,7 +210,7 @@ async def test_post_quality_specials_keep_video_subtitle_and_nfo_cd_after_separa
     }
     frozen_plan_id: int | None = None
 
-    # 先移走最后一份特集, 每次使用独立处理器, 后续正片仍沿用第一次保存的编号.
+    # 先移动最后一份附加视频, 每次使用独立处理器, 后续正片仍沿用第一次保存的编号.
     for index in reversed(range(len(files))):
         outcome = await _organize_one(repo, resource_store, group, media_ids[index], tmp_path)
         assert (outcome.organized, outcome.failed, outcome.conflicted) == (1, 0, 0)
@@ -269,6 +286,9 @@ async def test_unindexed_same_directory_members_determine_cd_without_expanding_s
         (("_sp",), "缺少同组正片"),
         (("_1", "_3", "_sp"), "编号须从 1 连续排列"),
         (("_4K", "_sp", "_sp1"), "同时包含未编号文件与已编号分段"),
+        (("_fix",), "缺少同组正片"),
+        (("_4K", "_fix", "_fix1"), "同时包含未编号文件与已编号分段"),
+        (("_4K", "_sp_fix"), "无法确定角色或分段"),
     ],
 )
 async def test_ambiguous_groups_fail_before_moving_any_file(
@@ -291,20 +311,20 @@ async def test_ambiguous_groups_fail_before_moving_any_file(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["late", "size", "mtime"])
-async def test_frozen_plan_rejects_late_members_and_changed_sources(
+@pytest.mark.parametrize("change", ["inserted_main", "size", "mtime"])
+async def test_frozen_plan_rejects_inserted_main_and_changed_sources(
     repo: Repository,
     resource_store: ResourceStore,
     tmp_path: Path,
-    change: Literal["late", "size", "mtime"],
+    change: Literal["inserted_main", "size", "mtime"],
 ) -> None:
     group = await _make_group(repo, tmp_path, ("_1", "_2", "_sp"))
     first = await _organize_one(repo, resource_store, group, group.media_ids[-1], tmp_path)
     assert first.organized == 1 and first.failed == 0
     special = _output(group, 3).read_bytes()
-    if change == "late":
-        (group.source_dir / "fc4800334_sp1.mp4").write_bytes(b"late-special")
-        reason = "同组新增文件"
+    if change == "inserted_main":
+        (group.source_dir / "fc4800334_3.mp4").write_bytes(b"late-main")
+        reason = "分集编号"
     elif change == "size":
         group.files[0].write_bytes(b"replacement-main-with-a-different-size")
         reason = "源文件已变化"
