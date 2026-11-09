@@ -7,6 +7,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ...parsing import normalize_fc2_number
+from ...parsing.fc2_parts import Fc2Member, plan_fc2_parts
 from ...utils.path import path_key
 from ..fc2_parts import Fc2PlannedMember, normalize_fc2_plan_path, validate_fc2_part_members
 from ..models import Fc2PartPlan, Library
@@ -42,12 +43,22 @@ def _membership(members: Sequence[Fc2PlannedMember]) -> list[tuple[str, str, int
     )
 
 
+def _validate_order(members: Sequence[Fc2PlannedMember], number: str) -> None:
+    assigned = plan_fc2_parts(
+        [Fc2Member(number=number, role=member.role, part=member.part) for member in members],
+        require_main_plan=True,
+    )
+    if any(member.cd != cd for member, cd in zip(members, assigned, strict=True)):
+        raise ValueError("FC2 分段输出编号必须按正片、特集与 FIX 的顺序连续排列, 不能改变已固定编号")
+
+
 def _validate_plan(plan: Fc2PartPlan) -> Fc2PartPlan:
     if plan.directory_key != path_key(normalize_fc2_plan_path(plan.original_directory)):
         raise ValueError("FC2 分段分配的原始目录不一致")
     if plan.number != _number(plan.number):
         raise ValueError("FC2 分段分配的番号不规范")
-    _members_in_directory(plan.members, plan.directory_key)
+    validated = _members_in_directory(plan.members, plan.directory_key)
+    _validate_order(validated, plan.number)
     return plan
 
 
@@ -71,6 +82,32 @@ def _replace_member(plan: Fc2PartPlan, index: int, member: Fc2PlannedMember) -> 
     updated[index] = member
     plan.members_json = [value.model_dump(mode="json") for value in validate_fc2_part_members(updated)]
     plan.updated_at = _utcnow()
+
+
+async def _ensure_paths_available(
+    session: AsyncSession, members: Sequence[Fc2PlannedMember], *, plan_id: int | None = None
+) -> None:
+    """所有媒体库共用真实路径; 其它计划已预留的目标同样不能重新作为源文件."""
+    sources = {path_key(member.source_path) for member in members}
+    targets = {path_key(member.target_path) for member in members if member.target_path is not None}
+    stmt = select(Fc2PartPlan)
+    if plan_id is not None:
+        stmt = stmt.where(col(Fc2PartPlan.id) != plan_id)
+    for other in (await session.exec(stmt)).all():
+        for member in other.members:
+            if member.target_path is not None and path_key(member.target_path) in sources:
+                raise ValueError("FC2 分段源文件已被其他分组预留为输出文件")
+            if path_key(member.source_path) in targets or (
+                member.target_path is not None and path_key(member.target_path) in targets
+            ):
+                raise ValueError("FC2 分段目标已被其他分组占用")
+
+
+def _initial_members(members: Sequence[Fc2PlannedMember], directory_key: str) -> tuple[Fc2PlannedMember, ...]:
+    validated = _members_in_directory(members, directory_key)
+    if any(member.target_path is not None or member.placed for member in validated):
+        raise ValueError("固定或追加 FC2 分段分配时不能指定目标或落盘状态")
+    return validated
 
 
 class Fc2PartsRepoMixin(RepositoryMixinBase):
@@ -107,9 +144,7 @@ class Fc2PartsRepoMixin(RepositoryMixinBase):
         original_directory = normalize_fc2_plan_path(directory)
         directory_key = path_key(original_directory)
         normalized_number = _number(number)
-        validated = _members_in_directory(members, directory_key)
-        if any(member.target_path is not None or member.placed for member in validated):
-            raise ValueError("固定 FC2 分段分配时不能指定目标或落盘状态")
+        validated = _initial_members(members, directory_key)
         async with self._session() as session:
             connection = await session.connection()
             await connection.exec_driver_sql("BEGIN IMMEDIATE")
@@ -127,6 +162,8 @@ class Fc2PartsRepoMixin(RepositoryMixinBase):
                     raise ValueError("FC2 分段文件组已固定, 成员或文件信息发生变化, 请重新整理整组")
                 await session.commit()
                 return existing
+            _validate_order(validated, normalized_number)
+            await _ensure_paths_available(session, validated)
             plan = Fc2PartPlan(
                 library_id=library_id,
                 original_directory=original_directory,
@@ -139,14 +176,49 @@ class Fc2PartsRepoMixin(RepositoryMixinBase):
             await session.refresh(plan)
             return plan
 
+    async def append_fc2_part_members(self, plan_id: int, members: Sequence[Fc2PlannedMember]) -> Fc2PartPlan:
+        """仅追加可证明顺序的末尾成员; 重复提交相同身份保持幂等, 既有成员与落盘进度不变."""
+        async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
+            plan = await _require_plan(session, plan_id)
+            unique: dict[str, Fc2PlannedMember] = {}
+            for value in members:
+                member = Fc2PlannedMember.model_validate(value)
+                key = path_key(member.source_path)
+                if key in unique and member != unique[key]:
+                    raise ValueError("FC2 追加成员包含身份不一致的重复源文件")
+                unique[key] = member
+            validated = _initial_members(tuple(unique.values()), plan.directory_key)
+            existing = {path_key(member.source_path): member for member in plan.members}
+            added: list[Fc2PlannedMember] = []
+            for member in validated:
+                previous = existing.get(path_key(member.source_path))
+                if previous is None:
+                    added.append(member)
+                elif _membership([previous]) != _membership([member]):
+                    raise ValueError("FC2 已固定成员的身份、源文件信息或输出编号不能修改")
+            if not added:
+                await session.commit()
+                return plan
+            combined = validate_fc2_part_members([*plan.members, *added])
+            _validate_order(combined, plan.number)
+            await _ensure_paths_available(session, added, plan_id=plan.id)
+            plan.members_json = [*plan.members_json, *(member.model_dump(mode="json") for member in added)]
+            plan.updated_at = _utcnow()
+            session.add(plan)
+            await session.commit()
+            await session.refresh(plan)
+            return plan
+
     async def prepare_fc2_part_target(
         self, plan_id: int, source_path: str | Path, cd: int, target_path: str | Path
     ) -> None:
         """移动前固定目标; 重试只能使用相同编号与目标, 同组目标不可重复."""
         source = normalize_fc2_plan_path(source_path)
         target = normalize_fc2_plan_path(target_path)
-        if isinstance(cd, bool) or not isinstance(cd, int) or cd < 1:
-            raise ValueError("FC2 输出编号必须是正整数")
+        if isinstance(cd, bool) or not isinstance(cd, int) or not 1 <= cd <= 99:
+            raise ValueError("FC2 输出编号必须是 1 至 99 的整数")
         async with self._session() as session:
             connection = await session.connection()
             await connection.exec_driver_sql("BEGIN IMMEDIATE")
@@ -169,7 +241,9 @@ class Fc2PartsRepoMixin(RepositoryMixinBase):
                     for other in plan.members
                 ):
                     raise ValueError("FC2 分段目标已分配给同组其他文件")
-                _replace_member(plan, index, member.model_copy(update={"target_path": target}))
+                updated = member.model_copy(update={"target_path": target})
+                await _ensure_paths_available(session, [updated], plan_id=plan.id)
+                _replace_member(plan, index, updated)
                 session.add(plan)
             await session.commit()
 

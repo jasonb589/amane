@@ -23,9 +23,9 @@ class Fc2PlannedMember(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", revalidate_instances="always")
 
     source_path: str
-    role: Literal["main", "special"]
-    part: int | None = Field(default=None, gt=0, strict=True)
-    cd: int = Field(gt=0, strict=True)
+    role: Literal["main", "special", "fix"]
+    part: int | None = Field(default=None, gt=0, le=99, strict=True)
+    cd: int = Field(gt=0, le=99, strict=True)
     source_size: int = Field(ge=0, strict=True)
     source_mtime_ns: int = Field(ge=0, strict=True)
     target_path: str | None = None
@@ -50,6 +50,8 @@ def validate_fc2_part_members(members: Sequence[Fc2PlannedMember]) -> tuple[Fc2P
     validated = tuple(Fc2PlannedMember.model_validate(member) for member in members)
     if not validated:
         raise ValueError("FC2 分段文件组不能为空")
+    if len(validated) > 99:
+        raise ValueError("FC2 分段文件组合计不能超过 99 段")
     source_keys: set[str] = set()
     cds: set[int] = set()
     target_keys: set[str] = set()

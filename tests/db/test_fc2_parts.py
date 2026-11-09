@@ -3,18 +3,14 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
 
 from amane.db.fc2_parts import Fc2PlannedMember
-from amane.db.models import TaskType
+from amane.db.models import Fc2PartPlan, TaskType
+from amane.db.repository import Repository
 from amane.utils.path import nfc_path
-
-if TYPE_CHECKING:
-    from amane.db.models import Fc2PartPlan
-    from amane.db.repository import Repository
 
 
 def _members(directory: Path) -> tuple[Fc2PlannedMember, ...]:
@@ -121,8 +117,10 @@ async def test_reserved_membership_rejects_late_files_and_changed_identity(repo:
         ({"source_mtime_ns": 1.5}, "valid integer"),
         ({"cd": 0}, "greater than 0"),
         ({"cd": True}, "valid integer"),
+        ({"cd": 100}, "less than or equal to 99"),
         ({"part": 0}, "greater than 0"),
         ({"part": "1"}, "valid integer"),
+        ({"part": 100}, "less than or equal to 99"),
         ({"role": "unknown"}, "main.*special"),
         ({"placed": True}, "目标路径与目标修改时间"),
         ({"target_mtime_ns": 3001}, "尚未落盘"),
@@ -293,3 +291,257 @@ async def test_invalid_stored_members_fail_before_conditional_update(repo: Repos
         await repo.get_fc2_part_plan(plan.library_id, tmp_path, plan.number)
     with pytest.raises(ValueError, match="重复输出编号"):
         await repo.prepare_fc2_part_target(plan.id, plan.members[0].source_path, 1, tmp_path / "CD1.mp4")
+
+
+@pytest.mark.asyncio
+async def test_append_preserves_existing_placement_and_json_after_rebuild(repo: Repository, tmp_path: Path) -> None:
+    plan = await _reserve(repo, tmp_path)
+    assert plan.id is not None
+    first, second = plan.members
+    target = tmp_path / "output" / "CD1.mp4"
+    await repo.prepare_fc2_part_target(plan.id, first.source_path, 1, target)
+    await repo.complete_fc2_part(plan.id, first.source_path, target, target_mtime_ns=2001)
+    saved = await repo.get_fc2_part_plan(plan.library_id, tmp_path, plan.number)
+    assert saved is not None
+    original_json = [dict(member) for member in saved.members_json]
+    fixed = first.model_copy(
+        update={"source_path": str(tmp_path / "fc4800334_fix1_4K.mp4"), "role": "fix", "part": 1, "cd": 3}
+    )
+    rebuilt = Repository(repo._engine, embeddings=repo.embeddings)
+    extended = await rebuilt.append_fc2_part_members(plan.id, [fixed, fixed])
+    assert extended.members_json[:2] == original_json
+    assert [(member.role, member.cd) for member in extended.members] == [("main", 1), ("special", 2), ("fix", 3)]
+    assert extended.members[0].placed and extended.members[0].target_mtime_ns == 2001
+    second_target = tmp_path / "output" / "CD2.mp4"
+    await rebuilt.prepare_fc2_part_target(plan.id, second.source_path, 2, second_target)
+    await rebuilt.complete_fc2_part(plan.id, second.source_path, second_target, target_mtime_ns=2002)
+    reused = await repo.append_fc2_part_members(plan.id, [fixed])
+    assert reused.members[1].placed and reused.members[1].target_path == str(second_target)
+    assert len(reused.members) == 3
+
+
+@pytest.mark.asyncio
+async def test_append_all_roles_in_order_without_reassigning_existing_cds(repo: Repository, tmp_path: Path) -> None:
+    library = await repo.create_library(name="FC2", path=str(tmp_path))
+    assert library.id is not None
+    main = _members(tmp_path)[0]
+    plan = await repo.reserve_fc2_part_plan(library.id, tmp_path, "FC2-4800334", [main])
+    assert plan.id is not None
+    special1 = _members(tmp_path)[1].model_copy(update={"part": 1})
+    special2 = special1.model_copy(update={"source_path": str(tmp_path / "fc4800334_sp2.mp4"), "part": 2, "cd": 3})
+    fix1 = main.model_copy(
+        update={"source_path": str(tmp_path / "fc4800334_fix1.mp4"), "role": "fix", "part": 1, "cd": 4}
+    )
+    fix2 = fix1.model_copy(update={"source_path": str(tmp_path / "fc4800334_fix2.mp4"), "part": 2, "cd": 5})
+    await repo.append_fc2_part_members(plan.id, [special1])
+    await repo.append_fc2_part_members(plan.id, [fix1, special2])
+    final = await repo.append_fc2_part_members(plan.id, [fix1, fix2])
+    assert [(member.role, member.part, member.cd) for member in final.members] == [
+        ("main", None, 1),
+        ("special", 1, 2),
+        ("special", 2, 3),
+        ("fix", 1, 4),
+        ("fix", 2, 5),
+    ]
+    assert final.members[0] == main and final.members[1] == special1
+
+
+@pytest.mark.asyncio
+async def test_append_rejects_ambiguous_or_changed_members_atomically(repo: Repository, tmp_path: Path) -> None:
+    plan = await _reserve(repo, tmp_path)
+    assert plan.id is not None
+    first, special = plan.members
+    fixed = first.model_copy(update={"source_path": str(tmp_path / "fc4800334_fix.mp4"), "role": "fix", "cd": 3})
+    completed = await repo.append_fc2_part_members(plan.id, [fixed])
+    baseline = completed.members_json
+    candidates: list[tuple[list[Fc2PlannedMember], str]] = [
+        ([], "不能为空"),
+        ([first.model_copy(update={"source_size": 101})], "已固定成员"),
+        ([first.model_copy(update={"source_mtime_ns": 1002})], "已固定成员"),
+        ([first.model_copy(update={"part": 1})], "已固定成员"),
+        ([first.model_copy(update={"cd": 4})], "已固定成员"),
+        ([fixed.model_copy(update={"source_path": str(tmp_path.parent / "outside.mp4"), "cd": 4})], "同一原始目录"),
+        ([fixed.model_copy(update={"target_path": str(tmp_path / "CD3.mp4")})], "不能指定目标"),
+        ([fixed, fixed.model_copy(update={"source_size": 101})], "身份不一致"),
+        ([fixed.model_copy(update={"source_path": str(tmp_path / "fix-other.mp4"), "cd": 4})], "多个未编号"),
+        (
+            [fixed.model_copy(update={"source_path": str(tmp_path / "fix1.mp4"), "part": 1, "cd": 4})],
+            "未编号文件与已编号",
+        ),
+        ([special.model_copy(update={"source_path": str(tmp_path / "sp-other.mp4"), "cd": 4})], "多个未编号"),
+        ([first.model_copy(update={"source_path": str(tmp_path / "main-other.mp4"), "cd": 4})], "多个未编号"),
+        ([fixed.model_copy(update={"source_path": str(tmp_path / "fix-other.mp4"), "cd": 2})], "重复输出编号"),
+    ]
+    for members, message in candidates:
+        with pytest.raises(ValueError, match=message):
+            await repo.append_fc2_part_members(plan.id, members)
+        saved = await repo.get_fc2_part_plan(plan.library_id, tmp_path, plan.number)
+        assert saved is not None and saved.members_json == baseline
+    with pytest.raises(ValueError, match="分段分配不存在"):
+        await repo.append_fc2_part_members(999999, [fixed])
+
+
+@pytest.mark.asyncio
+async def test_append_rejects_insertion_before_assigned_roles_and_part_gaps(repo: Repository, tmp_path: Path) -> None:
+    library = await repo.create_library(name="FC2", path=str(tmp_path))
+    assert library.id is not None
+    first = _members(tmp_path)[0]
+    fixed = first.model_copy(update={"source_path": str(tmp_path / "fix1.mp4"), "role": "fix", "part": 1, "cd": 2})
+    plan = await repo.reserve_fc2_part_plan(library.id, tmp_path, "FC2-4800334", [first, fixed])
+    assert plan.id is not None
+    candidates = [
+        (_members(tmp_path)[1].model_copy(update={"cd": 3}), "不能改变已固定编号"),
+        (fixed.model_copy(update={"source_path": str(tmp_path / "fix3.mp4"), "part": 3, "cd": 3}), "从 1 连续排列"),
+        (fixed.model_copy(update={"source_path": str(tmp_path / "fix2.mp4"), "part": 2, "cd": 4}), "连续排列"),
+    ]
+    for candidate, message in candidates:
+        with pytest.raises(ValueError, match=message):
+            await repo.append_fc2_part_members(plan.id, [candidate])
+        saved = await repo.get_fc2_part_plan(library.id, tmp_path, plan.number)
+        assert saved is not None and saved.members_json == plan.members_json
+
+
+@pytest.mark.asyncio
+async def test_concurrent_append_preserves_other_member_updates_and_has_one_identity_owner(
+    repo: Repository, tmp_path: Path
+) -> None:
+    plan = await _reserve(repo, tmp_path)
+    assert plan.id is not None
+    first = plan.members[0]
+    fixed = first.model_copy(update={"source_path": str(tmp_path / "fix.mp4"), "role": "fix", "cd": 3})
+    target = tmp_path / "output" / "CD1.mp4"
+    await repo.prepare_fc2_part_target(plan.id, first.source_path, 1, target)
+    rebuilt = Repository(repo._engine, embeddings=repo.embeddings)
+    results = await asyncio.gather(
+        *(owner.append_fc2_part_members(plan.id, [fixed]) for owner in [repo, rebuilt] * 5),
+        rebuilt.complete_fc2_part(plan.id, first.source_path, target, target_mtime_ns=2001),
+    )
+    assert {item.id for item in results if isinstance(item, Fc2PartPlan)} == {plan.id}
+    final = await rebuilt.get_fc2_part_plan(plan.library_id, tmp_path, plan.number)
+    assert final is not None and len(final.members) == 3
+    assert final.members[0].placed and final.members[0].target_mtime_ns == 2001
+
+    other_plan = await _reserve(repo, tmp_path / "other")
+    assert other_plan.id is not None
+    candidates = [
+        fixed.model_copy(update={"source_path": str(tmp_path / "other" / name)}) for name in ("fix-a.mp4", "fix-b.mp4")
+    ]
+    conflicts = await asyncio.gather(
+        *(
+            owner.append_fc2_part_members(other_plan.id, [candidate])
+            for owner, candidate in zip([repo, rebuilt], candidates, strict=True)
+        ),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(item, Fc2PartPlan) for item in conflicts) == 1
+    assert sum(isinstance(item, ValueError) for item in conflicts) == 1
+    retained = await repo.get_fc2_part_plan(other_plan.library_id, tmp_path / "other", other_plan.number)
+    assert retained is not None and len(retained.members) == 3
+
+
+@pytest.mark.asyncio
+async def test_append_enforces_ninety_nine_part_limit(repo: Repository, tmp_path: Path) -> None:
+    library = await repo.create_library(name="FC2", path=str(tmp_path))
+    assert library.id is not None
+    first = _members(tmp_path)[0]
+    mains = [
+        first.model_copy(update={"source_path": str(tmp_path / f"main{part}.mp4"), "part": part, "cd": part})
+        for part in range(1, 99)
+    ]
+    plan = await repo.reserve_fc2_part_plan(library.id, tmp_path, "FC2-4800334", mains)
+    assert plan.id is not None
+    special = _members(tmp_path)[1].model_copy(update={"cd": 99})
+    full = await repo.append_fc2_part_members(plan.id, [special])
+    fixed = first.model_copy(update={"source_path": str(tmp_path / "fix.mp4"), "role": "fix", "cd": 100})
+    with pytest.raises(ValueError, match="less than or equal to 99"):
+        await repo.append_fc2_part_members(plan.id, [fixed])
+    saved = await repo.get_fc2_part_plan(library.id, tmp_path, plan.number)
+    assert saved is not None and saved.members_json == full.members_json and len(saved.members) == 99
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("placed", [False, True])
+async def test_cross_plan_output_paths_cannot_be_reserved_as_sources_or_targets(
+    repo: Repository, tmp_path: Path, placed: bool
+) -> None:
+    first_plan = await _reserve(repo, tmp_path / "first")
+    second_directory = tmp_path / "second"
+    second_plan = await _reserve(repo, second_directory)
+    assert first_plan.id is not None and second_plan.id is not None
+    target = second_directory / "already-output.mp4"
+    first = first_plan.members[0]
+    await repo.prepare_fc2_part_target(first_plan.id, first.source_path, 1, target)
+    if placed:
+        await repo.complete_fc2_part(first_plan.id, first.source_path, target, target_mtime_ns=2001)
+    occupied_source = first.model_copy(update={"source_path": str(target), "role": "fix", "cd": 3})
+    with pytest.raises(ValueError, match="源文件已被其他分组"):
+        await repo.append_fc2_part_members(second_plan.id, [occupied_source])
+    with pytest.raises(ValueError, match="源文件已被其他分组"):
+        await repo.reserve_fc2_part_plan(
+            second_plan.library_id,
+            second_directory,
+            "FC2-9999999",
+            [occupied_source.model_copy(update={"role": "main", "cd": 1})],
+        )
+    for other_target in (target, Path(first.source_path)):
+        with pytest.raises(ValueError, match="目标已被其他分组"):
+            await repo.prepare_fc2_part_target(second_plan.id, second_plan.members[0].source_path, 1, other_target)
+    saved = await repo.get_fc2_part_plan(second_plan.library_id, second_directory, second_plan.number)
+    assert saved is not None and saved.members_json == second_plan.members_json
+
+
+@pytest.mark.asyncio
+async def test_append_cannot_reclassify_its_existing_output_as_a_new_source(repo: Repository, tmp_path: Path) -> None:
+    plan = await _reserve(repo, tmp_path)
+    assert plan.id is not None
+    target = tmp_path / "fc4800334_fix.mp4"
+    first = plan.members[0]
+    await repo.prepare_fc2_part_target(plan.id, first.source_path, 1, target)
+    await repo.complete_fc2_part(plan.id, first.source_path, target, target_mtime_ns=2001)
+    fixed = first.model_copy(update={"source_path": str(target), "role": "fix", "cd": 3})
+    with pytest.raises(ValueError, match="不能占用同组其他源文件"):
+        await repo.append_fc2_part_members(plan.id, [fixed])
+    saved = await repo.get_fc2_part_plan(plan.library_id, tmp_path, plan.number)
+    assert saved is not None and len(saved.members) == 2
+    assert saved.members[0].placed and saved.members[0].target_path == str(target)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_appended_source_and_other_plan_target_cannot_both_claim_path(
+    repo: Repository, tmp_path: Path
+) -> None:
+    first = await _reserve(repo, tmp_path / "first")
+    second_directory = tmp_path / "second"
+    second = await _reserve(repo, second_directory)
+    assert first.id is not None and second.id is not None
+    shared = second_directory / "fix.mp4"
+    fixed = second.members[0].model_copy(update={"source_path": str(shared), "role": "fix", "cd": 3})
+    rebuilt = Repository(repo._engine, embeddings=repo.embeddings)
+    results = await asyncio.gather(
+        repo.prepare_fc2_part_target(first.id, first.members[0].source_path, 1, shared),
+        rebuilt.append_fc2_part_members(second.id, [fixed]),
+        return_exceptions=True,
+    )
+    failures = [result for result in results if isinstance(result, ValueError)]
+    assert len(failures) == 1 and "其他分组" in str(failures[0])
+    first_saved = await repo.get_fc2_part_plan(first.library_id, tmp_path / "first", first.number)
+    second_saved = await rebuilt.get_fc2_part_plan(second.library_id, second_directory, second.number)
+    assert first_saved is not None and second_saved is not None
+    assert (first_saved.members[0].target_path == str(shared)) != (len(second_saved.members) == 3)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_cross_plan_target_reservation_has_one_owner(repo: Repository, tmp_path: Path) -> None:
+    first = await _reserve(repo, tmp_path / "first")
+    second = await _reserve(repo, tmp_path / "second")
+    assert first.id is not None and second.id is not None
+    target = tmp_path / "output" / "CD1.mp4"
+    rebuilt = Repository(repo._engine, embeddings=repo.embeddings)
+    results = await asyncio.gather(
+        repo.prepare_fc2_part_target(first.id, first.members[0].source_path, 1, target),
+        rebuilt.prepare_fc2_part_target(second.id, second.members[0].source_path, 1, target),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 1
+    failures = [item for item in results if isinstance(item, ValueError)]
+    assert len(failures) == 1 and "目标已被其他分组" in str(failures[0])
