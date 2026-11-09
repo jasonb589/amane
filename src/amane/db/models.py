@@ -376,6 +376,21 @@ class Fc2PartPlan(SQLModel, table=True):
         return validate_fc2_part_members(parsed)
 
 
+class ScrapeGroup(SQLModel, table=True):
+    """同轮文件刮削的影片级结果; 成员任务独立关联与整理文件."""
+
+    __tablename__ = "scrape_groups"  # type: ignore[assignment]
+
+    id: int | None = Field(default=None, primary_key=True)
+    key: str = Field(index=True)
+    status: TaskStatus = Field(default=TaskStatus.QUEUED, index=True)
+    producer_task_id: int | None = None
+    result: dict[str, JsonValue] | None = Field(default=None, sa_column=Column(JSON))
+    error: str | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
 class Task(SQLModel, table=True):
     __tablename__ = "tasks"  # type: ignore[assignment]
 
@@ -389,6 +404,7 @@ class Task(SQLModel, table=True):
     priority: int = Field(default=0)
     # 链根 id: 根任务指向自己, 裸任务为 None. 按此列一次取出整链.
     root_task_id: int | None = Field(default=None, index=True)
+    scrape_group_id: int | None = Field(default=None, foreign_key="scrape_groups.id", ondelete="SET NULL", index=True)
     created_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime | None = None
     finished_at: datetime | None = None

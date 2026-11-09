@@ -1,16 +1,17 @@
 from collections.abc import Iterable, Sequence
 
-from pydantic import BaseModel
-from sqlalchemy import asc, update
+from pydantic import BaseModel, JsonValue, TypeAdapter
+from sqlalchemy import asc, or_, update
 from sqlalchemy import delete as sqla_delete
 from sqlalchemy.sql.functions import coalesce, count
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
-from ..models import SortOrder, Task, TaskLink, TaskSortField, TaskStatus, TaskType
+from ..models import ScrapeGroup, SortOrder, Task, TaskLink, TaskSortField, TaskStatus, TaskType
 from ..repo_types import _TASK_SORT_COLUMNS, _order_clause, _utcnow
 from .base import RepositoryMixinBase, chunks
+from .scrape_groups import assign_scrape_group, delete_orphan_scrape_groups, fail_deleted_producers, finish_scrape_group
 
 _ACTIVE_STATUSES = (TaskStatus.QUEUED, TaskStatus.RUNNING)
 # 互斥键在 payload 里; 同键已有 queued/running 则复用, 不另建行.
@@ -69,7 +70,8 @@ async def _insert_or_reuse(
             existing = await _find_active_exclusive(session, task_type, field, value)
             if existing is not None:
                 return existing
-    task = Task(type=task_type, payload=payload, priority=priority)
+    group_id = await assign_scrape_group(session, task_type, payload)
+    task = Task(type=task_type, payload=payload, priority=priority, scrape_group_id=group_id)
     session.add(task)
     await session.flush()
     return task
@@ -146,6 +148,8 @@ class TasksRepoMixin(RepositoryMixinBase):
         if not payloads:
             return []
         async with self._task_insert_lock, self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             tasks = [
                 await _insert_or_reuse(session, task_type, _payload_dict(payload), priority) for payload in payloads
             ]
@@ -159,12 +163,18 @@ class TasksRepoMixin(RepositoryMixinBase):
             return await session.get(Task, task_id)
 
     async def claim_next_task(self) -> Task | None:
-        """认领优先级最高的 QUEUED 行, 标为 RUNNING."""
+        """认领最高优先级可执行任务; 共享生产期间的成员保留排队, 不占 worker 容量."""
         async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             stmt = (
                 select(Task)
-                .where(Task.status == TaskStatus.QUEUED)
-                .order_by(col(Task.priority).desc(), asc(col(Task.created_at)))
+                .outerjoin(ScrapeGroup, col(Task.scrape_group_id) == col(ScrapeGroup.id))
+                .where(
+                    Task.status == TaskStatus.QUEUED,
+                    or_(col(ScrapeGroup.id).is_(None), col(ScrapeGroup.status) != TaskStatus.RUNNING),
+                )
+                .order_by(col(Task.priority).desc(), asc(col(Task.created_at)), col(Task.id).asc())
                 .limit(1)
             )
             result = await session.exec(stmt)
@@ -173,19 +183,63 @@ class TasksRepoMixin(RepositoryMixinBase):
                 return None
             task.status = TaskStatus.RUNNING
             task.started_at = _utcnow()
+            if task.scrape_group_id is not None:
+                group = await session.get(ScrapeGroup, task.scrape_group_id)
+                if group is not None and group.status is TaskStatus.QUEUED:
+                    group.status = TaskStatus.RUNNING
+                    group.producer_task_id = task.id
+                    group.updated_at = _utcnow()
+                    session.add(group)
             session.add(task)
             await session.commit()
             await session.refresh(task)
             return task
 
+    async def get_scrape_group_for_task(self, task_id: int) -> ScrapeGroup | None:
+        async with self._session() as session:
+            task = await session.get(Task, task_id)
+            if task is None or task.scrape_group_id is None:
+                return None
+            return await session.get(ScrapeGroup, task.scrape_group_id)
+
+    async def complete_scrape_group(self, task_id: int, result: dict[str, object]) -> None:
+        """影片数据写入后提交共享结果; 未分组任务无操作, 文件关联与整理继续独立执行."""
+        validated = TypeAdapter(dict[str, JsonValue]).validate_python(result)
+        async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
+            task = await session.get(Task, task_id)
+            if task is None or task.scrape_group_id is None:
+                return
+            group = await session.get(ScrapeGroup, task.scrape_group_id)
+            if group is None:
+                raise ValueError("刮削共享组不存在")
+            if group.producer_task_id != task_id:
+                raise ValueError("只有刮削生产任务可以提交共享结果")
+            if group.status is TaskStatus.DONE:
+                if group.result != validated:
+                    raise ValueError("刮削共享结果已经完成, 不允许修改")
+                return
+            if group.status is not TaskStatus.RUNNING or task.status is not TaskStatus.RUNNING:
+                raise ValueError("刮削生产任务已停止, 不允许提交共享结果")
+            group.status = TaskStatus.DONE
+            group.result = validated
+            group.error = None
+            group.updated_at = _utcnow()
+            session.add(group)
+            await session.commit()
+
     async def complete_task(self, task_id: int, result: dict[str, object] | None = None) -> None:
         async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             task = await session.get(Task, task_id)
             if task is None:
                 return
             task.status = TaskStatus.DONE
             task.result = result
             task.finished_at = _utcnow()
+            await finish_scrape_group(session, task, result=result, error=None)
             session.add(task)
             await session.commit()
 
@@ -198,6 +252,8 @@ class TasksRepoMixin(RepositoryMixinBase):
         """父完成与子创建须在同一事务. 同父同 key 只留第一条, UNIQUE(parent, key) 拒绝重复."""
         created: list[Task] = []
         async with self._task_insert_lock, self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             task = await session.get(Task, task_id)
             if task is None:
                 return created
@@ -206,6 +262,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             task.status = TaskStatus.DONE
             task.result = result
             task.finished_at = _utcnow()
+            await finish_scrape_group(session, task, result=result, error=None)
             if task.root_task_id is None:
                 task.root_task_id = task.id  # 裸任务成为链根: 指向自己
             session.add(task)
@@ -230,6 +287,8 @@ class TasksRepoMixin(RepositoryMixinBase):
     async def fail_task(self, task_id: int, error: str, result: dict[str, object] | None = None) -> None:
         """失败也可带结果载荷: 刮削失败时站点明细仍要能展示; None 会清掉上一次运行的残留."""
         async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             task = await session.get(Task, task_id)
             if task is None:
                 return
@@ -238,6 +297,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             task.result = result
             task.retries += 1
             task.finished_at = _utcnow()
+            await finish_scrape_group(session, task, result=result, error=error)
             session.add(task)
             await session.commit()
 
@@ -247,6 +307,8 @@ class TasksRepoMixin(RepositoryMixinBase):
         取消回退与取消兜底使用: 已进入终态的任务不得被覆盖为 FAILED. 取消同样落库载荷.
         """
         async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             task = await session.get(Task, task_id)
             if task is None or task.status != TaskStatus.RUNNING:
                 return False
@@ -255,6 +317,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             task.result = result
             task.retries += 1
             task.finished_at = _utcnow()
+            await finish_scrape_group(session, task, result=result, error=error)
             session.add(task)
             await session.commit()
             return True
@@ -262,6 +325,19 @@ class TasksRepoMixin(RepositoryMixinBase):
     async def fail_all_running_tasks(self) -> int:
         """将全部 RUNNING 标为 FAILED (进程重启后的僵尸任务)."""
         async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
+            await session.exec(
+                update(ScrapeGroup)
+                .where(col(ScrapeGroup.status) == TaskStatus.RUNNING)
+                .values(
+                    {
+                        col(ScrapeGroup.status): TaskStatus.FAILED,
+                        col(ScrapeGroup.error): "Task marked as failed due to application restart",
+                        col(ScrapeGroup.updated_at): _utcnow(),
+                    }
+                )
+            )
             stmt = (
                 update(Task)
                 .where(col(Task.status) == TaskStatus.RUNNING)
@@ -439,6 +515,8 @@ class TasksRepoMixin(RepositoryMixinBase):
         if not tasks:
             return []
         async with self._task_insert_lock, self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             created: list[Task] = []
             seen: set[int] = set()
             for task in tasks:
@@ -456,17 +534,21 @@ class TasksRepoMixin(RepositoryMixinBase):
     async def delete_task(self, task_id: int) -> bool:
         """有未纳入本次删除的后裔时拒绝, 否则剩余子任务失去链根后无法在列表中显示."""
         async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             task = await session.get(Task, task_id)
             if task is None:
                 return False
             if await _ids_with_external_descendants(session, [task_id]):
                 return False
+            await fail_deleted_producers(session, [task_id])
             await session.exec(
                 sqla_delete(TaskLink).where(
                     (col(TaskLink.parent_task_id) == task_id) | (col(TaskLink.child_task_id) == task_id)
                 )
             )
             await session.delete(task)
+            await delete_orphan_scrape_groups(session)
             await session.commit()
             return True
 
@@ -476,10 +558,13 @@ class TasksRepoMixin(RepositoryMixinBase):
         if not ids:
             return 0
         async with self._session() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             protected = await _ids_with_external_descendants(session, ids)
             deletable = [i for i in ids if i not in protected]
             if not deletable:
                 return 0
+            await fail_deleted_producers(session, deletable)
             # 整批任务组可达上万行, 单条语句绑定全部 id 会超过 SQLite 变量上限.
             for chunk in chunks(deletable):
                 await session.exec(
@@ -491,5 +576,6 @@ class TasksRepoMixin(RepositoryMixinBase):
             for chunk in chunks(deletable):
                 result = await session.exec(sqla_delete(Task).where(col(Task.id).in_(chunk)))
                 deleted += result.rowcount or 0
+            await delete_orphan_scrape_groups(session)
             await session.commit()
             return deleted
