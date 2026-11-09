@@ -1,4 +1,4 @@
-"""FC2 文件名分类与特集分集规划; 不读取目录、不执行文件操作."""
+"""FC2 文件名分类及正片、特集与 FIX 分集规划; 不读取目录、不执行文件操作."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ _FC2_HEAD = re.compile(
     r"|FC(?!2)[-_.\s\u2010-\u2015\u2212]*[0-9]{5,})(?=$|[-_.\s])"
 )
 _FC2_INTENT_HEAD = re.compile(r"(?<![A-Z0-9])" + _FC2_HEAD.pattern)
-_SPECIAL = re.compile(r"SP(?P<part>0?[1-9]|[1-9][0-9])?(?=$|[-_.\s])")
+_EXTRA = re.compile(r"(?P<role>SP|FIX)(?P<part>0?[1-9]|[1-9][0-9])?(?=$|[-_.\s])")
 _EXPLICIT_MAIN = re.compile(r"(?:CD|PART)\s*(?P<part>0?[1-9]|[1-9][0-9])(?=$|[-_.\s])")
 _BARE_MAIN = re.compile(r"(?P<part>0?[1-9]|[1-9][0-9]|[AB])(?=$|[-_.\s])")
 _SEPARATORS = re.compile(r"[-_.\s]+")
@@ -100,7 +100,7 @@ class Fc2Member(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     number: str
-    role: Literal["main", "special"]
+    role: Literal["main", "special", "fix"]
     part: int | None = Field(default=None, ge=1, le=99, strict=True)
     definition: str | None = None
     has_subtitle: bool = False
@@ -116,7 +116,7 @@ class Fc2Member(BaseModel):
 
 
 def parse_fc2_member(filename: str) -> Fc2Member | None:
-    """SP 可位于已知相位标签前后; 多重角色与未知尾标不推测顺序, 返回 None."""
+    """SP 或 FIX 可位于已知相位标签前后; 多重角色与未知尾标不推测顺序, 返回 None."""
     normalized = _normalized_stem(filename)
     if normalized is None:
         return None
@@ -127,15 +127,15 @@ def parse_fc2_member(filename: str) -> Fc2Member | None:
     if number is None:
         return None
     tail = normalized[head.end() :]
-    role: Literal["main", "special"] = "main"
+    role: Literal["main", "special", "fix"] = "main"
     part: int | None = None
-    special: str | None = None
-    special_tokens = [token for token in _SEPARATORS.split(tail) if token.startswith("SP")]
-    if special_tokens:
-        if len(special_tokens) != 1 or (marker := _SPECIAL.fullmatch(special_tokens[0])) is None:
+    extra: str | None = None
+    extra_tokens = [token for token in _SEPARATORS.split(tail) if token.startswith(("SP", "FIX"))]
+    if extra_tokens:
+        if len(extra_tokens) != 1 or (marker := _EXTRA.fullmatch(extra_tokens[0])) is None:
             return None
-        special = special_tokens[0]
-        role = "special"
+        extra = extra_tokens[0]
+        role = "special" if marker["role"] == "SP" else "fix"
         part = int(marker["part"]) if marker["part"] else None
     elif tail:
         separator = _SEPARATORS.match(tail)
@@ -149,7 +149,7 @@ def parse_fc2_member(filename: str) -> Fc2Member | None:
             value = marker["part"]
             part = ord(value) - ord("A") + 1 if value in {"A", "B"} else int(value)
             tail = body[marker.end() :]
-    if not _known_phase_tail(tail, special=special):
+    if not _known_phase_tail(tail, extra=extra):
         return None
     # 添加扩展名以保留正文中的点分隔标记; 垃圾串已经过滤, 不重复应用配置正则.
     info = parse_file_info(text=f"{normalized}.mp4", escape_strings=[])
@@ -164,12 +164,12 @@ def parse_fc2_member(filename: str) -> Fc2Member | None:
 
 
 def has_fc2_special_marker(filename: str) -> bool:
-    """商品号后任一独立 SP 尾标均触发核对; 未知前缀、多重角色与非法序号仍由严格解析拒绝."""
+    """保留既有名称; 检测商品号后的 SP 或 FIX 意图, 非法序号与多重角色仍须严格解析核对."""
     normalized = _normalized_stem(filename)
     if normalized is None:
         return False
     return any(
-        token.startswith("SP")
+        token.startswith(("SP", "FIX"))
         for head in _FC2_INTENT_HEAD.finditer(normalized)
         for token in _SEPARATORS.split(normalized[head.end() :])
     )
@@ -186,38 +186,46 @@ def _normalized_stem(filename: str) -> str | None:
     return normalized[: -len(suffix)] if suffix.lower() in _KNOWN_EXTENSIONS else normalized
 
 
-def _known_phase_tail(tail: str, *, special: str | None = None) -> bool:
+def _known_phase_tail(tail: str, *, extra: str | None = None) -> bool:
     if not tail:
         return True
     if re.fullmatch(r"(?:[-_.\s]+[^-_.\s]+)+", tail) is None:
         return False
     return all(
-        token == special or token in _PHASE_TAGS or _DEFINITION.fullmatch(token)
-        for token in _SEPARATORS.split(tail)[1:]
+        token == extra or token in _PHASE_TAGS or _DEFINITION.fullmatch(token) for token in _SEPARATORS.split(tail)[1:]
     )
 
 
-def plan_fc2_parts(members: Sequence[Fc2Member]) -> list[int | None]:
-    """返回与输入对应的 CD; 存在特集时必须能证明正片与特集各自的完整顺序."""
+def plan_fc2_parts(members: Sequence[Fc2Member], *, require_main_plan: bool = False) -> list[int | None]:
+    """返回与输入对应的 CD, 按正片、特集、FIX 排序.
+
+    附加角色必须具有同组正片, 各角色均须具有完整顺序.
+    require_main_plan 使仅有正片的输入同样执行完整规划; 单份未编号正片分配 CD1.
+    """
     if len({member.number for member in members}) > 1:
         raise ValueError("同一组包含不同 FC2 番号，无法规划分集")
-    if not any(member.role == "special" for member in members):
+    if not require_main_plan and all(member.role == "main" for member in members):
         return [member.part for member in members]
+    if not members:
+        return []
     if not any(member.role == "main" for member in members):
-        raise ValueError("特集缺少同组正片，无法确定分集起点")
+        if any(member.role == "special" for member in members):
+            raise ValueError("特集缺少同组正片，无法确定分集起点")
+        raise ValueError("FIX 缺少同组正片，无法确定分集起点")
     mains = _ordered_indices(members, "main")
     specials = _ordered_indices(members, "special")
+    fixes = _ordered_indices(members, "fix")
     if len(members) > 99:
-        raise ValueError("正片与特集合计超过 99 段，无法生成分集编号")
+        raise ValueError("正片、特集与 FIX 合计超过 99 段，无法生成分集编号")
     result: list[int | None] = [None] * len(members)
-    for cd, index in enumerate([*mains, *specials], start=1):
+    for cd, index in enumerate([*mains, *specials, *fixes], start=1):
         result[index] = cd
     return result
 
 
-def _ordered_indices(members: Sequence[Fc2Member], role: Literal["main", "special"]) -> list[int]:
+def _ordered_indices(members: Sequence[Fc2Member], role: Literal["main", "special", "fix"]) -> list[int]:
     selected = [(index, member) for index, member in enumerate(members) if member.role == role]
-    label = "正片" if role == "main" else "特集"
+    label = {"main": "正片", "special": "特集", "fix": "FIX "}[role]
     unnumbered = [member for _, member in selected if member.part is None]
     if unnumbered:
         if len(selected) == 1:

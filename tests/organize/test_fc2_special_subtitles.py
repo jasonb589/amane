@@ -1,4 +1,4 @@
-"""FC2 特集字幕按源角色配对, 整理输出采用已规划的 CD."""
+"""FC2 特集与 FIX 字幕按源角色配对, 整理输出采用已规划的 CD."""
 
 from dataclasses import replace
 from pathlib import Path
@@ -27,6 +27,9 @@ _MAIN_SPECIAL = (
     "FC2-4982441-SP.chs.srt",
     "FC2-4982441-SP1.chs.srt",
     "FC2-4982441-SP2.chs.srt",
+    "FC2-4982441-FIX.chs.srt",
+    "FC2-4982441-FIX1.chs.srt",
+    "FC2-4982441-FIX2.chs.srt",
     "FC2-4982441_1.chs.srt",
     "FC2-4982441_2.chs.srt",
     "chs.srt",
@@ -58,13 +61,24 @@ _AMBIGUOUS = (
     "FC2-4982441-SP1_2.srt",
     "FC2-4982441-SP1-SP2.srt",
     "FC2-4982441_1-SP1.srt",
+    "FC2-4982441-FIX0.srt",
+    "FC2-4982441-FIX100.srt",
+    "FC2-4982441-FIXED.srt",
+    "FC2-4982441-FIX1-bonus.srt",
+    "FC2-4982441-FIX1_2.srt",
+    "FC2-4982441-FIX1-FIX2.srt",
+    "FC2-4982441-FIX1-SP1.srt",
+    "FC2-4982441_1-FIX1.srt",
     "FC2-4982442-SP1.srt",
+    "FC2-4982442-FIX1.srt",
     "FC2-4982442.chs.srt",
     "FC2-498244.chs.srt",
     "MIDV-123.srt",
     "SP.srt",
     "SP1.srt",
     "SP2.chs.srt",
+    "FIX.srt",
+    "FIX1.srt",
     "bonus.srt",
     "a-CD1.srt",
     "012.ass",
@@ -101,6 +115,27 @@ _CASES = (
         4,
         _MAIN_SPECIAL,
         ("FC2-4982441-SP2.chs.srt",),
+    ),
+    _Pairing(
+        "unnumbered-fix-is-distinct-from-fix1-and-special",
+        "FC2-4982441-FIX.mp4",
+        3,
+        _MAIN_SPECIAL,
+        ("FC2-4982441-FIX.chs.srt",),
+    ),
+    _Pairing(
+        "fix1-matches-source-number-before-output-cd5",
+        "FC2-4982441-FIX1.mp4",
+        5,
+        _MAIN_SPECIAL,
+        ("FC2-4982441-FIX1.chs.srt",),
+    ),
+    _Pairing(
+        "fix2-matches-source-number-before-output-cd6",
+        "FC2-4982441-FIX2.mp4",
+        6,
+        _MAIN_SPECIAL,
+        ("FC2-4982441-FIX2.chs.srt",),
     ),
     _Pairing(
         "main1-keeps-unmarked-main-fallback",
@@ -142,14 +177,39 @@ _CASES = (
         ),
         ("FC2-PPV-4982441-CD1.zh-TW.srt", "FC2-4982441-Part 1.en.ass", "fc4982441_1.chs.srt"),
     ),
+    _Pairing(
+        "fix1-canonical-aliases-movable-marker-and-languages",
+        "hhd800_com@fc4982441_4K_FIX1.mp4",
+        5,
+        (
+            "fc4982441-FIX01.zh-Hans.SRT",
+            "FC2-4982441.en.FIX1.ass",
+            "hhd800_com@fc4982441_4K_FIX1.chs.srt",
+            "FC2-PPV-4982441-FIX1.jpn.vtt",
+            "FC2-4982441-FIX2.zh-Hans.srt",
+            "FC2-4982441-CD5.zh-Hans.srt",
+            "FC2-4982441-SP1.zh-Hans.srt",
+            "FC2-4982441-FIX.zh-Hans.srt",
+            "FC2-4982441.zh-Hans.srt",
+        ),
+        (
+            "fc4982441-FIX01.zh-Hans.SRT",
+            "FC2-4982441.en.FIX1.ass",
+            "hhd800_com@fc4982441_4K_FIX1.chs.srt",
+            "FC2-PPV-4982441-FIX1.jpn.vtt",
+        ),
+    ),
     _Pairing("main-generic-known-languages", "FC2-4982441.mp4", 1, _LANGUAGES, _LANGUAGES),
     _Pairing("main1-generic-known-languages", "FC2-4982441_1.mp4", 1, _LANGUAGES, _LANGUAGES),
     _Pairing("main2-rejects-generic-languages", "FC2-4982441_2.mp4", 2, _LANGUAGES, ()),
     _Pairing("special-rejects-generic-languages", "FC2-4982441-SP.mp4", 2, _LANGUAGES, ()),
     _Pairing("special1-rejects-generic-languages", "FC2-4982441-SP1.mp4", 3, _LANGUAGES, ()),
+    _Pairing("fix-rejects-generic-languages", "FC2-4982441-FIX.mp4", 3, _LANGUAGES, ()),
+    _Pairing("fix1-rejects-generic-languages", "FC2-4982441-FIX1.mp4", 5, _LANGUAGES, ()),
     _Pairing("main-rejects-unknown-and-other-numbers", "FC2-4982441.mp4", 1, _AMBIGUOUS, ()),
     _Pairing("main1-rejects-unknown-and-other-numbers", "FC2-4982441_1.mp4", 1, _AMBIGUOUS, ()),
     _Pairing("special1-rejects-unknown-and-other-numbers", "FC2-4982441-SP1.mp4", 3, _AMBIGUOUS, ()),
+    _Pairing("fix1-rejects-unknown-and-other-numbers", "FC2-4982441-FIX1.mp4", 5, _AMBIGUOUS, ()),
 )
 
 
@@ -220,21 +280,24 @@ def test_no_fc2_plan_preserves_existing_pairing(
     assert [path.name for path in found] == list(expected)
 
 
-def test_special_subtitle_uses_planned_video_name_on_placement(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("marker", "output_cd"), [("SP1", 3), ("FIX1", 5)])
+def test_extra_subtitle_uses_planned_video_name_on_placement(tmp_path: Path, marker: str, output_cd: int) -> None:
     inbox = tmp_path / "inbox"
     inbox.mkdir()
-    video = inbox / "FC2-4982441-SP1.mp4"
+    video = inbox / f"hhd800_com@fc4982441_4K_{marker}.mp4"
     video.write_bytes(b"video")
-    subtitle = inbox / "FC2-4982441-SP1.chs.srt"
-    subtitle.write_bytes(b"special subtitle")
+    subtitle = inbox / f"hhd800_com@fc4982441_4K_{marker}.chs.srt"
+    subtitle.write_bytes(b"extra subtitle")
     main_subtitle = inbox / "FC2-4982441_1.chs.srt"
     main_subtitle.write_bytes(b"main subtitle")
-    destination = tmp_path / "output" / "FC2-4982441-CD3.mp4"
+    other_extra = inbox / f"FC2-4982441-{'FIX1' if marker == 'SP1' else 'SP1'}.chs.srt"
+    other_extra.write_bytes(b"other extra subtitle")
+    destination = tmp_path / "output" / f"FC2-4982441-CD{output_cd}.mp4"
     destination.parent.mkdir()
     destination.write_bytes(b"placed video")
     member = parse_fc2_member(video.name)
     assert member is not None
-    output = replace(parse_file_info(video), cd=3)
+    output = replace(parse_file_info(video), cd=output_cd)
     library = Library(name="测试", path=str(inbox), subtitle_template="{video_dir}/{video_name}.chs.{ext}")
     metadata = Metadata(number="FC2-4982441")
 
@@ -244,6 +307,7 @@ def test_special_subtitle_uses_planned_video_name_on_placement(tmp_path: Path) -
     )
 
     assert conflicts == []
-    assert (destination.parent / "FC2-4982441-CD3.chs.srt").read_bytes() == b"special subtitle"
+    assert (destination.parent / f"FC2-4982441-CD{output_cd}.chs.srt").read_bytes() == b"extra subtitle"
     assert not subtitle.exists()
     assert main_subtitle.read_bytes() == b"main subtitle"
+    assert other_extra.read_bytes() == b"other extra subtitle"

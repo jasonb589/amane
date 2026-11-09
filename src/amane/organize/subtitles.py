@@ -38,7 +38,7 @@ def discover_subtitles(
     字幕只解析文件名 (`parse_file_info(text=...)`, 不依据目录、不使用路径回退).
     解析出番号时必须与当前视频番号相同 (忽略大小写), 再按分集配对;
     解析不出番号时回退独立目录规则: 有分集标记的跟当前视频同号, 解析不出的跟无分集或 CD1.
-    传入 FC2 成员时依据源文件的正片/特集角色与局部序号配对, 不使用整理目标 CD;
+    传入 FC2 成员时依据源文件的正片/特集/FIX 角色与局部序号配对, 不使用整理目标 CD;
     无番号时仅允许明确语言名匹配未编号正片或正片第一段.
     """
     exts = {e.lower() for e in extensions}
@@ -132,7 +132,7 @@ def _fc2_belongs(video: Fc2Member, subtitle_name: str) -> bool:
     if sub := parse_fc2_member(subtitle_name):
         if sub.number != video.number or sub.role != video.role:
             return False
-        if video.role == "special":
+        if video.role != "main":
             return sub.part == video.part
         return _cd_belongs(video.part, sub.part)
     return (
