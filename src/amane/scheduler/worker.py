@@ -304,7 +304,7 @@ class AsyncWorker:
 
             try:
                 try:
-                    result = await handler.handle(typed_payload)
+                    result = await handler.handle_task(typed_payload, task_id)
                 except asyncio.CancelledError:
                     duration_s = round(time.monotonic() - start_time, 2)
                     logger.info("task cancelled", duration_s=duration_s)
@@ -369,6 +369,7 @@ class AsyncWorker:
 
                 self._done_queue.put_nowait(task_id)
             finally:
+                handler.set_progress_callback(None)
                 if rec is not None:
                     self._active_recorders.pop(task_id, None)
                     rec.close()

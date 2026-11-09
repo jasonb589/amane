@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -49,9 +50,14 @@ class TaskHandler[P: BaseModel | dict = dict, R: BaseModel | dict = dict](ABC):
     def __init__(self, payload_t: type[P], result_t: type[R]) -> None:
         self.payload_type = payload_t
         self.result_type = result_t
+        self._progress_context = ContextVar[ProgressCallback | None]("handler_progress", default=None)
 
     @abstractmethod
     async def handle(self, payload: P) -> TaskResult[R]: ...
+
+    async def handle_task(self, payload: P, task_id: int) -> TaskResult[R]:
+        """队列执行入口; 任务身份由 worker 传入, 不依赖可选的日志记录器."""
+        return await self.handle(payload)
 
     def failure_result(self, payload: P) -> R | None:
         """异常 / 取消时补交的失败载荷: 任务已攒下的事实不该随异常丢掉.
@@ -70,12 +76,16 @@ class TaskHandler[P: BaseModel | dict = dict, R: BaseModel | dict = dict](ABC):
 
     # --- Progress reporting ---
 
-    _progress_callback: ProgressCallback | None = None
+    _progress_context: ContextVar[ProgressCallback | None] | None = None
 
     def set_progress_callback(self, callback: ProgressCallback | None) -> None:
-        self._progress_callback = callback
+        # 精简处理器可能未调用基类构造; 同步初始化实例变量, 不跨任务共享回调值.
+        if self._progress_context is None:
+            self._progress_context = ContextVar[ProgressCallback | None]("handler_progress", default=None)
+        self._progress_context.set(callback)
 
     async def report_progress(self, current: int, total: int, message: str = "") -> None:
         """无回调时静默忽略."""
-        if self._progress_callback:
-            await self._progress_callback(current, total, message)
+        callback = self._progress_context.get() if self._progress_context is not None else None
+        if callback is not None:
+            await callback(current, total, message)
