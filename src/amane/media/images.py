@@ -1,4 +1,4 @@
-"""海报裁剪与封面角标. 判定函数只依赖尺寸与阈值."""
+"""海报裁剪与封面角标. 裁切使用尺寸阈值与按内容类型配置的方式."""
 
 import os
 from collections.abc import Mapping
@@ -124,7 +124,7 @@ def probe_size(path: Path) -> tuple[int, int] | None:
 def should_crop_poster(
     thumb_size: tuple[int, int] | None, candidate_size: tuple[int, int] | None, *, skip_ratio: float = 0.9
 ) -> bool:
-    """无 thumb 尺寸则 False. 无 poster 候选则 True.
+    """只依据尺寸与阈值判定. 无 thumb 尺寸则 False. 无 poster 候选则 True.
 
     候选已足够高 (b/h ≥ skip_ratio) 则不裁剪: 裁剪有错位风险.
     """

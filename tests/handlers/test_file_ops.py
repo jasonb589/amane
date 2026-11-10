@@ -3,19 +3,21 @@
 import os
 import shutil
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
 from PIL import Image
 
-from amane.config import HotSettings, WatermarkConfig
+from amane.config import HotSettings, ScrapingConfig, WatermarkConfig
+from amane.config.manager import PosterCropMode
 from amane.db.models import Library, MediaFile, Metadata
 from amane.enums import DownloadableResource
 from amane.handlers.file import _copy_into_library, execute_file_operations
 from amane.media import ResourceStore
 from amane.organize import MoveMode, PlaceOutcome, ResolvedPaths, resolve_paths
-from amane.parsing import parse_file_info
+from amane.parsing import ContentType, parse_file_info
 
 if TYPE_CHECKING:
     from amane.net.http import WebClient
@@ -232,9 +234,13 @@ async def test_write_nfo_false_skips_nfo(resource_store: ResourceStore, tmp_path
     assert not paths.nfo.exists()
 
 
+@pytest.mark.parametrize("content_type", list(ContentType))
+@pytest.mark.parametrize("mode", [PosterCropMode.RIGHT, PosterCropMode.NONE])
 @pytest.mark.asyncio
-async def test_missing_internal_resource_falls_back_to_crop(resource_store: ResourceStore, tmp_path: Path):
-    """poster 内部 URL 指向不存在资源 → 回退从 thumb 裁剪."""
+async def test_missing_internal_resource_crop_fallback_by_content_type(
+    resource_store: ResourceStore, tmp_path: Path, content_type: ContentType, mode: PosterCropMode
+) -> None:
+    """内部海报缺失时, 各类型均按配置裁剪或保留封面原图."""
     client = cast("WebClient", FakeClient())
     src = tmp_path / "src" / "MIDV-123.mp4"
     src.parent.mkdir(parents=True)
@@ -243,6 +249,7 @@ async def test_missing_internal_resource_falls_back_to_crop(resource_store: Reso
     mf = MediaFile(path=str(src), library_id=1)
     meta = Metadata(
         number="MIDV-123",
+        content_type=content_type,
         thumb_urls=["https://s/t.jpg"],
         poster_urls=["/api/resources/deadbeefdeadbeef"],  # 不存在
     )
@@ -253,12 +260,18 @@ async def test_missing_internal_resource_falls_back_to_crop(resource_store: Reso
         paths=paths,
         move_mode=MoveMode.COPY,
         resource_store=resource_store,
-        file_info=parse_file_info(src),
+        file_info=replace(parse_file_info(src), content_type=content_type),
         web_client=client,
-        config=HotSettings(),
+        config=HotSettings(scraping=ScrapingConfig(poster_crop_mode={content_type: mode})),
     )
     assert result.outcome is PlaceOutcome.PLACED
-    assert paths.poster.exists()  # 裁剪回退
+    assert paths.poster.exists()
+    with Image.open(paths.poster) as poster:
+        if mode is PosterCropMode.NONE:
+            assert poster.size == (800, 538)
+        else:
+            assert poster.height == 538
+            assert poster.width / poster.height == pytest.approx(0.7, abs=0.01)
 
 
 @pytest.mark.parametrize("enabled", [False, True])

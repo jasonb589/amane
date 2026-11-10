@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import pytest
+from PIL import Image
 from pydantic import ValidationError
 from structlog.testing import capture_logs
 
 from amane.aggregate import AggregatedMetadata
 from amane.config import HotSettings, ScrapingConfig
-from amane.crawlers.models import MediaMetadata
+from amane.config.manager import PosterCropMode
+from amane.crawlers.models import FetchOptions, MediaMetadata, SearchQuery
 from amane.db.models import MediaFileStatus, Task, TaskStatus, TaskType
 from amane.enums import Language, MetadataField, SiteName
 from amane.handlers import CacheKind, RefreshHandler, RefreshPayload, ScanMode, ScrapeHandler, ScrapePayload
 from amane.library import CleanupInventory, InventorySource, InventoryStore, LibraryFileKind, LibraryHit, scan_inventory
+from amane.media import ResourceStore
+from amane.media.pipeline import RESOURCE_URL_PREFIX
 from amane.observability import Recorder
 from amane.parsing import ContentType
 from amane.parsing.file_info import set_escape_strings
@@ -26,6 +30,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from amane.db.repository import Repository
+    from amane.net.http import WebClient
 
 # --- 辅助类 ---
 
@@ -356,23 +361,18 @@ class TestScrapeHandler:
         assert declared.partials[0] is not None
         assert declared.partials[0].title == "FromDMM"
 
+    @pytest.mark.parametrize("content_type", list(ContentType))
+    @pytest.mark.parametrize("mode", [PosterCropMode.RIGHT, PosterCropMode.NONE])
     @pytest.mark.asyncio(loop_scope="function")
-    async def test_materializes_cropped_poster(self, repo: Repository, resource_store):
-        """有 web_client 时, scrape 物化: poster 候选偏矮 → 裁剪 → metadata 记内部 URL."""
-        from typing import ClassVar, cast
-
-        from PIL import Image
-
-        from amane.media.pipeline import RESOURCE_URL_PREFIX
-        from amane.net.http import WebClient
+    async def test_materializes_poster_by_content_type(
+        self, repo: Repository, resource_store: ResourceStore, content_type: ContentType, mode: PosterCropMode
+    ) -> None:
+        """刮削使用各类型的裁剪配置, 不对 FC2 或欧美增加隐含限制."""
 
         class ImgCrawler:
             name = SiteName.JAVDB
 
-            def __init__(self, client=None):
-                pass
-
-            async def fetch(self, query, options=None) -> MediaMetadata | None:
+            async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
                 return MediaMetadata(
                     number="MIDV-123",
                     title="T",
@@ -381,35 +381,40 @@ class TestScrapeHandler:
                 )
 
         class FakeWebClient:
-            sizes: ClassVar = {"https://s/t.jpg": (800, 538), "https://s/p.jpg": (300, 420)}
+            sizes: ClassVar[dict[str, tuple[int, int]]] = {"https://s/t.jpg": (800, 538), "https://s/p.jpg": (300, 420)}
 
-            async def download(self, url, dest, **kwargs) -> bool:
+            async def download(self, url: str, dest: Path, **kwargs: object) -> bool:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 Image.new("RGB", self.sizes[url], "blue").save(dest)
                 return True
 
-            async def get_filesize(self, url, **kwargs):
+            async def get_filesize(self, url: str, **kwargs: object) -> int | None:
                 return None
 
-            async def resolve_final_url(self, url, **kwargs) -> str:
+            async def resolve_final_url(self, url: str, **kwargs: object) -> str:
                 return url
 
         h = ScrapeHandler(
             repo=repo,
             factory=FakeFactory({"javdb": ImgCrawler()}),
             resource_store=resource_store,
-            pipeline_config=HotSettings(),
+            pipeline_config=HotSettings(
+                scraping=ScrapingConfig(
+                    content_routes={content_type: [SiteName.JAVDB]}, poster_crop_mode={content_type: mode}
+                )
+            ),
             web_client=cast("WebClient", FakeWebClient()),
         )
         media = await repo.create_media_file(library_id=1, path="/media/MIDV-123.mp4")
-        result = await h.handle(
-            ScrapePayload(media_file_id=media.id, number="MIDV-123", content_type=ContentType.CENSORED)
-        )
+        result = await h.handle(ScrapePayload(media_file_id=media.id, number="MIDV-123", content_type=content_type))
         assert result.success is True
         metadata = await repo.get_metadata_by_number("MIDV-123")
         assert metadata is not None
         assert metadata.poster_urls is not None and len(metadata.poster_urls) == 1
-        assert metadata.poster_urls[0].startswith(RESOURCE_URL_PREFIX)  # 内部派生 (裁剪)
+        if mode is not PosterCropMode.NONE:
+            assert metadata.poster_urls[0].startswith(RESOURCE_URL_PREFIX)  # 内部派生 (裁剪)
+        else:
+            assert metadata.poster_urls == ["https://s/p.jpg"]  # 外部候选原样
         assert metadata.thumb_urls == ["https://s/t.jpg"]  # 外部原样
 
 

@@ -6,6 +6,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 import structlog
 from PIL import Image
@@ -30,7 +31,7 @@ from .images import (
 from .resource_store import RESOURCE_URL_PREFIX, internal_url_hash
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncGenerator, Sequence
 
     from ..config import HotSettings, SrConfig
     from ..db.models import Resource
@@ -73,6 +74,68 @@ def _best_first(urls: list[str], best: str | None) -> list[str]:
     if not best or best not in urls:
         return urls
     return [best, *(u for u in urls if u != best)]
+
+
+def _dmm_image_candidate(url: str) -> tuple[str, int] | None:
+    """仅识别 DMM 封面/海报的 CDN 后备关系, 不合并不同柜台、番号或图型.
+
+    无查询串的 AWS 原图优先于标准 CDN; 查询串候选不阻止其余地址升级画质.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in {"http", "https"} or parts.netloc not in {"pics.dmm.co.jp", "awsimgsrc.dmm.co.jp"}:
+        return None
+    high_res = parts.netloc == "awsimgsrc.dmm.co.jp"
+    path = parts.path
+    if high_res:
+        if not path.startswith("/pics_dig/"):
+            return None
+        path = path.removeprefix("/pics_dig")
+    segments = path.strip("/").split("/")
+    category = "/".join(segments[:2])
+    if category in {"digital/video", "digital/amateur"}:
+        if len(segments) != 4:
+            return None
+    elif category == "mono/movie":
+        if len(segments) not in ({4} if high_res else {4, 5}):
+            return None
+    else:
+        return None
+    cid, filename = segments[-2:]
+    if not cid or any(not (char.isascii() and (char.isalnum() or char in "_-")) for char in cid):
+        return None
+    if filename not in {f"{cid}pl.jpg", f"{cid}ps.jpg"}:
+        return None
+    rank = 0 if parts.query else 2 if high_res else 1
+    return f"{category}/{cid}/{filename}", rank
+
+
+async def _image_candidates(
+    urls: Sequence[str], store: ResourceStore, client: WebClient, *, limit: int | None = None
+) -> AsyncGenerator[tuple[str, Path, tuple[int, int], tuple[int, int] | None]]:
+    """保留跨源像素比较, 只跳过已有清晰原图覆盖的 DMM 同图后备地址."""
+    completed: dict[str, int] = {}
+    attempts = 0
+    for url in dict.fromkeys(urls):
+        candidate = _dmm_image_candidate(url)
+        if candidate is not None and candidate[0] in completed and completed[candidate[0]] >= candidate[1]:
+            continue
+        if limit is not None and attempts >= limit:
+            break
+        attempts += 1
+        local = await store.acquire(url, client)
+        size = probe_oriented_size(local) if local else None
+        if local is None or size is None:
+            continue
+        # 同图去重须能读取完整图片, 避免损坏的首选同时阻断标准 CDN 后备.
+        if candidate is not None and not await _readable_image(local):
+            continue
+        native = await _native_size(store, url, size)
+        if candidate is not None and candidate[1] > 0 and native and max(native) >= _SMALL_POSTER_EDGE:
+            completed[candidate[0]] = max(candidate[1], completed.get(candidate[0], 0))
+        yield url, local, size, native
 
 
 @in_thread
@@ -152,7 +215,7 @@ async def materialize_images(
 ) -> MaterializedImages:
     """仅下载集合内的类型; 未选中的保留聚合 URL.
 
-    死 URL 保序置于尾部, 供来源恢复后重试.
+    失败与未尝试 URL 保序置于尾部, 供来源恢复后重试; DMM 同图后备不重复下载.
     extrafanart 仅下载到 Resource, 站点分组结构不重排.
     首选海报须属于聚合候选; 首个可读取的首选直接采用, 不参与像素排序或横图裁切比较.
     """
@@ -168,19 +231,15 @@ async def materialize_images(
     thumb_native_size: tuple[int, int] | None = None
     thumb_area = -1
     if DownloadableResource.thumb in kinds:
-        for url in dict.fromkeys(thumb_urls):
-            local = await store.acquire(url, client)
-            size = probe_oriented_size(local) if local else None
-            if local and size:
-                thumb_ok.add(url)
-                native = await _native_size(store, url, size)
-                area = native[0] * native[1] if native else 0
-                # 同一组候选已全部下载, 按真实像素选源, 不固定使用首个成功的小图.
-                if area > thumb_area:
-                    thumb_local, thumb_src = local, url
-                    thumb_size = size
-                    thumb_native_size = native
-                    thumb_area = area
+        async for url, local, size, native in _image_candidates(thumb_urls, store, client):
+            thumb_ok.add(url)
+            area = native[0] * native[1] if native else 0
+            # 不同图片按真实像素选源, 不固定使用首个成功的小图.
+            if area > thumb_area:
+                thumb_local, thumb_src = local, url
+                thumb_size = size
+                thumb_native_size = native
+                thumb_area = area
 
     # 下载 poster; 候选偏矮则从 thumb 裁剪.
     poster_ok: set[str] = set()
@@ -191,23 +250,19 @@ async def materialize_images(
     preferred_poster_selected = False
     result_poster_urls = list(ordered_posters)
     if DownloadableResource.poster in kinds:
-        for url in dict.fromkeys(ordered_posters):
-            local = await store.acquire(url, client)
-            size = probe_oriented_size(local) if local else None
-            if local and size:
-                if url in preferred and not await _readable_image(local):
-                    continue
-                poster_ok.add(url)
-                native = await _native_size(store, url, size)
-                area = native[0] * native[1] if native else 0
-                # 选像素面积最大的一张; 来源顺序只用于同尺寸时的先后.
-                if area > poster_candidate_area:
-                    poster_candidate_local, poster_candidate_url = local, url
-                    poster_native_size = native
-                    poster_candidate_area = area
-                if url in preferred:
-                    preferred_poster_selected = True
-                    break
+        async for url, local, _size, native in _image_candidates(ordered_posters, store, client):
+            if url in preferred and not await _readable_image(local):
+                continue
+            poster_ok.add(url)
+            area = native[0] * native[1] if native else 0
+            # 选像素面积最大的一张; 来源顺序只用于同尺寸时的先后.
+            if area > poster_candidate_area:
+                poster_candidate_local, poster_candidate_url = local, url
+                poster_native_size = native
+                poster_candidate_area = area
+            if url in preferred:
+                preferred_poster_selected = True
+                break
 
         # 未选择封面下载时, 仅为缺失或低清海报尝试有限数量的裁切源.
         mode = resolve_crop_mode(config.scraping.poster_crop_mode, content_type)
@@ -219,17 +274,13 @@ async def materialize_images(
             and not preferred_poster_selected
             and (poster_native_size is None or max(poster_native_size) < _SMALL_POSTER_EDGE)
         ):
-            for url in list(dict.fromkeys(thumb_urls))[:_CROP_THUMB_LIMIT]:
-                local = await store.acquire(url, client)
-                size = probe_oriented_size(local) if local else None
-                if local and size:
-                    native = await _native_size(store, url, size)
-                    area = native[0] * native[1] if native else 0
-                    if area > thumb_area:
-                        thumb_local, thumb_src = local, url
-                        thumb_size = size
-                        thumb_native_size = native
-                        thumb_area = area
+            async for url, local, size, native in _image_candidates(thumb_urls, store, client, limit=_CROP_THUMB_LIMIT):
+                area = native[0] * native[1] if native else 0
+                if area > thumb_area:
+                    thumb_local, thumb_src = local, url
+                    thumb_size = size
+                    thumb_native_size = native
+                    thumb_area = area
 
         cand_size = poster_native_size
         # 候选明显偏小 (最长边 < 800, 例如日亚只剩 352x500 兜底图) 时, 即使比例判定「够高不裁」
@@ -309,10 +360,11 @@ async def materialize_images(
     # 下载预告片.
     trailer_ok: set[str] = set()
     if DownloadableResource.trailer in kinds:
-        for url in trailer_urls:
+        for url in dict.fromkeys(trailer_urls):
             local = await store.acquire(url, client)
             if local:
                 trailer_ok.add(url)
+                break
 
     # 下载剧照: 按站点优先级, 有结果即停.
     if DownloadableResource.extrafanart in kinds and extrafanart_urls:

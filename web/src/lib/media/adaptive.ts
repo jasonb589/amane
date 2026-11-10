@@ -1,30 +1,25 @@
 /**
  * 短边锚定的自适应排布.
  *
- * 等宽锚「宽」、等高锚「高」, 卡片面积都随比例线性变化, 极端比例于是必然一边倒: 锚宽则 3:1 被压成细条,
- * 锚高则 3:1 的面积是竖版的四倍. 这里锚**短边**: 横版让高 = S、竖版让宽 = S, 每张图的短边一样长,
- * 视觉大小一致, 宽图只是更宽.
- *
- * 行的宽度由整行缩放 k 撑满 (k = (容器宽 - 间距) / Σ宽); k 允许小幅浮动 (图多略缩、图少略放),
- * 放大以 `MAX_SCALE` 为限, 超出时右端留白. 行内高度不齐, 文字随各自的图.
+ * 横版以高度、竖版以宽度作为短边, 保留图片自然比例. 普通卡片的短边仅由容器宽度决定,
+ * 不随每行条目数量或比例变化; 未满行保留右侧空白. 超出容器的单张横图独占一行并缩小至容器宽度.
  */
 
 export interface AdaptiveRow {
   /** 行首在入参数组里的下标. */
   start: number;
   count: number;
-  /** 行缩放系数; 实际短边 = 基准短边 × scale. */
+  /** 容器统一缩放系数; 仅超宽单图使用更小值. 实际短边 = 基准短边 × scale. */
   scale: number;
 }
 
 /**
- * 行缩放的允许区间.
+ * 容器统一缩放的下限.
  *
- * 下限即「再加一列的最小卡片宽度」: 一张竖版海报缩到基准宽度的 95% 才多排一列, 下限再低时窗口稍一变宽
- * 就会跳出一列小卡片. 上限决定单张图独占一行时的放大程度.
+ * 按竖版宽度计算容器可容纳的列数, 最多缩小 5% 以增加一列; 所有普通行复用同一尺寸,
+ * 不为填满行宽而放大卡片. 容器不足单张基准宽度时允许继续缩小.
  */
 const MIN_SCALE = 0.95;
-const MAX_SCALE = 1.45;
 
 /**
  * 基准短边 (竖版海报的宽度): 约 7.2 张一行, 夹在 [150, 240].
@@ -44,9 +39,9 @@ function widthInShortEdges(ratio: number): number {
   return Math.max(ratio, 1);
 }
 
-/** 卡片宽度, 取两位小数; 高度由卡片按图片比例撑开. */
+/** 卡片宽度向下保留两位小数以免舍入溢出; 高度由卡片按图片比例撑开. */
 export function adaptiveTileWidth(ratio: number, shortEdge: number, scale: number): number {
-  return Math.round(shortEdge * scale * widthInShortEdges(ratio) * 100) / 100;
+  return Math.floor(shortEdge * scale * widthInShortEdges(ratio) * 100) / 100;
 }
 
 export function layoutAdaptiveRows(
@@ -58,21 +53,31 @@ export function layoutAdaptiveRows(
   const rows: AdaptiveRow[] = [];
   if (containerWidth <= 0) return rows;
 
-  const scaleOf = (units: number, count: number) =>
-    (containerWidth - gap * (count - 1)) / (units * shortEdge);
+  const columns = Math.max(1, Math.floor((containerWidth + gap) / (shortEdge * MIN_SCALE + gap)));
+  const scale = Math.min(1, (containerWidth - gap * (columns - 1)) / (columns * shortEdge));
 
   let start = 0;
   while (start < ratios.length) {
-    // 允许多装一张再整体缩一点: 只在缩放跌破下限时才收尾, 否则行会普遍撑不满
+    const firstWidth = adaptiveTileWidth(ratios[start], shortEdge, scale);
+    if (firstWidth > containerWidth) {
+      rows.push({
+        start,
+        count: 1,
+        scale: containerWidth / (shortEdge * widthInShortEdges(ratios[start])),
+      });
+      start += 1;
+      continue;
+    }
+
     let count = 1;
-    let units = widthInShortEdges(ratios[start]);
+    let rowWidth = firstWidth;
     while (start + count < ratios.length) {
-      const next = units + widthInShortEdges(ratios[start + count]);
-      if (scaleOf(next, count + 1) < MIN_SCALE) break;
-      units = next;
+      const nextWidth = rowWidth + gap + adaptiveTileWidth(ratios[start + count], shortEdge, scale);
+      if (nextWidth > containerWidth) break;
+      rowWidth = nextWidth;
       count += 1;
     }
-    rows.push({ start, count, scale: Math.min(scaleOf(units, count), MAX_SCALE) });
+    rows.push({ start, count, scale });
     start += count;
   }
 

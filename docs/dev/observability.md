@@ -25,7 +25,7 @@ scrape 等 handler 只调用 `current()`; 其它代码仍可直接使用 `logger
 
 ## 数据库慢路径日志
 
-`db/profiling.py::install_profiling` 注册在业务 SQLite 引擎上; 迁移连接、临时记录库与 r18 只读引擎不注册. 日志只进 `app.log` 与对应任务的 `task.log`, 不落库也不经接口下发 — 界面 Logs 页仅为实时缓冲, 历史只能取自这两处日志.
+`db/profiling.py::install_profiling` 注册在业务 SQLite 引擎上; 迁移连接、临时记录库与 r18 只读引擎不注册. 日志写入 `app.log` 与对应任务的 `task.log`, 不落库; Logs 页仅为实时缓冲, 任务详情经 `observability/task_log.py::read_task_log` 读取持久化日志, 文件读取与解析均在线程池执行.
 
 - **错误归口**: DBAPI 异常归为 `locked` / `disconnect` / `other` 三类, 分别限速; `handle_error` 返回 `None`, 原异常照常抛给调用方, 各调用点行为不变. `classify_db_error` 是锁类判定的唯一出处.
 - **耗时**: 提交与语句各有阈值; 达阈值的提交附带本次事务的语句轨迹, 据此定位提交耗时的来源.
@@ -40,6 +40,8 @@ scrape 等 handler 只调用 `current()`; 其它代码仍可直接使用 `logger
 `task-{id}/` 内: `manifest.json`、`task.json`、`config.hot.json` (确有密钥时另写 `.secrets.hot.json`)、`summary.json`、可选 `raw_cache.json`、`http/index.jsonl` 与 `http/bodies/{seq}.*`、`task.log`.
 
 导出: `GET /api/tasks/{id}/record?include_secrets=false` → `task-{id}-record.zip`, 仅终态可导出. 界面读任务结果的 JSON: 站点明细在任务结束时经 `Recorder.site_outcomes()` 写进 SCRAPE / ACTOR_SCRAPE 的结果 (失败侧来自 handler 的失败返回, 或 worker 崩溃 / 取消时 `TaskHandler.failure_result` 的补交; 边界见 [task-system.md](task-system.md) 的结果侧), 与 summary.json 是**同一结构** (`SiteOutcomeRecord`) 的不同序列化, `detail` 在入结果前截断并置 `detail_truncated`, 完整文本只留在记录里; 结果不解析任何文本. 出站 HTTP (含 ORGANIZE 缺资源时的 `acquire`) 只写入 `http/`, **不是**站点 outcome.
+
+`GET /api/tasks/{id}/log?limit=` 读取 `task.log` 尾部 (默认与上限 5000 行), 逐行解析为与 WS `log` 事件同形的条目 (`context` 承接额外字段); 坏行跳过, 文件缺失返回空页. 记录导出包含完整 `task.log`.
 
 ### 分层
 

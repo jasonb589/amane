@@ -18,6 +18,7 @@ from ..net.errors import FailureReason
 from ..net.recording import bind_http_recorder_lookup, skip_http_body
 from ..net.redact import redact_text, redact_url
 from ..version import get_version
+from .logging import SHARED_PROCESSORS
 from .models import (
     OUTCOME_DETAIL_LIMIT,
     RECORD_VERSION,
@@ -355,7 +356,8 @@ class Recorder:
                 processors=[
                     structlog.stdlib.ProcessorFormatter.remove_processors_meta,
                     structlog.processors.JSONRenderer(),
-                ]
+                ],
+                foreign_pre_chain=SHARED_PROCESSORS,
             )
         )
         handler.addFilter(TaskIdFilter(self.task_id))

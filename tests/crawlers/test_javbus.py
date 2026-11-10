@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from amane.crawlers.models import SearchQuery
-from amane.crawlers.sites.javbus import JavBusCrawler
+from amane.crawlers.sites.javbus import JavBusCrawler, poster_url_for
 from amane.net.errors import FailureKind, RequestError, RequestFailure
 
 from .driven import http_client
@@ -86,3 +86,37 @@ async def test_search_reports_other_failures(query: str, routes: dict[str, Route
     with pytest.raises(RequestError) as excinfo:
         await crawler._search(SearchQuery(query))
     assert excinfo.value.http_status == status
+
+
+@pytest.mark.parametrize(
+    ("cover", "expected"),
+    [
+        ("/pics/cover/abc_b.jpg", "https://www.javbus.com/pics/thumb/abc.jpg"),
+        ("/imgs/cover/n1103_b.jpg", "https://www.javbus.com/pics/thumb/n1103.jpg"),
+        ("/imgs/cover/n1103.jpg?width=800", "https://www.javbus.com/pics/thumb/n1103.jpg"),
+        ("https://images.example/imgs/cover/n1103_b.jpg?token=x", "https://www.javbus.com/pics/thumb/n1103.jpg"),
+        (None, None),
+        ("", None),
+        ("/pics/cover/abc.png", None),
+        ("/pics/cover/abc.jpg/extra", None),
+        ("/pics/thumb/abc.jpg", None),
+    ],
+)
+def test_cover_path_derives_poster_from_javbus_thumbnail_root(cover: str | None, expected: str | None) -> None:
+    assert poster_url_for("https://www.javbus.com", cover) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cover", ["/pics/cover/n1103_b.jpg", "/imgs/cover/n1103_b.jpg?width=800"])
+async def test_detail_keeps_original_cover_and_normalizes_uncensored_poster(cover: str) -> None:
+    detail = (
+        '<html><body><h3>010123-001 Title</h3><span class="header">識別碼:</span><span>010123-001</span>'
+        f'<a class="bigImage" href="{cover}"></a></body></html>'
+    )
+    crawler = JavBusCrawler(client=http_client(_fake_web({"/010123-001": _ok(detail)})))
+
+    metadata = await crawler._scrape("https://www.javbus.com/010123-001")
+
+    assert metadata is not None
+    assert metadata.thumb_urls == [f"https://www.javbus.com{cover}"]
+    assert metadata.poster_urls == ["https://www.javbus.com/pics/thumb/n1103.jpg"]

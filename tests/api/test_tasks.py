@@ -1,6 +1,8 @@
 """/tasks 端点测试"""
 
 import asyncio
+import json
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, get_args
 
@@ -11,6 +13,9 @@ from amane.api.models.tasks import TaskResultPayload
 from amane.db.models import TaskType
 from amane.enums import DownloadableResource
 from amane.handlers import models as handler_models
+from amane.observability import task_log
+from amane.observability.recorder import task_dir_for
+from tests.helpers import LOAD_TOLERANT_TIMEOUT
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -577,3 +582,84 @@ class TestTaskRecord:
 
         assert submitted.status_code == 202
         assert submitted.json()["payload"]["path"] == str(real / "sub")
+
+
+class TestTaskLog:
+    """GET /tasks/{id}/log - 展开详情时按需读取 task.log 尾部"""
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_log_tail_and_missing(self, app: FastAPI, client: AsyncClient, repo: Repository, stop_worker: None):
+        assert (await client.get("tasks/9999/log")).status_code == 404
+
+        task = await repo.create_task(task_type=TaskType.CLEANUP, payload={})
+        assert task.id is not None
+        missing = await client.get(f"tasks/{task.id}/log")
+        assert missing.status_code == 200
+        assert missing.json() == {"entries": [], "truncated": False}
+
+        root = task_dir_for(app.state.runtime.config.cold.log_dir, task.id)
+        root.mkdir(parents=True)
+        lines = [
+            {"event": "first", "task_id": task.id, "logger": "amane.scheduler.worker", "level": "info"},
+            "not json",
+            {"event": "second", "logger": "amane.handlers.file", "level": "warning", "files_removed": 2},
+            {"event": "third", "logger": "amane.scheduler.worker", "level": "info"},
+        ]
+        (root / "task.log").write_text("\n".join(line if isinstance(line, str) else json.dumps(line) for line in lines))
+
+        page = await client.get(f"tasks/{task.id}/log", params={"limit": 2})
+        assert page.status_code == 200
+        body = page.json()
+        assert body["truncated"] is True
+        assert [entry["message"] for entry in body["entries"]] == ["second", "third"]
+        assert body["entries"][0]["level"] == "WARNING"
+        assert body["entries"][0]["source"] == "file"
+        assert body["entries"][0]["context"] == {"files_removed": 2}
+
+        full = (await client.get(f"tasks/{task.id}/log")).json()
+        assert full["truncated"] is False
+        assert [entry["message"] for entry in full["entries"]] == ["first", "second", "third"]
+        assert full["entries"][0]["context"] == {"task_id": task.id}
+
+        assert (await client.get(f"tasks/{task.id}/log", params={"limit": 0})).status_code == 422
+        assert (await client.get(f"tasks/{task.id}/log", params={"limit": 5001})).status_code == 422
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_slow_log_read_keeps_other_requests_responsive(
+        self, app: FastAPI, client: AsyncClient, repo: Repository, stop_worker: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """日志磁盘读取等待期间, 事件循环仍须处理其它请求; 通过线程事件确定先后关系."""
+        task = await repo.create_task(task_type=TaskType.CLEANUP, payload={})
+        assert task.id is not None
+        root = task_dir_for(app.state.runtime.config.cold.log_dir, task.id)
+        root.mkdir(parents=True)
+        (root / "task.log").write_text(json.dumps({"event": "from disk", "task_id": task.id}), encoding="utf-8")
+        loop = asyncio.get_running_loop()
+        loop_thread_id = threading.get_ident()
+        reading = asyncio.Event()
+        release = threading.Event()
+        reader = task_log._read_tail_lines
+
+        def wait_before_read(path: Path, limit: int) -> tuple[list[bytes], bool]:
+            loop.call_soon_threadsafe(reading.set)
+            assert threading.get_ident() != loop_thread_id, "任务日志读取不能在事件循环线程执行"
+            assert release.wait(LOAD_TOLERANT_TIMEOUT), "等待其它请求处理超时"
+            return reader(path, limit)
+
+        monkeypatch.setattr(task_log, "_read_tail_lines", wait_before_read)
+        pending = asyncio.create_task(client.get(f"tasks/{task.id}/log"))
+        try:
+            async with asyncio.timeout(LOAD_TOLERANT_TIMEOUT):
+                await reading.wait()
+                response = await client.get(f"tasks/{task.id}")
+                assert response.status_code == 200 and response.json()["id"] == task.id
+                assert not pending.done()
+                release.set()
+                log = await pending
+            assert log.status_code == 200
+            assert [entry["message"] for entry in log.json()["entries"]] == ["from disk"]
+        finally:
+            release.set()
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
