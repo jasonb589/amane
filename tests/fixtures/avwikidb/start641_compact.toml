@@ -1,0 +1,69 @@
+# Capture: curl_cffi.requests.get("https://avwikidb.com/work/START-641/", impersonate="firefox", headers={"Referer": "https://avwikidb.com/"})
+# Captured 2026-11-10; complete response, SHA-256: 8a3525a0d30110a2c2fdaa4dbe4aee635beaf99307f01dc1684c24f207a2d512
+site = "avwikidb"
+
+[fetch]
+number = "START641"
+requests = 1
+responses = [
+    { url_contains = "/work/START-641/", file = "start641.html" },
+]
+
+[fetch.expected]
+number = "START-641"
+title = "媚×を盛られたヌードモデル 全裸デッサン中に同級生とキメセクでトロ瞳アへイキ絶頂 小笠原菜乃"
+actors = [
+    { name = "小笠原菜乃", gender = "female" },
+]
+release = "2026-11-10"
+runtime = 134
+source_url = "https://avwikidb.com/work/START-641/"
+external_id = "621877"
+score_is_none = true
+studio = "SODクリエイト"
+publisher = "SODSTAR"
+series_is_none = true
+directors = [
+    "木村浩之",
+]
+tags = [
+    "単体作品",
+    "3P・4P",
+    "乱交",
+    "モデル",
+    "ドラマ",
+    "ハイビジョン",
+    "4K",
+]
+plot = "美術部のヌードデッサンモデル役を務めることになった女性が、部員たちに媚薬を盛られ意識朦朧の中で複数人による性的行為に陥る。芸術という名目のもと、次々と襲いかかる快感に理性を失い、トロ顔で悶絶していく様子を描いたドラマ。"
+poster_urls = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641ps.jpg",
+    "https://pics.dmm.co.jp/digital/video/1start00641/1start00641ps.jpg",
+]
+thumb_urls = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641pl.jpg",
+    "https://pics.dmm.co.jp/digital/video/1start00641/1start00641pl.jpg",
+]
+extrafanart = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-1.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-2.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-3.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-4.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-5.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-6.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-7.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-8.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-9.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-10.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-11.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-12.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-13.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-14.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-15.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-16.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-17.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-18.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-19.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00641/1start00641jp-20.jpg",
+]
+trailer_urls = []

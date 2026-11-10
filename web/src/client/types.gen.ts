@@ -1068,7 +1068,7 @@ export type CropAvatarRequest = {
 /**
  * CropPosterRequest
  *
- * 从封面图按像素框裁切海报 (相对 thumb 当前本地文件像素; 含就地超分后尺寸).
+ * 从当前海报或封面按像素框裁切; 坐标相对源图当前本地像素, 含就地超分后的尺寸.
  */
 export type CropPosterRequest = {
     /**
@@ -1101,6 +1101,12 @@ export type CropPosterRequest = {
      * 裁切前顺时针旋转的角度 (仅 90° 整数倍); 90° / 270° 后宽高互换
      */
     rotation?: 0 | 90 | 180 | 270;
+    /**
+     * Source Url
+     *
+     * 裁切当前海报或封面候选; 未传时采用首张封面
+     */
+    source_url?: string | null;
 };
 
 /**
@@ -3063,6 +3069,7 @@ export type MetadataResponse = {
      */
     locked_fields?: Array<MetadataField>;
     nfo_sync?: NfoSyncResult | null;
+    poster_sync?: PosterSyncResult | null;
     /**
      * File Count
      */
@@ -3786,6 +3793,28 @@ export type PluginResponse = {
  * 海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``).
  */
 export type PosterCropMode = 'right' | 'center' | 'none' | 'face';
+
+/**
+ * PosterSyncResult
+ */
+export type PosterSyncResult = {
+    /**
+     * Written
+     */
+    written?: number;
+    /**
+     * Skipped
+     */
+    skipped?: number;
+    /**
+     * Failed
+     */
+    failed?: number;
+    /**
+     * Unlocated
+     */
+    unlocated?: boolean;
+};
 
 /**
  * PurgeResult
@@ -4685,19 +4714,19 @@ export type ScrapingConfig = {
      * Content Routes
      */
     content_routes?: {
-        [key in ContentType]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in ContentType]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
     };
     /**
      * Field Priority
      */
     field_priority?: {
-        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
     };
     /**
      * Field Blacklist
      */
     field_blacklist?: {
-        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
     };
     /**
      * Field Language
@@ -4711,6 +4740,18 @@ export type ScrapingConfig = {
     site_config?: {
         [key: string]: SiteConfig;
     };
+};
+
+/**
+ * SelectPosterRequest
+ */
+export type SelectPosterRequest = {
+    /**
+     * Url
+     *
+     * 当前影片已有剧照的完整 URL
+     */
+    url: string;
 };
 
 /**
@@ -5106,7 +5147,7 @@ export type SiteConfig = {
  *
  * 爬虫站点名称 (影片与演员源共用).
  */
-export type SiteName = 'airav' | 'amazon' | 'avbase' | 'avsox' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'wikipedia' | 'xchina' | 'xcity';
+export type SiteName = 'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'wikipedia' | 'xchina' | 'xcity';
 
 /**
  * SiteOutcomeKind
@@ -7129,6 +7170,36 @@ export type SetMetadataLocksResponses = {
 };
 
 export type SetMetadataLocksResponse = SetMetadataLocksResponses[keyof SetMetadataLocksResponses];
+
+export type SelectPosterFromExtrafanartData = {
+    body: SelectPosterRequest;
+    path: {
+        /**
+         * Metadata Id
+         */
+        metadata_id: number;
+    };
+    query?: never;
+    url: '/api/metadata/{metadata_id}/select-poster';
+};
+
+export type SelectPosterFromExtrafanartErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SelectPosterFromExtrafanartError = SelectPosterFromExtrafanartErrors[keyof SelectPosterFromExtrafanartErrors];
+
+export type SelectPosterFromExtrafanartResponses = {
+    /**
+     * Successful Response
+     */
+    200: MetadataResponse;
+};
+
+export type SelectPosterFromExtrafanartResponse = SelectPosterFromExtrafanartResponses[keyof SelectPosterFromExtrafanartResponses];
 
 export type CropPosterFromThumbData = {
     body: CropPosterRequest;

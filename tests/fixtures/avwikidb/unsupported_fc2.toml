@@ -1,0 +1,8 @@
+# FC2 coverage is absent from the live search https://avwikidb.com/search/?q=FC2-4778286 (2026-11-10).
+site = "avwikidb"
+
+[fetch]
+number = "FC2-4778286"
+requests = 0
+expected_none = true
+responses = []

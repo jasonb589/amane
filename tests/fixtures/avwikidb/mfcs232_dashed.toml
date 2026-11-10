@@ -1,0 +1,57 @@
+# Capture: curl_cffi.requests.get("https://avwikidb.com/work/MFCS-232/", impersonate="firefox", headers={"Referer": "https://avwikidb.com/"})
+# Captured 2026-11-10; complete response, SHA-256: e567c8b7830543e0e11845631bccbd5c381867a181423d324c4e1818bb5472c3
+site = "avwikidb"
+
+[fetch]
+number = "MFCS-232"
+requests = 1
+responses = [
+    { url_contains = "/work/MFCS-232/", file = "mfcs232.html" },
+]
+
+[fetch.expected]
+number = "MFCS-232"
+title = "まりあん"
+actors = [
+    { name = "綾瀬まりあ", gender = "female" },
+]
+release = "2026-11-10"
+runtime = 95
+source_url = "https://avwikidb.com/work/MFCS-232/"
+external_id = "621841"
+score_is_none = true
+studio = "MOON FORCE 2nd"
+publisher = "MOON FORCE 2nd"
+series_is_none = true
+directors = []
+tags = [
+    "ハメ撮り",
+    "中出し",
+    "潮吹き",
+    "尻フェチ",
+    "フェラ",
+    "騎乗位",
+    "美乳",
+    "ハイビジョン",
+    "4K",
+    "色白",
+]
+plot = "行きつけの美容室の担当者との秘密の関係を描いたハメ撮り作品。仕事中のフェラサービスから始まり、後日ホテルでの撮影へと発展。食べ歩きデート後、カメラの前で初めてのセックスを撮影する二人が、緊張から徐々に激しさを増していき、複数回の中出しに至る。"
+poster_urls = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/mfcs232/mfcs232jp.jpg",
+    "https://pics.dmm.co.jp/digital/amateur/mfcs232/mfcs232jp.jpg",
+]
+thumb_urls = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/mfcs232/mfcs232jp.jpg",
+    "https://pics.dmm.co.jp/digital/amateur/mfcs232/mfcs232jp.jpg",
+]
+extrafanart = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/mfcs232/mfcs232jp-001.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/mfcs232/mfcs232jp-002.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/mfcs232/mfcs232jp-003.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/mfcs232/mfcs232jp-004.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/mfcs232/mfcs232jp-005.jpg",
+]
+trailer_urls = [
+    "https://cc3001.dmm.co.jp/pv/FDI7EAsPmureXkhJuB4P7bDf8eebEoJJWKY66pn74Xhq9KEeao8AtgKqEzRG/mfcs232hhb.mp4",
+]

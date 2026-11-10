@@ -80,6 +80,7 @@ _DEFAULT_CONTENT_ROUTES: dict[ContentType, list[SiteName]] = {
         SiteName.JAVDB,
         SiteName.JAVBUS,
         SiteName.OFFICIAL,
+        SiteName.AVWIKIDB,
     ],
     ContentType.UNCENSORED: [
         SiteName.JAVDB,
@@ -107,6 +108,7 @@ _DEFAULT_CONTENT_ROUTES: dict[ContentType, list[SiteName]] = {
         SiteName.DMM,
         SiteName.JAVDB,
         SiteName.JAVBUS,
+        SiteName.AVWIKIDB,
     ],
     ContentType.WESTERN: [
         SiteName.THEPORNDB,

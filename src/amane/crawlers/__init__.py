@@ -19,6 +19,7 @@ from .sites import (
     AmazonCrawler,
     AvbaseCrawler,
     AvsoxCrawler,
+    AvWikiDBCrawler,
     CaribbeanCrawler,
     DahliaCrawler,
     DmmCrawler,
@@ -60,6 +61,7 @@ registry.register(Jav321Crawler)
 registry.register(AiravCrawler)
 registry.register(AvsoxCrawler)
 registry.register(AvbaseCrawler)
+registry.register(AvWikiDBCrawler)
 registry.register(XCityCrawler)
 registry.register(DahliaCrawler)
 registry.register(FalenoCrawler)
@@ -86,6 +88,7 @@ __all__ = [
     "ActorCrawler",
     "ActorMetadata",
     "AiravCrawler",
+    "AvWikiDBCrawler",
     "AvbaseActorCrawler",
     "AvbaseCrawler",
     "AvsoxCrawler",

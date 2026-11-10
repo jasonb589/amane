@@ -1872,6 +1872,18 @@ export const CropPosterRequestSchema = {
             title: 'Rotation',
             description: '裁切前顺时针旋转的角度 (仅 90° 整数倍); 90° / 270° 后宽高互换',
             default: 0
+        },
+        source_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Url',
+            description: '裁切当前海报或封面候选; 未传时采用首张封面'
         }
     },
     type: 'object',
@@ -1882,7 +1894,7 @@ export const CropPosterRequestSchema = {
         'bottom'
     ],
     title: 'CropPosterRequest',
-    description: '从封面图按像素框裁切海报 (相对 thumb 当前本地文件像素; 含就地超分后尺寸).'
+    description: '从当前海报或封面按像素框裁切; 坐标相对源图当前本地像素, 含就地超分后的尺寸.'
 } as const;
 
 export const DeleteResultSchema = {
@@ -3143,13 +3155,15 @@ export const HotSettingsSchema = {
                         'mgstage',
                         'dmm',
                         'javdb',
-                        'javbus'
+                        'javbus',
+                        'avwikidb'
                     ],
                     censored: [
                         'dmm',
                         'javdb',
                         'javbus',
-                        'official'
+                        'official',
+                        'avwikidb'
                     ],
                     chinese: [
                         'iqqtv',
@@ -3233,6 +3247,18 @@ export const HotSettingsSchema = {
                         use_proxy: true
                     },
                     avsox: {
+                        cookie: {},
+                        languages: [
+                            'zh',
+                            'ja',
+                            'en'
+                        ],
+                        official_routes: {},
+                        rate_limit: 2,
+                        use_browser: 'auto',
+                        use_proxy: true
+                    },
+                    avwikidb: {
                         cookie: {},
                         languages: [
                             'zh',
@@ -6237,6 +6263,16 @@ export const MetadataResponseSchema = {
                 }
             ]
         },
+        poster_sync: {
+            anyOf: [
+                {
+                    $ref: '#/components/schemas/PosterSyncResult'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
         file_count: {
             type: 'integer',
             title: 'File Count',
@@ -7301,6 +7337,33 @@ export const PosterCropModeSchema = {
     ],
     title: 'PosterCropMode',
     description: '海报裁剪方式 (按内容类型配置, 见 ``ScrapingConfig.poster_crop_mode``).'
+} as const;
+
+export const PosterSyncResultSchema = {
+    properties: {
+        written: {
+            type: 'integer',
+            title: 'Written',
+            default: 0
+        },
+        skipped: {
+            type: 'integer',
+            title: 'Skipped',
+            default: 0
+        },
+        failed: {
+            type: 'integer',
+            title: 'Failed',
+            default: 0
+        },
+        unlocated: {
+            type: 'boolean',
+            title: 'Unlocated',
+            default: false
+        }
+    },
+    type: 'object',
+    title: 'PosterSyncResult'
 } as const;
 
 export const PurgeResultSchema = {
@@ -8754,6 +8817,7 @@ export const ScrapingConfigSchema = {
                         'amazon',
                         'avbase',
                         'avsox',
+                        'avwikidb',
                         'caribbean',
                         'dahlia',
                         'dmm',
@@ -8802,6 +8866,7 @@ export const ScrapingConfigSchema = {
                         'amazon',
                         'avbase',
                         'avsox',
+                        'avwikidb',
                         'caribbean',
                         'dahlia',
                         'dmm',
@@ -8850,6 +8915,7 @@ export const ScrapingConfigSchema = {
                         'amazon',
                         'avbase',
                         'avsox',
+                        'avwikidb',
                         'caribbean',
                         'dahlia',
                         'dmm',
@@ -8910,6 +8976,23 @@ export const ScrapingConfigSchema = {
     },
     type: 'object',
     title: 'ScrapingConfig'
+} as const;
+
+export const SelectPosterRequestSchema = {
+    properties: {
+        url: {
+            type: 'string',
+            minLength: 1,
+            title: 'Url',
+            description: '当前影片已有剧照的完整 URL'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: [
+        'url'
+    ],
+    title: 'SelectPosterRequest'
 } as const;
 
 export const SelectionNoticeResponseSchema = {
@@ -9534,6 +9617,7 @@ export const SiteNameSchema = {
         'amazon',
         'avbase',
         'avsox',
+        'avwikidb',
         'caribbean',
         'dahlia',
         'dmm',

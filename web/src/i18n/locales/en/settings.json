@@ -150,7 +150,8 @@
             "xchina": "xChina",
             "xcity": "xcity",
             "fc2ppv_db": "FC2PPV-DB",
-            "javarchive": "JavArchive"
+            "javarchive": "JavArchive",
+            "avwikidb": "AVWikiDB"
           },
           "$": {
             "options": {
@@ -187,7 +188,8 @@
               "xchina": "xChina",
               "xcity": "xcity",
               "fc2ppv_db": "FC2PPV-DB",
-              "javarchive": "JavArchive"
+              "javarchive": "JavArchive",
+              "avwikidb": "AVWikiDB"
             }
           }
         }
@@ -247,7 +249,8 @@
             "xchina": "xChina",
             "xcity": "xcity",
             "fc2ppv_db": "FC2PPV-DB",
-            "javarchive": "JavArchive"
+            "javarchive": "JavArchive",
+            "avwikidb": "AVWikiDB"
           },
           "$": {
             "options": {
@@ -284,7 +287,8 @@
               "xchina": "xChina",
               "xcity": "xcity",
               "fc2ppv_db": "FC2PPV-DB",
-              "javarchive": "JavArchive"
+              "javarchive": "JavArchive",
+              "avwikidb": "AVWikiDB"
             }
           }
         }
@@ -354,7 +358,8 @@
           "xchina": "xChina",
           "xcity": "xcity",
           "fc2ppv_db": "FC2PPV-DB",
-          "javarchive": "JavArchive"
+          "javarchive": "JavArchive",
+          "avwikidb": "AVWikiDB"
         },
         "$": {
           "base_url": {
@@ -497,7 +502,8 @@
             "xchina": "xChina",
             "xcity": "xcity",
             "fc2ppv_db": "FC2PPV-DB",
-            "javarchive": "JavArchive"
+            "javarchive": "JavArchive",
+            "avwikidb": "AVWikiDB"
           },
           "$": {
             "options": {
@@ -534,7 +540,8 @@
               "xchina": "xChina",
               "xcity": "xcity",
               "fc2ppv_db": "FC2PPV-DB",
-              "javarchive": "JavArchive"
+              "javarchive": "JavArchive",
+              "avwikidb": "AVWikiDB"
             }
           }
         }

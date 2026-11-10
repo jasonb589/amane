@@ -1,0 +1,50 @@
+# Capture: curl_cffi.requests.get("https://avwikidb.com/work/300MIUM-1434/", impersonate="firefox", headers={"Referer": "https://avwikidb.com/"})
+# Captured 2026-11-10; complete response, SHA-256: 8bb4bdc54970a4299b34ac22cbb703fa99eacb1d856b14e6f7e06948c63639ab
+site = "avwikidb"
+
+[fetch]
+number = "300MIUM1434"
+requests = 1
+responses = [
+    { url_contains = "/work/300MIUM-1434/", file = "mgs1434.html" },
+]
+
+[fetch.expected]
+number = "300MIUM-1434"
+title = "【クール系受付嬢】美人の喉マ●コを初対面からいきなり酷使。徐々にとろける顔と膣。クールだった佇まいも最後は白目剥き出しヨダレもだらだら。"
+actors = []
+release = "2026-11-10"
+runtime = 61
+source_url = "https://avwikidb.com/work/300MIUM-1434/"
+external_id = "621881"
+score_is_none = true
+studio = "プレステージプレミアム(PRESTIGE PREMIUM)"
+publisher_is_none = true
+series = "港区女子。"
+directors = []
+tags = [
+    "巨乳",
+    "スレンダー",
+    "素人",
+    "潮吹き",
+    "イラマチオ",
+    "独占配信",
+    "配信専用",
+    "フルハイビジョン(FHD)",
+]
+plot_is_none = true
+thumb_urls = [
+    "https://image.mgstage.com/images/prestigepremium/300mium/1434/pb_e_300mium-1434.jpg",
+    "https://avwikidb.com/mgsimg/images/prestigepremium/300mium/1434/pb_e_300mium-1434.jpg",
+]
+poster_urls = [
+    "https://image.mgstage.com/images/prestigepremium/300mium/1434/pf_e_300mium-1434.jpg",
+    "https://avwikidb.com/mgsimg/images/prestigepremium/300mium/1434/pf_e_300mium-1434.jpg",
+]
+extrafanart = [
+    "https://image.mgstage.com/images/prestigepremium/300mium/1434/cap_e_0_300mium-1434.jpg",
+    "https://image.mgstage.com/images/prestigepremium/300mium/1434/cap_e_1_300mium-1434.jpg",
+    "https://image.mgstage.com/images/prestigepremium/300mium/1434/cap_e_2_300mium-1434.jpg",
+    "https://image.mgstage.com/images/prestigepremium/300mium/1434/cap_e_3_300mium-1434.jpg",
+]
+trailer_urls = []

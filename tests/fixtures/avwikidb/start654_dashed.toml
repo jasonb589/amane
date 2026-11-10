@@ -1,0 +1,70 @@
+# Capture: curl_cffi.requests.get("https://avwikidb.com/work/START-654/", impersonate="firefox", headers={"Referer": "https://avwikidb.com/"})
+# Captured 2026-11-10; complete response, SHA-256: 433bc6730d375ede6dcc8ffa304434b268ef90116449709fa22cea924b0aa1d8
+site = "avwikidb"
+
+[fetch]
+number = "START-654"
+requests = 1
+responses = [
+    { url_contains = "/work/START-654/", file = "start654.html" },
+]
+
+[fetch.expected]
+number = "START-654"
+title = "全裸爆乳マゾメス超接写フェティッシュ！肉欲ダイナマイトBODYガチ絶頂スペシャル 恋渕ももな"
+actors = [
+    { name = "恋渕ももな", gender = "female" },
+]
+release = "2026-11-17"
+runtime = 128
+source_url = "https://avwikidb.com/work/START-654/"
+external_id = "621550"
+score_is_none = true
+studio = "SODクリエイト"
+publisher = "SODSTAR"
+series_is_none = true
+directors = [
+    "鯵野舐朗",
+]
+tags = [
+    "単体作品",
+    "巨乳",
+    "淫乱・ハード系",
+    "ハイビジョン",
+    "アクメ・オーガズム",
+    "M女",
+    "覆面・マスク",
+    "4K",
+]
+plot = "巨乳の女性が全裸で登場し、フィッシュアイレンズによる迫力あるアングルで撮影される。マゾ気質を発揮しながら、オイルプレイ、結合部の接写、人体固定、3Pなど多様なシチュエーションで快感に溺れる。絶頂シーンを中心に捉えたハードな内容。"
+poster_urls = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654ps.jpg",
+    "https://pics.dmm.co.jp/digital/video/1start00654/1start00654ps.jpg",
+]
+thumb_urls = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654pl.jpg",
+    "https://pics.dmm.co.jp/digital/video/1start00654/1start00654pl.jpg",
+]
+extrafanart = [
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-1.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-2.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-3.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-4.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-5.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-6.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-7.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-8.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-9.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-10.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-11.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-12.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-13.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-14.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-15.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-16.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-17.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-18.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-19.jpg",
+    "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00654/1start00654jp-20.jpg",
+]
+trailer_urls = []

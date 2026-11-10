@@ -1,0 +1,60 @@
+# Capture: curl_cffi.requests.get("https://avwikidb.com/work/906MSMP-061/", impersonate="firefox", headers={"Referer": "https://avwikidb.com/"})
+# Captured 2026-11-10; complete response, SHA-256: 26f9923a1a6cda69752cb6d3bd2e7c193faa96384182d2de9a8800a52c895515
+site = "avwikidb"
+
+[fetch]
+number = "906MSMP-061"
+requests = 1
+responses = [
+    { url_contains = "/work/906MSMP-061/", file = "mgs061.html" },
+]
+
+[fetch.expected]
+number = "906MSMP-061"
+title = "半脱ぎデニムは拘束具 2 脱がしかけのジーパンで両足の自由を奪いそのまま寝バック中出し！ 特別編集"
+actors = [
+    { name = "谷原希美", gender = "female" },
+]
+release = "2026-11-10"
+runtime = 130
+source_url = "https://avwikidb.com/work/906MSMP-061/"
+external_id = "621888"
+score_is_none = true
+studio = "かぐや姫"
+publisher_is_none = true
+series = "かぐや姫"
+directors = []
+tags = [
+    "中出し",
+    "尻フェチ",
+    "巨尻",
+    "配信専用",
+    "人妻",
+]
+plot_is_none = true
+thumb_urls = [
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/pb_e_906msmp-061.jpg",
+    "https://avwikidb.com/mgsimg/images/kaguyahime/906msmp/061/pb_e_906msmp-061.jpg",
+]
+poster_urls = [
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/pf_e_906msmp-061.jpg",
+    "https://avwikidb.com/mgsimg/images/kaguyahime/906msmp/061/pf_e_906msmp-061.jpg",
+]
+extrafanart = [
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_0_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_1_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_2_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_3_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_4_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_5_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_6_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_7_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_8_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_9_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_10_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_11_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_12_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_13_906msmp-061.jpg",
+    "https://image.mgstage.com/images/kaguyahime/906msmp/061/cap_e_14_906msmp-061.jpg",
+]
+trailer_urls = []

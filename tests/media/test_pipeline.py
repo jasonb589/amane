@@ -11,6 +11,7 @@ from PIL import Image
 
 from amane.config import HotSettings, ScrapingConfig, SrConfig
 from amane.config.manager import PosterCropMode
+from amane.crawlers.sites.dmm_cdn import image_candidates
 from amane.enums import DownloadableResource
 from amane.media import CropRotation, ResourceStore, manual_crop_image, materialize_images
 from amane.media import pipeline as pipeline_mod
@@ -762,6 +763,30 @@ async def test_dmm_standard_before_high_resolution_still_upgrades_and_keeps_othe
     out = await materialize_images(urls, [], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path)
     assert client.downloaded == urls
     assert out.poster_urls == [mono, standard, high]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("standard_first", [False, True])
+async def test_dmm_start654_official_portrait_stays_ahead_of_cover_crop(
+    resource_store: ResourceStore, tmp_path: Path, standard_first: bool
+) -> None:
+    # 官方 GraphQL 给出 ps; 尺寸来自两处 CDN 的完整解码, 不依赖成人图片 fixture.
+    path = "digital/video/1start00654/1start00654"
+    standard = f"https://pics.dmm.co.jp/{path}ps.jpg"
+    high = f"https://awsimgsrc.dmm.co.jp/pics_dig/{path}ps.jpg"
+    cover = f"https://awsimgsrc.dmm.co.jp/pics_dig/{path}pl.jpg"
+    posters = image_candidates(high)
+    assert posters == [high, standard]
+    if standard_first:
+        posters.reverse()
+    client = FakeClient({standard: (147, 200), high: (1536, 2184), cover: (1699, 1199)})
+    out = await materialize_images(
+        posters, [cover], [], resource_store, cast("WebClient", client), HotSettings(), tmp_path
+    )
+    assert out.poster_urls == [high, standard]
+    assert high in client.downloaded
+    assert (standard in client.downloaded) is standard_first
+    assert not any(url.startswith(pipeline_mod.RESOURCE_URL_PREFIX) for url in out.poster_urls)
 
 
 @pytest.mark.asyncio

@@ -41,6 +41,8 @@
 
 **avbase.net** — 名单来自用户投稿而非官方; 受 Cloudflare managed challenge 保护, 指纹不过关即拦截. 不纳入默认表: 进入 `censored` 会让每次刮削多一次可能退化为浏览器 / solver 的请求.
 
+**avwikidb.com** — FANZA 有码 / 素人 / VR 与 MGS 索引, 有独立演员识别关系; 不进入 FC2 默认路由. `sites/avwikidb.py` 只读取主影片对象, 完整别名用于确认 MGS 厂牌编号, `actorUnknown` 不排除已识别演员; 检索重定向携带的详情直接复用. 原始图片地址经 DMM 共用候选规则或 MGS 图床补全, 评论与相似作品不参与取值. 路由缺省时纳入有码与素人补充链, 显式持久化的路由保持原样, 可在设置中选择该源.
+
 **airav.io** — 中文标题补强, 不是国产分区; 国产路由里置于 iqqtv 之后, fc2 路由里链尾 (官方电子市场下架的作品只剩这类索引站收录); FC2 番号站内恒写 `FC2-PPV-<id>`, 检索词用该写法; caribbeancom / 1pondo 等来源在番号前加来源名 (`caribbeancom_051318-665`), 比对与取值都先剥除.
 
 **iqqtv** (`iqq5.xyz` 会跳转到 `iqqk4.quest` 一类轮换域) — 导航有國產区 (爱豆傳媒、杏吧傳媒等, 不是 MD 号为主), 国产路由第一源; 爬虫带 `/cn|/jp` 语言前缀.

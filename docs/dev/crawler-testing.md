@@ -11,7 +11,7 @@
 
 用例在独立仓库 `amane-testdata`; `just fixtures` 按 `tests/.fixtures-rev` 钉住的 sha 检出到 `tests/crawlers/cases/` (gitignored), 由 `just test` / `just test-cov` 作为依赖执行, 因此 `just check` 间接执行、不单独声明; CI 经由 `FIXTURES_DEPLOY_KEY` 使用 SSH. 直接运行 `uv run pytest` 不会同步 fixture, 获取失败时依赖 `cases/` 的用例 skip, **不会失败**. 刷新方式: testdata 仓库重新采集并提交, 再推进指针.
 
-本分支新增 FC2 原生源的完整响应保存在 `tests/fixtures/`, 经 `tests/crawlers/driven.py` 同一断言协议回放, 不依赖外部 fixture 仓库权限. 第三方保存的响应须附固定提交、完整原文与许可, 不复制第三方解析实现.
+本分支新增原生源的完整响应保存在 `tests/fixtures/`, 经 `tests/crawlers/driven.py` 同一断言协议回放, 不依赖外部 fixture 仓库权限. 第三方保存的响应须附固定提交、完整原文与许可, 不复制第三方解析实现.
 
 ## 采集
 

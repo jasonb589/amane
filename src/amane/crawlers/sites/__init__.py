@@ -2,6 +2,7 @@ from .airav import AiravCrawler
 from .amazon import AmazonCrawler
 from .avbase import AvbaseCrawler
 from .avsox import AvsoxCrawler
+from .avwikidb import AvWikiDBCrawler
 from .caribbean import CaribbeanCrawler
 from .dahlia import DahliaCrawler
 from .dmm import DmmCrawler
@@ -33,6 +34,7 @@ from .xcity import XCityCrawler
 __all__ = [
     "AiravCrawler",
     "AmazonCrawler",
+    "AvWikiDBCrawler",
     "AvbaseCrawler",
     "AvsoxCrawler",
     "CaribbeanCrawler",

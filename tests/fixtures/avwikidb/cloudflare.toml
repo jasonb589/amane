@@ -1,0 +1,11 @@
+# Capture: curl_cffi.requests.get("https://avwikidb.com/work/START-654/", impersonate="chrome")
+# Captured 2026-11-10; complete challenge response, SHA-256: f49b97a3a9bfea96b71e26266280649e9dce867c6796116cbc2da7e29f22087c
+site = "avwikidb"
+
+[fetch]
+number = "START-654"
+requests = 1
+expected_error = "cloudflare_challenge"
+responses = [
+    { url_contains = "/work/START-654/", file = "cloudflare.html" },
+]

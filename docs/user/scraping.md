@@ -99,6 +99,7 @@
 | javdb | javdb.com | 全部七种类型 | :material-check: | 中文标题, 不提供剧情; 无码影片需要登录 Cookie, 见 [站点登录](network.md#credentials) |
 | javbus | javbus.com | 有码、无码、素人 | | 不提供剧情; 欧美目录不可用 |
 | official | Will / Outvision 等制作商官网 | 有码 | | 按番号前缀匹配制作商官网, 匹配不到时不发出请求; 提供剧情、导演与剧照; 可在站点配置的「制作商路由」中按前缀指定 |
+| avwikidb | avwikidb.com | 有码、素人 | | 提供影片元数据与素人演员识别, 图片来自 DMM / MGStage; 已保存的自定义类型路由需手动添加此来源 |
 | avsox | avsox.click | 无码 | | 无码专站 |
 | freejavbt | freejavbt.com | 无码、FC2、国产、欧美 | | 覆盖面宽, 位于链尾; 不提供制作商与发行商 |
 | fc2ppvdb | fc2ppvdb.com | FC2 | | 可能被 Cloudflare 拦截, 拦截时由后续站点补位 |

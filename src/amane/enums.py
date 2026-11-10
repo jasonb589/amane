@@ -8,6 +8,7 @@ class SiteName(StrEnum):
     AMAZON = "amazon"
     AVBASE = "avbase"
     AVSOX = "avsox"
+    AVWIKIDB = "avwikidb"
     CARIBBEAN = "caribbean"
     DAHLIA = "dahlia"
     DMM = "dmm"
