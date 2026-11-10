@@ -96,7 +96,7 @@ Worker 替换不取消运行中任务: `_rebuild()` 构建新 worker 后旧 work
 
 `NotificationService` 通过 `EventBus` 接收任务终态与文件事件; 文件删除事件携带删除前的番号与媒体库归属. 渠道配置变更清除待合并窗口, 网络配置变更保留窗口; 已开始发送的请求固定使用其客户端. `AppSession.aclose` 在停止任务后、关闭 HTTP 客户端前等待通知结束.
 
-Telegram 预设按渠道、状态、任务类型和媒体库合并, 多任务不使用单条海报. 模板变量仅替换一次, 格式转义不解释变量中的占位符. 通知层独占重试, 传输结果未知时不重发, 仅明确的图片拒绝触发文字降级. `src/amane/notify/service.py::NotificationService` 按实际发送的海报或横图选择来源说明, 经 `src/amane/media/provenance.py::resolve_image_provenance` 追溯 Resource 裁剪来源; 外部 URL 不沿用本地缓存的超分结论, 清晰度只依据已知原始像素. 站点失败列表默认不进入通知正文, 任务失败原因仍保留, 渲染开关不改变渠道过滤与任务记录. 边界用例见 `tests/test_notify_provenance.py` 与 `tests/test_notify_reliability.py`.
+Telegram 预设按渠道、状态、任务类型和媒体库合并, 多任务不使用单条海报. 模板变量仅替换一次, 格式转义不解释变量中的占位符. 通知层独占重试, 传输结果未知时不重发, 仅明确的图片拒绝触发文字降级. `src/amane/notify/service.py::NotificationService` 按实际发送图片说明来源, 经 `src/amane/media/provenance.py::resolve_image_provenance` 追溯 Resource 的裁剪与剧照选图链; 外部 URL 不沿用本地缓存的超分结论, 清晰度只依据已知原始像素. 站点失败列表默认不进入通知正文, 任务失败原因仍保留, 渲染开关不改变渠道过滤与任务记录. 边界用例见 `tests/test_notify_provenance.py` 与 `tests/test_notify_reliability.py`.
 
 ## `media_server` (Hot)
 

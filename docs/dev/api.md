@@ -79,7 +79,9 @@ OpenAPI 列出参数, 不表达组合语义:
 
 **资源响应类型**: 按文件头判定, 扩展名白名单兜底, 都不命中时附件下载 + `nosniff`. 记录里的媒体类型不参与该判定.
 
-**海报裁切回写**: `metadata.py::_write_poster_into_libraries` 使用现存媒体位置与 `organize/path_templates.py::resolve_existing_poster_path`, 遵守海报 / 链接模板与安全目录; 不重新应用视频移动模板. 文件操作在线程池执行, 失效媒体不重建目录; 回写失败不撤销数据库中的裁切结果.
+**手动海报**: `metadata.py::select_poster_from_extrafanart` 仅接受本影片现存剧照候选, 下载后再次核对候选身份; 原图字节保存为可追溯的派生资源, 不自动裁剪. `crop_poster_from_thumb` 缺省采用封面, 显式源仅接受当前海报或封面候选. 两者共用 `_save_manual_poster`: 手动锁定海报后独立返回 `poster_sync` 与 `nfo_sync`, 文件回写失败不撤销已保存选择.
+
+`metadata.py::_write_poster_into_libraries` 在同步锁内重读当前海报, 使用现存媒体位置或记存的 NFO 输出视频位置; 记存输出须通过现存 NFO 番号核验, 库外产物仅恢复不依赖原始路径或链接模板的确定目标. 海报模板与安全目录沿用 `organize/path_templates.py::resolve_existing_poster_path`; 线程池内原子替换图片, 失效媒体不重建目录, 不覆盖符号链接或非图片目标.
 
 **元数据编辑回写**: `src/amane/api/routes/metadata.py::update_metadata` 与 `merge_metadata` 先提交数据库, 再调用 `src/amane/media/nfo_sync.py::sync_metadata_nfos` 同步 NFO. 响应携带同步统计供界面区分保存与落盘结果; 安全校验或文件写入失败不撤销元数据修改. 输出位置与恢复边界见 [data-model.md](data-model.md)「Library 整理布局」.
 

@@ -1,19 +1,28 @@
 """测试 ResourceStore 的派生资源 (裁剪), 就地超分与获取失败的收尾."""
 
 import asyncio
+from io import BytesIO
 from typing import TYPE_CHECKING, Any, ClassVar
 from unittest.mock import AsyncMock
 
 import pytest
 from PIL import Image
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from amane.handlers import CleanupHandler, CleanupPayload
 from amane.media import ResourceStore, UpscaleOutcome, derived_locator
+from amane.media.provenance import resolve_image_provenance
 from amane.media.resource_store import RESOURCE_URL_PREFIX, _is_placeholder_url, internal_url_hash
 from amane.net.egress import EgressPolicy
 from amane.net.http import RateLimiters, WebClient
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from amane.db.models import Resource
+    from amane.db.repository import Repository
 
 
 def test_derived_locator_deterministic():
@@ -285,6 +294,111 @@ class TestGetByUrlHash:
         assert await resource_store.get_by_url_hash("deadbeefdeadbeef") is None
 
 
+class TestPurgeSourceAncestors:
+    @pytest.mark.asyncio
+    async def test_cleanup_keeps_selected_still_chain_and_provenance_until_last_reference_is_removed(
+        self, repo: Repository, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source_url = "https://cdn.example/still.jpg"
+        original = BytesIO()
+        Image.new("RGB", (1200, 800), "blue").save(original, format="JPEG")
+        client, _session = _stub_client(monkeypatch, final_url=source_url, content=original.getvalue())
+        source = await resource_store.acquire(source_url, client, image_only=True)
+        assert source is not None
+
+        async def select_still(dest: Path) -> bool:
+            dest.write_bytes(source.read_bytes())
+            return True
+
+        selected = await resource_store.acquire_derived(source_url, "select-poster", "fc2ppv_db", select_still)
+        assert selected is not None
+
+        async def first_crop(dest: Path) -> bool:
+            with Image.open(resource_store.full_path(selected)) as image:
+                image.crop((100, 0, 660, 800)).save(dest)
+            return True
+
+        cropped = await resource_store.acquire_derived(selected.url, "crop", "box:100,0,660,800", first_crop)
+        assert cropped is not None
+
+        async def second_crop(dest: Path) -> bool:
+            with Image.open(resource_store.full_path(cropped)) as image:
+                image.crop((0, 0, 490, 700)).save(dest)
+            return True
+
+        final = await resource_store.acquire_derived(cropped.url, "crop", "box:0,0,490,700", second_crop)
+        stale = await resource_store.acquire_derived(selected.url, "crop", "obsolete", first_crop)
+        assert final is not None and stale is not None
+        final_url = f"{RESOURCE_URL_PREFIX}/{ResourceStore.url_hash(final.url)}"
+        metadata = await repo.upsert_metadata(number="FC2-4800334", poster_urls=[final_url])
+        assert metadata.id is not None
+        handler = CleanupHandler(repo, resource_store)
+        payload = CleanupPayload(remove_missing_files=False, remove_unreferenced_resources=True)
+
+        result = await handler.handle(payload)
+
+        assert result.success and result.result is not None and result.result.resources_removed == 1
+        assert await resource_store.get_by_url(stale.url) is None
+        assert not resource_store.full_path(stale).exists()
+        assert {record.url for record in await resource_store.list_all()} == {
+            source_url,
+            selected.url,
+            cropped.url,
+            final.url,
+        }
+        assert source.read_bytes() == original.getvalue()
+        provenance = await resolve_image_provenance(final_url, resource_store)
+        assert provenance.source == "fc2ppv_db" and provenance.source_url == source_url
+        assert provenance.selected_still and provenance.cropped
+        assert (provenance.source_width, provenance.source_height) == (1200, 800)
+        assert (provenance.width, provenance.height) == (490, 700)
+        assert "FC2PPV-DB 剧照裁剪" in provenance.label
+        repeated = await handler.handle(payload)
+        assert repeated.success and repeated.result is not None and repeated.result.resources_removed == 0
+
+        await repo.update_metadata(metadata.id, poster_urls=[])
+        removed = await handler.handle(payload)
+        assert removed.success and removed.result is not None and removed.result.resources_removed == 4
+        assert await resource_store.list_all() == []
+        assert not source.exists()
+        assert all(not resource_store.full_path(record).exists() for record in (selected, cropped, final))
+
+    @pytest.mark.asyncio
+    async def test_live_cycles_internal_source_and_malformed_links_do_not_preserve_unrelated_records(
+        self, resource_store: ResourceStore, resource_engine: AsyncEngine
+    ) -> None:
+        async def producer(dest: Path) -> bool:
+            Image.new("RGB", (20, 30), "green").save(dest)
+            return True
+
+        records: dict[str, Resource] = {}
+        for name in ("first", "second", "leaf", "orphan-a", "orphan-b", "missing", "malformed", "self"):
+            record = await resource_store.acquire_derived(f"https://cdn.example/{name}.jpg", "fixture", name, producer)
+            assert record is not None
+            records[name] = record
+        records["first"].meta = {"src": records["second"].url}
+        records["second"].meta = {"src": records["first"].url}
+        records["leaf"].meta = {"src": f"{RESOURCE_URL_PREFIX}/{ResourceStore.url_hash(records['first'].url)}?v=1"}
+        records["orphan-a"].meta = {"src": records["orphan-b"].url}
+        records["orphan-b"].meta = {"src": records["orphan-a"].url}
+        records["missing"].meta = {"src": "derived:missing-source:crop:unknown"}
+        records["malformed"].meta = {"src": [records["orphan-a"].url]}
+        records["self"].meta = {"src": records["self"].url}
+        async with AsyncSession(resource_engine, expire_on_commit=False) as session:
+            session.add_all(records.values())
+            await session.commit()
+        live = {records[name].url for name in ("leaf", "missing", "malformed", "self")}
+
+        assert await resource_store.purge_unreferenced(live, set()) == 2
+        retained = {"first", "second", "leaf", "missing", "malformed", "self"}
+        assert {record.url for record in await resource_store.list_all()} == {records[name].url for name in retained}
+        assert all(resource_store.full_path(records[name]).is_file() for name in retained)
+        assert all(not resource_store.full_path(records[name]).exists() for name in ("orphan-a", "orphan-b"))
+        assert live == {records[name].url for name in ("leaf", "missing", "malformed", "self")}
+        assert await resource_store.purge_unreferenced(set(), set()) == 6
+        assert await resource_store.list_all() == []
+
+
 class TestInternalUrl:
     @pytest.mark.parametrize(
         ("url", "expected"),
@@ -425,6 +539,7 @@ async def test_acquire_forwards_egress_policy(
     assert await resource_store.acquire(_REQUEST, client, egress=policy, max_bytes=1024) is None
 
     client.resolve_final_url.assert_awaited_once_with(_REQUEST, egress=policy)
+    assert client.download.await_args is not None
     kwargs = client.download.await_args.kwargs
     assert kwargs["egress"] is policy
     assert kwargs["max_bytes"] == 1024

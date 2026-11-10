@@ -22,6 +22,7 @@ class ImageProvenance(BaseModel):
     source_url: str = ""
     kind: Literal["poster", "thumb"] = "poster"
     cropped: bool = False
+    selected_still: bool = False
     upscaled: bool = False
     width: int | None = None
     height: int | None = None
@@ -39,6 +40,7 @@ class ImageProvenance(BaseModel):
             "dmm": "DMM",
             "javarchive": "JavArchive",
             "fc2ppv_db": "FC2PPV-DB",
+            "avwikidb": "AVWikiDB",
         }.get(self.source, self.source)
         source = source or "来源未知"
         source_size = (
@@ -48,7 +50,9 @@ class ImageProvenance(BaseModel):
         )
         # 高清描述只使用仍保留原始像素的根资源, 不能把 CDN 域名或超分后的尺寸当作证据.
         quality = "高清" if self.source == "dmm" and source_size and max(source_size) >= 1000 else ""
-        if self.cropped:
+        if self.selected_still:
+            description = f"{quality}剧照裁剪" if self.cropped else f"{quality}剧照"
+        elif self.cropped:
             shape = "横图" if source_size and source_size[0] > source_size[1] else "海报" if source_size else "图片"
             description = f"{quality}{shape}裁剪"
         elif self.kind == "thumb" or (source_size and source_size[0] > source_size[1]):
@@ -145,9 +149,14 @@ async def resolve_image_provenance(
                     if root and not is_upscaled:
                         result.source_width, result.source_height = size
             result.cropped |= meta.get("op") == "crop"
+            if meta.get("op") == "select-poster":
+                result.selected_still = True
+                source_name = meta.get("args")
+                if not result.source and isinstance(source_name, str):
+                    result.source = source_name.partition(":")[0]
         if root:
             result.source_url = locator
-            result.source = _source(locator, raw)
+            result.source = result.source or _source(locator, raw)
             break
         if record is None:
             break

@@ -69,7 +69,7 @@ Metadata 列表与 `/media` 文件行的角标与筛选: 有码 / 无码取条�
 写入策略由 `WriteMode` 表达, repository 默认 `AUTO` (自动写入者漏传策略时只会未加锁, 不会误加锁; 手动调用点显式传 `MANUAL`):
 
 - `AUTO`: 跳过锁定列并保留其既有值与既有 `field_sources`; `raw` 始终更新, 只更新 `raw` 也刷新 `updated_at`, 因此全锁条目仍参与 RESCRAPE 的年龄选择. 写入位置: 影片 `upsert_metadata` (`ScrapeHandler`); 演员 `save_actor` (ACTOR_SCRAPE) 与 `clean_actor_names` 的 `Actor.gender` 填空与别名行写入.
-- `MANUAL`: 无视锁, 并把本次写入的可锁字段并入 `locked_fields`. 写入位置: 两端 REST PATCH / merge / crop 与 Agent 工具.
+- `MANUAL`: 无视锁, 并把本次写入的可锁字段并入 `locked_fields`. 写入位置: 两端 REST PATCH / merge / crop、剧照设为海报与 Agent 工具.
 - `set_metadata_locks` / `set_actor_locks` 整体替换锁集合; 锁集合本身的变更不刷新 `updated_at`.
 - 演员 `clear_actor_person` (REST `POST /actors/batch/clear-person`) 清空档案 + `field_sources` + 锁 + `raw`, 保留 `name` / `gender`: 旧快照留着会在下次刮削被原样写回; 而 `raw` 非空是链式自动刮削的跳过判据, 清空后该演员重新入队, 代价是下次刮削全站重取.
 - 分类治理与实体 rename / delete 不读锁, 也不自动上锁 (用户显式操作); 演员实体 merge 例外: 源锁集并入 target, 而填空并入的未锁字段不额外上锁.
@@ -134,11 +134,11 @@ NFO 编辑同步优先使用 `src/amane/handlers/file.py::execute_file_operation
 
 ## Resource (一等存储, 非缓存)
 
-`Resource.url` UNIQUE, 作**通用 locator key**: 原始外部图用真实外部 URL, 派生裁剪用合成串 `derived:{sha256(src_url)}:crop:{args}`. 手动裁切写入派生 Resource: 海报替换 `poster_urls` 并按库模板回写 (见 [api.md](api.md)「海报裁切回写」), 演员头像前插 `image_urls` 并保留原图. 文件路径相对 `{data_dir}/resources/`, 扩展名取 URL 后缀 (无后缀为 `.bin`, 派生资源由 `ext` 指定); `mime_type` 在入库与就地超分后按内容判定 (见 `src/amane/media/file_type.py::detect_media_type`), 判不出为 `NULL` — 存量行的值可能来自 URL 后缀, 读取方遇 `NULL` 或 `application/octet-stream` 须按内容复核.
+`Resource.url` UNIQUE, 作**通用 locator key**: 原始外部图用真实外部 URL, 派生资源用源 locator、操作与参数组成的合成串. 手动裁切与剧照选图替换并锁定 `poster_urls`, 库路径回写见 [api.md](api.md)「手动海报」; 头像裁切前插 `image_urls` 并保留原图. 文件路径相对 `{data_dir}/resources/`, 扩展名取 URL 后缀 (无后缀为 `.bin`, 派生资源由 `ext` 指定); `mime_type` 在入库与就地超分后按内容判定 (见 `src/amane/media/file_type.py::detect_media_type`), 判不出为 `NULL` — 存量行的值可能来自 URL 后缀, 读取方遇 `NULL` 或 `application/octet-stream` 须按内容复核.
 
-`meta` (JSON, 默认 `{}`) 记录可逆来源与处理标记: 裁剪记录 `{'op':'crop','src':底层locator,'args':str}` (不记录内部 URL); 像素框 `args` 须覆盖非 0 旋转角度 (`:r90`), 避免命中其他角度结果. 超分追加 `sr` 并**就地覆盖**文件 (URL 不变); `sr.source_size` 是超分输入经 EXIF 转正后的尺寸. `src/amane/media/pipeline.py::_native_size` 据此比较原生质量, 历史超分缺少输入尺寸时按未知质量排序.
+`meta` (JSON, 默认 `{}`) 记录可逆来源与处理标记, `src` 始终采用底层 locator, 不记录内部 URL. 裁剪参数须包含非零旋转角度; `select-poster` 保存剧照来源站点且不改变字节, 来源追溯沿多次裁切保留剧照身份. 超分追加 `sr` 并**就地覆盖**文件 (URL 不变); `sr.source_size` 是超分输入经 EXIF 转正后的尺寸. `src/amane/media/pipeline.py::_native_size` 据此比较原生质量, 历史超分缺少输入尺寸时按未知质量排序.
 
-**按引用回收**: 不是 LRU 缓存. 刮削换 URL / 改裁剪参数后旧条目留到 CLEANUP 回收未引用项 (含派生). 原始像素须 invalidate 重下 (就地超分后不可恢复). 见 [task-system.md](task-system.md) CLEANUP. `content_hash` 兼作 ETag, 见 [api.md](api.md); 同一 locator 的写入按 locator 串行 (`ResourceStore._serialized`), 先写文件再写记录, 二者恒对应盘上那份字节.
+**按引用回收**: CLEANUP 从 Metadata / Actor 的直接引用沿 `meta.src` 保留已有来源祖先, 防止裁切或选图的追溯链中断; 未引用链与孤立环照常回收, 不采用 LRU. 原始像素须 invalidate 重下 (就地超分后不可恢复). 见 `ResourceStore.purge_unreferenced` 与 [task-system.md](task-system.md). `content_hash` 兼作 ETag, 见 [api.md](api.md); 同一 locator 的写入按 `ResourceStore._serialized` 串行, 先写文件再写记录, 二者恒对应盘上字节.
 
 ## 图片向量 (`media_embeddings`, sidecar)
 

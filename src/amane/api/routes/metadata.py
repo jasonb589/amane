@@ -7,25 +7,33 @@ from typing import TYPE_CHECKING, Annotated, Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import TypeAdapter
+from PIL import Image
+from pydantic import BaseModel, TypeAdapter
+from sqlalchemy.exc import SQLAlchemyError
 
 from ...aggregate import compute_merge_updates
 from ...db.embeddings import EmbeddingKind
-from ...db.models import Library, MediaFile, Metadata, MetadataSortField, SavedQueryEntity, SortOrder, TaskType
+from ...db.models import Library, Metadata, MetadataSortField, SavedQueryEntity, SortOrder, TaskType
 from ...db.repo_types import WriteMode
 from ...db.repos.media import file_phase_of
-from ...enums import ActorGender
+from ...enums import ActorGender, MetadataField
 from ...handlers import ScrapePayload
 from ...media import manual_crop_image
+from ...media.file_type import detect_media_type, is_image_mime
+from ...media.nfo import read_nfo_number
 from ...media.nfo_sync import sync_metadata_nfos
-from ...media.resource_store import internal_url_hash
+from ...media.provenance import resolve_image_provenance
+from ...media.resource_store import RESOURCE_URL_PREFIX, internal_url_hash
+from ...net.errors import RequestError
 from ...organize import resolve_existing_poster_path
+from ...organize.path_templates import POSTER_TEMPLATE_DEFAULT
+from ...organize.template import PathEngine, TemplateContext
 from ...parsing import FilePhaseSummary as ParsedFilePhase
 from ...parsing import parse_file_info, summarize_file_phases
 from ...semantic import SemanticUnavailable
 from ...utils.dates import normalize_calendar_date
 from ...utils.model import to_resp
-from ...utils.path import path_key
+from ...utils.path import is_descendant, path_key
 from ...utils.threads import in_thread
 from ..deps import NetworkDep, RepoDep, RuntimeDep
 from ..models import (
@@ -44,6 +52,8 @@ from ..models import (
     MetadataResponse,
     MetadataUserTagsRequest,
     PartialMetadata,
+    PosterSyncResult,
+    SelectPosterRequest,
     SemanticHitInfo,
     UserTagLinksResponse,
     UserTagResponse,
@@ -381,53 +391,125 @@ async def delete_metadata(metadata_id: int, repo: RepoDep) -> None:
     logger.info("metadata deleted", metadata_id=metadata_id)
 
 
-async def _write_poster_into_libraries(repo: RepoDep, runtime: RuntimeDep, metadata: Metadata, poster_url: str) -> int:
-    """按媒体库模板回写裁切海报; 无关联文件时按精确番号匹配."""
-    hash_ = internal_url_hash(poster_url)
-    if hash_ is None or metadata.id is None:
-        return 0
-    found = await runtime.resource_store.get_by_url_hash(hash_)
-    if found is None:
-        return 0
-    linked = await repo.get_media_by_metadata_id(metadata.id)
-    if not linked and metadata.number:
-        same = await repo.list_media_files(search=metadata.number, limit=None)
-        linked = [f for f in same if f.number == metadata.number]
-    if not linked:
-        return 0
+class _PosterTarget(BaseModel):
+    video: Path
+    library: Library
+    has_external_subtitle: bool = False
+    remembered: bool = False
+    nfo: Path | None = None
 
-    libraries = {library_id: await repo.get_library(library_id) for library_id in {f.library_id for f in linked}}
-    targets = [(media, library) for media in linked if (library := libraries.get(media.library_id)) is not None]
-    actor_genders = {actor.name: actor.gender for actor in await repo.get_actors_by_names(metadata.actors)}
-    return await _copy_cropped_posters(found[1], metadata, targets, runtime.safe_dirs, actor_genders)
+
+async def _write_poster_into_libraries(repo: RepoDep, runtime: RuntimeDep, metadata_id: int) -> PosterSyncResult:
+    """手动海报写回以当前元数据为准, 已整理文件优先沿用记存的实际视频位置."""
+    try:
+        async with repo.nfo_sync_lock:
+            current = await repo.get_metadata(metadata_id)
+            if current is None or current.poster_url is None:
+                return PosterSyncResult(unlocated=True)
+            hash_ = internal_url_hash(current.poster_url)
+            found = await runtime.resource_store.get_by_url_hash(hash_) if hash_ is not None else None
+            if found is None:
+                return PosterSyncResult(failed=1)
+            linked = await repo.get_media_by_metadata_id(metadata_id)
+            if not linked and current.number:
+                same = await repo.list_media_files(search=current.number, limit=None)
+                linked = [f for f in same if f.number == current.number and f.metadata_id in {None, metadata_id}]
+            outputs = await repo.list_nfo_outputs(metadata_id)
+            library_ids = {f.library_id for f in linked} | {output.library_id for output in outputs}
+            libraries = {library_id: await repo.get_library(library_id) for library_id in library_ids}
+            targets = {
+                path_key(media.path): _PosterTarget(
+                    video=Path(media.path), library=library, has_external_subtitle=media.has_external_subtitle
+                )
+                for media in linked
+                if (library := libraries.get(media.library_id)) is not None
+            }
+            for output in outputs:
+                library = libraries.get(output.library_id)
+                if library is not None:
+                    key = path_key(output.video_path)
+                    previous = targets.get(key)
+                    targets[key] = _PosterTarget(
+                        video=Path(output.video_path),
+                        library=library,
+                        has_external_subtitle=previous.has_external_subtitle if previous is not None else False,
+                        remembered=True,
+                        nfo=Path(output.nfo_path),
+                    )
+            if not targets:
+                return PosterSyncResult(unlocated=True)
+            genders = {actor.name: actor.gender for actor in await repo.get_actors_by_names(current.actors)}
+            return await _copy_cropped_posters(found[1], current, list(targets.values()), runtime.safe_dirs, genders)
+    except OSError, ValueError, SQLAlchemyError:
+        logger.exception("poster write-back failed", metadata_id=metadata_id)
+        return PosterSyncResult(failed=1)
 
 
 @in_thread
 def _copy_cropped_posters(
     local: Path,
     metadata: Metadata,
-    targets: Sequence[tuple[MediaFile, Library]],
+    targets: Sequence[_PosterTarget],
     safe_dirs: Sequence[Path] | None,
     actor_genders: Mapping[str, ActorGender],
-) -> int:
+) -> PosterSyncResult:
     written: set[str] = set()
-    for media, library in targets:
-        source = Path(media.path)
+    result = PosterSyncResult()
+    for target in targets:
+        source, library = target.video, target.library
         temporary: Path | None = None
         try:
             if not source.is_file():
+                result.skipped += 1
                 continue
-            poster = resolve_existing_poster_path(
-                library,
-                metadata,
-                source,
-                file_info=parse_file_info(media.path, has_external_subtitle=media.has_external_subtitle),
-                safe_dirs=safe_dirs,
-                actor_genders=actor_genders,
-            )
+            if target.nfo is not None:
+                if target.nfo.is_symlink() or not target.nfo.is_file():
+                    raise ValueError("已整理媒体的 NFO 身份无法核验")
+                previous_number = read_nfo_number(target.nfo)
+                if not previous_number or previous_number.casefold() != metadata.number.casefold():
+                    raise ValueError("已整理媒体的现存 NFO 番号不匹配")
+            file_info = parse_file_info(str(source), has_external_subtitle=target.has_external_subtitle)
+            if target.remembered and not is_descendant(source, library.path):
+                if library.link_template or (
+                    safe_dirs is not None and not any(is_descendant(source, root) for root in safe_dirs)
+                ):
+                    raise ValueError("已整理媒体的海报位置无法安全还原")
+                template = PathEngine(library.poster_template or POSTER_TEMPLATE_DEFAULT)
+                if any(template.uses(name) for name in ("raw_dir", "dir", "raw_name", "raw_relpath", "raw_srt_name")):
+                    raise ValueError("海报模板依赖已不可用的原始路径")
+                context = TemplateContext.from_metadata(
+                    metadata, ext=source.suffix.lstrip("."), file_info=file_info, actor_genders=actor_genders
+                )
+                context.apply_video(source, Path(library.path))
+                context.apply_link(None)
+                poster = template.resolve(context, Path(library.path), safe_dirs)
+                if not poster.parent.is_dir():
+                    result.skipped += 1
+                    continue
+            else:
+                poster = resolve_existing_poster_path(
+                    library, metadata, source, file_info=file_info, safe_dirs=safe_dirs, actor_genders=actor_genders
+                )
             key = path_key(poster)
             if key in written:
+                result.skipped += 1
                 continue
+            if poster.is_symlink():
+                raise ValueError("海报输出位置不允许符号链接")
+            if poster.suffix.lower() not in {
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".webp",
+                ".gif",
+                ".avif",
+                ".bmp",
+                ".tif",
+                ".tiff",
+            }:
+                raise ValueError("海报模板必须使用图片扩展名")
+            if poster.exists() and not is_image_mime(detect_media_type(poster)):
+                raise ValueError("海报输出位置已有非图片文件")
             if poster.exists() and poster.samefile(source):
                 raise ValueError("海报模板不能指向媒体文件")
             poster.parent.mkdir(parents=True, exist_ok=True)
@@ -437,13 +519,92 @@ def _copy_cropped_posters(
                 shutil.copyfileobj(original, output)
             temporary.replace(poster)
             written.add(key)
+            result.written += 1
         except (OSError, ValueError) as exc:
-            logger.warning("poster write-back failed", path=media.path, error=str(exc))
+            result.failed += 1
+            logger.warning("poster write-back failed", path=str(source), error=str(exc))
         finally:
             if temporary is not None:
                 with suppress(OSError):
                     temporary.unlink(missing_ok=True)
-    return len(written)
+    return result
+
+
+async def _save_manual_poster(
+    repo: RepoDep, runtime: RuntimeDep, previous: Metadata, poster_url: str, *, source: str | None = None
+) -> MetadataResponse:
+    assert previous.id is not None
+    provenance = await resolve_image_provenance(poster_url, runtime.resource_store, previous.raw)
+    sources = {**previous.field_sources, MetadataField.POSTER_URLS: source or provenance.source or "manual"}
+    updated = await repo.update_metadata(
+        previous.id, mode=WriteMode.MANUAL, poster_urls=[poster_url], field_sources=sources
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="影片不存在")
+    poster_sync = await _write_poster_into_libraries(repo, runtime, previous.id)
+    nfo_sync = await sync_metadata_nfos(repo, updated, previous, runtime.safe_dirs)
+    return to_resp(MetadataResponse, updated).model_copy(update={"poster_sync": poster_sync, "nfo_sync": nfo_sync})
+
+
+def _still_source(metadata: Metadata, url: str) -> str | None:
+    return next((site for site, urls in metadata.extrafanart_urls.items() if url in urls), None)
+
+
+@in_thread
+def _verify_selected_image(path: Path) -> None:
+    try:
+        with Image.open(path) as image:
+            image.verify()
+        with Image.open(path) as image:
+            image.load()
+    except Exception as exc:
+        raise ValueError("选定剧照不是可读取的图片") from exc
+
+
+@in_thread
+def _copy_selected_image(source: Path, destination: Path) -> bool:
+    shutil.copyfile(source, destination)
+    return True
+
+
+@router.post("/{metadata_id}/select-poster")
+async def select_poster_from_extrafanart(
+    metadata_id: int, req: SelectPosterRequest, repo: RepoDep, runtime: RuntimeDep, network: NetworkDep
+) -> MetadataResponse:
+    """将本影片已有剧照原图设为海报, 保留来源并锁定海报字段; 不自动裁切."""
+    metadata = await repo.get_metadata(metadata_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="影片不存在")
+    site = _still_source(metadata, req.url)
+    if site is None:
+        raise HTTPException(status_code=400, detail="选图必须是当前影片已有的剧照")
+    try:
+        source = await runtime.resource_store.resolve_source(req.url, network.web_client)
+        if source is None:
+            raise ValueError("无法获取选定剧照")
+        await _verify_selected_image(source.path)
+        record = await runtime.resource_store.get_by_url(source.locator)
+        extension = Path(record.file_path).suffix if record is not None else source.path.suffix
+
+        async def producer(destination: Path) -> bool:
+            return await _copy_selected_image(source.path, destination)
+
+        selected = await runtime.resource_store.acquire_derived(
+            source.locator, "select-poster", site, producer, ext=extension or ".bin"
+        )
+        if selected is None:
+            raise ValueError("无法保存选定剧照")
+    except (OSError, ValueError, RequestError) as exc:
+        raise HTTPException(status_code=400, detail="选定剧照无法获取或不是有效图片") from exc
+    current = await repo.get_metadata(metadata_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="影片不存在")
+    if _still_source(current, req.url) != site:
+        raise HTTPException(status_code=409, detail="影片剧照已发生变化，请刷新后重新选择")
+    poster_url = f"{RESOURCE_URL_PREFIX}/{runtime.resource_store.url_hash(selected.url)}"
+    response = await _save_manual_poster(repo, runtime, current, poster_url, source=site)
+    logger.info("poster selected from still", metadata_id=metadata_id, poster_url=poster_url, source=site)
+    return response
 
 
 @router.post("/{metadata_id}/crop-poster")
@@ -462,11 +623,13 @@ async def crop_poster_from_thumb(
     metadata = await repo.get_metadata(metadata_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail="影片不存在")
-    if not metadata.thumb_urls:
+    if req.source_url is not None and req.source_url not in [*metadata.poster_urls, *metadata.thumb_urls]:
+        raise HTTPException(status_code=400, detail="裁切源必须是当前影片的海报或封面候选")
+    if req.source_url is None and not metadata.thumb_urls:
         raise HTTPException(status_code=400, detail="无封面图可裁切")
 
     # 按像素框裁切封面, 写入派生 Resource
-    thumb_url = metadata.thumb_urls[0]
+    thumb_url = req.source_url if req.source_url is not None else metadata.thumb_urls[0]
     box = (req.left, req.top, req.right, req.bottom)
     try:
         poster_url = await manual_crop_image(
@@ -482,19 +645,21 @@ async def crop_poster_from_thumb(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    # 写回 poster_urls
-    updated = await repo.update_metadata(metadata_id, mode=WriteMode.MANUAL, poster_urls=[poster_url])
-    assert updated is not None
-    written = await _write_poster_into_libraries(repo, runtime, updated, poster_url)
+    current = await repo.get_metadata(metadata_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="影片不存在")
+    if thumb_url not in [*current.poster_urls, *current.thumb_urls]:
+        raise HTTPException(status_code=409, detail="影片图片已发生变化，请刷新后重新裁切")
+    response = await _save_manual_poster(repo, runtime, current, poster_url)
     logger.info(
         "poster cropped",
         metadata_id=metadata_id,
         box=box,
         rotation=req.rotation,
         poster_url=poster_url,
-        written_dirs=written,
+        written_dirs=response.poster_sync.written if response.poster_sync is not None else 0,
     )
-    return to_resp(MetadataResponse, updated)
+    return response
 
 
 @router.post("/{metadata_id}/merge")

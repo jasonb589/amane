@@ -3,6 +3,10 @@
     "result": "Metadata saved. NFO sync: {{written}} written, {{skipped}} skipped, {{failed}} failed.",
     "unlocated": "Metadata saved; no NFO location was found. For files moved outside the library by older versions, add the destination folder as a library and scan it."
   },
+  "posterSync": {
+    "result": "Library poster sync: {{written}} written, {{skipped}} skipped, {{failed}} failed.",
+    "unlocated": "No library poster location was found for synchronization."
+  },
   "semantic": {
     "toggle": "Semantic",
     "back": "Back",
@@ -171,7 +175,13 @@
       "confirm": "Crop & save",
       "needSelection": "Select a valid region first",
       "success": "Poster updated",
-      "noThumb": "A cover image is required to crop a poster"
+      "noThumb": "A cover or poster image is required to crop a poster",
+      "fromCover": "Crop from cover",
+      "fromPoster": "Crop current poster"
+    },
+    "selectPoster": {
+      "action": "Set as poster",
+      "view": "View poster"
     },
     "playbackCopyTimestamp": "Copy timestamp",
     "playbackCopyLink": "Copy link to current time",

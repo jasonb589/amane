@@ -72,6 +72,8 @@ from .metadata import (
     MetadataResponse,
     MetadataUserTagsRequest,
     PartialMetadata,
+    PosterSyncResult,
+    SelectPosterRequest,
     SemanticHitInfo,
 )
 from .network import (
@@ -207,6 +209,7 @@ __all__ = [
     "PluginConfigUpdate",
     "PluginListResponse",
     "PluginResponse",
+    "PosterSyncResult",
     "PurgeSubmission",
     "R18ImportSubmission",
     "RefreshSubmission",
@@ -220,6 +223,7 @@ __all__ = [
     "ScheduleUpdateRequest",
     "ScrapeRequest",
     "ScrapeSubmission",
+    "SelectPosterRequest",
     "SemanticBenchmarkSubmission",
     "SemanticDiagnosticsResponse",
     "SemanticHitInfo",

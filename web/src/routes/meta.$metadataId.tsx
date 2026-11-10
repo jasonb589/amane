@@ -28,6 +28,7 @@ import {
   IconLock,
   IconLockOpen,
   IconPencil,
+  IconPhoto,
   IconPhotoOff,
   IconPlayerPlay,
   IconRefresh,
@@ -60,7 +61,8 @@ import { FacetBadge } from "@/components/media/facet-badge";
 import { LockChip, LockToggle, type LockProps } from "@/components/media/field-lock";
 import { UserTagActions } from "@/components/media/user-tag-add";
 import { VrBadge } from "@/components/media/vr-badge";
-import { FanartLightbox, FanartStrip } from "@/components/media/fanart-lightbox";
+import { FanartLightbox } from "@/components/media/fanart-lightbox";
+import { MetadataFanartStrip } from "@/components/media/metadata-fanart-strip";
 import { FilePhaseBadges, FilePhaseOverlay } from "@/components/media/file-phase-badges";
 import { PosterCropDialog } from "@/components/media/poster-crop-dialog";
 import { MergeDialog } from "@/components/metadata/merge-dialog";
@@ -141,7 +143,9 @@ function TitleDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [cropOpen, setCropOpen] = useState(false);
+  const [cropSource, setCropSource] = useState<{ url: string; explicit: boolean } | null>(null);
   const [coverLightboxOpen, coverLightbox] = useDisclosure(false);
+  const [posterLightboxOpen, posterLightbox] = useDisclosure(false);
   const [playingTrailer, setPlayingTrailer] = useState(false);
   // 播放失败的预告片地址: 只对该地址有效, 记录之外 (条目切换或重新刮削换了地址) 一律不算失败.
   const [failedTrailerUrl, setFailedTrailerUrl] = useState<string | null>(null);
@@ -191,6 +195,8 @@ function TitleDetailPage() {
     setPlayingTrailer(false);
     setThumbBroken(false);
     setPosterBroken(false);
+    setCropOpen(false);
+    setCropSource(null);
   }
 
   const { data, isLoading, isError } = useQuery({
@@ -410,7 +416,17 @@ function TitleDetailPage() {
   const coverFailed = Boolean((thumbSrc || posterSrc) && !coverUrl);
   // 取成局部量, 供播放分支在回调里引用 (属性访问的收窄不进闭包).
   const trailerUrl = item.trailer_url ?? null;
-  const hasExtrafanart = item.extrafanart && item.extrafanart.length > 0;
+  const extrafanart = [
+    ...new Set([
+      ...(item.extrafanart ?? []),
+      ...Object.values(item.extrafanart_urls ?? {}).flatMap((urls: unknown) =>
+        Array.isArray(urls)
+          ? urls.filter((url: unknown): url is string => typeof url === "string" && url.length > 0)
+          : [],
+      ),
+    ]),
+  ];
+  const hasExtrafanart = extrafanart.length > 0;
   const runtime = formatRuntime(item.runtime);
   const allLocked = LOCKABLE_FIELDS.every((field) => lockedFields.has(field));
 
@@ -624,19 +640,57 @@ function TitleDetailPage() {
             )}
           </div>
           <Group gap="xs" wrap="wrap">
-            <Tooltip label={t("detail.cropPoster.noThumb")} disabled={thumbSrc != null}>
+            <Tooltip
+              label={t("detail.cropPoster.noThumb")}
+              disabled={thumbSrc != null || posterSrc != null}
+            >
               <Box display="inline-block">
-                <Button
-                  size="xs"
-                  variant="light"
-                  leftSection={<IconCrop size={14} />}
-                  disabled={!thumbSrc}
-                  onClick={() => setCropOpen(true)}
-                >
-                  {t("detail.cropPoster.action")}
-                </Button>
+                <Menu shadow="md" position="bottom-start">
+                  <Menu.Target>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      leftSection={<IconCrop size={14} />}
+                      disabled={!thumbSrc && !posterSrc}
+                    >
+                      {t("detail.cropPoster.action")}
+                    </Button>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    {thumbSrc && (
+                      <Menu.Item
+                        onClick={() => {
+                          setCropSource({ url: thumbSrc, explicit: false });
+                          setCropOpen(true);
+                        }}
+                      >
+                        {t("detail.cropPoster.fromCover")}
+                      </Menu.Item>
+                    )}
+                    {posterSrc && (
+                      <Menu.Item
+                        onClick={() => {
+                          setCropSource({ url: posterSrc, explicit: true });
+                          setCropOpen(true);
+                        }}
+                      >
+                        {t("detail.cropPoster.fromPoster")}
+                      </Menu.Item>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
               </Box>
             </Tooltip>
+            {posterSrc && (
+              <Button
+                size="xs"
+                variant="subtle"
+                leftSection={<IconPhoto size={14} />}
+                onClick={posterLightbox.open}
+              >
+                {t("detail.selectPoster.view")}
+              </Button>
+            )}
             <LockChip label={t("detail.fields.thumb")} {...lockProps("thumb_urls")} />
             <LockChip label={t("detail.fields.poster")} {...lockProps("poster_urls")} />
             <LockChip label={t("detail.fields.trailer")} {...lockProps("trailer_urls")} />
@@ -789,10 +843,10 @@ function TitleDetailPage() {
 
           {hasExtrafanart && (
             <FieldBlock
-              label={`${t("detail.fields.extrafanart")} (${item.extrafanart?.length})`}
+              label={`${t("detail.fields.extrafanart")} (${extrafanart.length})`}
               lock={lockProps("extrafanart")}
             >
-              <FanartStrip images={item.extrafanart ?? []} />
+              <MetadataFanartStrip key={id} metadataId={id} images={extrafanart} />
             </FieldBlock>
           )}
 
@@ -993,12 +1047,13 @@ function TitleDetailPage() {
         onMerged={invalidateDetail}
       />
 
-      {thumbSrc && (
+      {cropSource && (
         <PosterCropDialog
           opened={cropOpen}
           onClose={() => setCropOpen(false)}
           metadataId={id}
-          thumbUrl={thumbSrc}
+          imageUrl={cropSource.url}
+          sourceUrl={cropSource.explicit ? cropSource.url : undefined}
           onSuccess={() => {
             invalidateDetail();
             void queryClient.invalidateQueries({ queryKey: listMetadataQueryKey() });
@@ -1008,6 +1063,9 @@ function TitleDetailPage() {
 
       {coverLightboxOpen && coverSrc && (
         <FanartLightbox images={[coverSrc]} onClose={coverLightbox.close} />
+      )}
+      {posterLightboxOpen && posterSrc && (
+        <FanartLightbox images={[posterSrc]} onClose={posterLightbox.close} />
       )}
     </Stack>
   );

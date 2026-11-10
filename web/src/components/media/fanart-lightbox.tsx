@@ -26,10 +26,17 @@ interface FanartLightboxProps {
   images: string[];
   initialIndex?: number;
   onClose: () => void;
+  /** 仅由调用方为当前原始图片地址提供操作; 浏览器代理地址不参与写入. */
+  renderActions?: (url: string) => ReactNode;
 }
 
 /** Fullscreen image viewer with keyboard prev/next/escape and intrinsic resolution. */
-export function FanartLightbox({ images, initialIndex = 0, onClose }: FanartLightboxProps) {
+export function FanartLightbox({
+  images,
+  initialIndex = 0,
+  onClose,
+  renderActions,
+}: FanartLightboxProps) {
   const { t } = useTranslation("common");
   const [index, setIndex] = useState(() =>
     Math.min(Math.max(initialIndex, 0), Math.max(images.length - 1, 0)),
@@ -218,7 +225,9 @@ export function FanartLightbox({ images, initialIndex = 0, onClose }: FanartLigh
             alt={`fanart-${index}`}
             referrerPolicy="no-referrer"
             style={{
-              maxHeight: "calc(var(--amane-vh) * 0.9)",
+              maxHeight: renderActions
+                ? "calc(var(--amane-vh) - 180px)"
+                : "calc(var(--amane-vh) * 0.9)",
               maxWidth: "90vw",
               objectFit: "contain",
               pointerEvents: "auto",
@@ -243,6 +252,21 @@ export function FanartLightbox({ images, initialIndex = 0, onClose }: FanartLigh
             }}
           />
         </Group>
+        {renderActions && (
+          <Box
+            pos="absolute"
+            bottom={16}
+            left="50%"
+            w="100%"
+            maw={600}
+            px="md"
+            style={{ transform: "translateX(-50%)", zIndex: 1 }}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {renderActions(images[index])}
+          </Box>
+        )}
       </Box>
     </Portal>
   );
@@ -256,6 +280,7 @@ interface ThumbStripProps {
   /** Called after opening lightbox; use to stopPropagation from parent selectors. */
   onThumbClick?: (e: MouseEvent) => void;
   empty?: ReactNode;
+  renderActions?: FanartLightboxProps["renderActions"];
 }
 
 /** Thumbnail strip that opens FanartLightbox on click. */
@@ -265,6 +290,7 @@ export function FanartStrip({
   thumbStyle,
   onThumbClick,
   empty = null,
+  renderActions,
 }: ThumbStripProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [start, setStart] = useState(0);
@@ -343,7 +369,14 @@ export function FanartStrip({
           </Box>
         )}
       </Group>
-      {opened && <FanartLightbox images={images} initialIndex={start} onClose={close} />}
+      {opened && (
+        <FanartLightbox
+          images={images}
+          initialIndex={start}
+          onClose={close}
+          renderActions={renderActions}
+        />
+      )}
     </>
   );
 }

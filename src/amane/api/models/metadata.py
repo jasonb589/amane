@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ...db import Metadata
 from ...db.embeddings import EmbeddingKind
@@ -26,6 +26,13 @@ class FilePhaseSummary(BaseModel):
     uncensored: bool = False
     mosaics: list[Mosaic] = []
     definition: str | None = None
+
+
+class PosterSyncResult(BaseModel):
+    written: int = 0
+    skipped: int = 0
+    failed: int = 0
+    unlocated: bool = False
 
 
 class MetadataResponse(BaseModel):
@@ -59,6 +66,7 @@ class MetadataResponse(BaseModel):
     raw: dict = {}
     locked_fields: list[MetadataField] = []
     nfo_sync: NfoSyncResult | None = None
+    poster_sync: PosterSyncResult | None = None
 
     @field_validator("locked_fields", mode="before")
     @classmethod
@@ -153,7 +161,15 @@ class MetadataLocksRequest(BaseModel):
 
 
 class CropPosterRequest(CropBoxRequest):
-    """从封面图按像素框裁切海报 (相对 thumb 当前本地文件像素; 含就地超分后尺寸)."""
+    """从当前海报或封面按像素框裁切; 坐标相对源图当前本地像素, 含就地超分后的尺寸."""
+
+    source_url: str | None = Field(default=None, description="裁切当前海报或封面候选; 未传时采用首张封面")
+
+
+class SelectPosterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1, strict=True, description="当前影片已有剧照的完整 URL")
 
 
 class MetadataBatchIdsRequest(BaseModel):

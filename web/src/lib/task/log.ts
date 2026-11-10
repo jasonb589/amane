@@ -15,7 +15,7 @@ function stableValue(value: unknown): unknown {
   if (isRecord(value)) {
     return Object.fromEntries(
       Object.keys(value)
-        .sort()
+        .toSorted()
         .map((key) => [key, stableValue(value[key])]),
     );
   }

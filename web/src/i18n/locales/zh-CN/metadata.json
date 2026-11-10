@@ -3,6 +3,10 @@
     "result": "元数据已保存；NFO 同步成功 {{written}} 个，跳过 {{skipped}} 个，失败 {{failed}} 个。",
     "unlocated": "元数据已保存；未找到可同步的 NFO。旧版移出媒体库且未保留位置的文件，需要将目标目录加入媒体库并扫描。"
   },
+  "posterSync": {
+    "result": "媒体库海报同步成功 {{written}} 个，跳过 {{skipped}} 个，失败 {{failed}} 个。",
+    "unlocated": "未找到可同步的媒体库海报位置。"
+  },
   "semantic": {
     "toggle": "语义",
     "back": "返回",
@@ -168,7 +172,13 @@
       "confirm": "裁切并保存",
       "needSelection": "请先框选有效区域",
       "success": "海报已更新",
-      "noThumb": "需要封面图才能裁切海报"
+      "noThumb": "需要封面或海报图才能裁切海报",
+      "fromCover": "从封面裁切",
+      "fromPoster": "裁切当前海报"
+    },
+    "selectPoster": {
+      "action": "设为海报",
+      "view": "查看海报"
     },
     "playbackCopyTimestamp": "复制时间戳",
     "playbackCopyLink": "复制当前时间的链接",

@@ -140,6 +140,19 @@ def render_nfo(metadata: Metadata) -> str:
     return code.getvalue()
 
 
+def read_nfo_number(nfo_path: Path) -> str | None:
+    """同步读取既有 NFO 的番号; 供工作线程中的写回身份核对复用."""
+    existing = nfo_path.read_text(encoding="utf-8-sig")
+    try:
+        return ET.fromstring(existing).findtext("num")
+    except ET.ParseError as exc:
+        # 旧版把 r18dev:jp 等来源写成无 namespace 声明的标签; 番号节点仍是完整 XML.
+        matches = re.findall(r"<num>[^<>]*</num>", existing)
+        if "unbound prefix" not in str(exc) or len(matches) != 1:
+            raise ValueError("现存 NFO 无法解析") from exc
+        return ET.fromstring(matches[0]).text
+
+
 @in_thread
 def write_nfo(
     metadata: Metadata, nfo_path: Path, *, create_parent: bool = True, expected_number: str | None = None
@@ -152,15 +165,7 @@ def write_nfo(
         if create_parent:
             nfo_path.parent.mkdir(parents=True, exist_ok=True)
         if expected_number is not None and nfo_path.exists():
-            existing = nfo_path.read_text(encoding="utf-8-sig")
-            try:
-                previous = ET.fromstring(existing).findtext("num")
-            except ET.ParseError as exc:
-                # 旧版把 r18dev:jp 等来源写成无 namespace 声明的标签; 番号节点仍是完整 XML.
-                matches = re.findall(r"<num>[^<>]*</num>", existing)
-                if "unbound prefix" not in str(exc) or len(matches) != 1:
-                    raise
-                previous = ET.fromstring(matches[0]).text
+            previous = read_nfo_number(nfo_path)
             if not previous or previous.casefold() != expected_number.casefold():
                 raise ValueError("现存 NFO 的番号不匹配")
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=nfo_path.parent, delete=False) as output:

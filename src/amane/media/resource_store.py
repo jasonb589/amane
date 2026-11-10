@@ -446,10 +446,30 @@ class ResourceStore:
             await session.commit()
 
     async def purge_unreferenced(self, live_urls: set[str], live_hashes: set[str]) -> int:
-        # 存活: url 在 live_urls, 或 url_hash 在 live_hashes (内部相对 URL /api/resources/{hash}).
+        """直接引用与其来源祖先共同存活; 未引用的派生链和孤立环照常回收."""
+        resources = await self.list_all()
+        by_url = {resource.url: resource for resource in resources}
+        by_hash = {_url_hash(resource.url): resource for resource in resources}
+        retained = {
+            resource.url
+            for resource in resources
+            if resource.url in live_urls or _url_hash(resource.url) in live_hashes
+        }
+        pending = list(retained)
+        while pending:
+            source = (by_url[pending.pop()].meta or {}).get("src")
+            if not isinstance(source, str):
+                continue
+            ancestor = by_url.get(source)
+            if ancestor is None and (source_hash := internal_url_hash(source)) is not None:
+                ancestor = by_hash.get(source_hash)
+            if ancestor is not None and ancestor.url not in retained:
+                retained.add(ancestor.url)
+                pending.append(ancestor.url)
+
         removed = 0
-        for resource in await self.list_all():
-            if resource.url in live_urls or _url_hash(resource.url) in live_hashes:
+        for resource in resources:
+            if resource.url in retained:
                 continue
             await self.invalidate(resource.url)
             removed += 1
