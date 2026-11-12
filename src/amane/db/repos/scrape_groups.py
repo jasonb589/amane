@@ -2,6 +2,7 @@
 
 import hashlib
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
@@ -34,7 +35,32 @@ class _ScrapeIdentity(BaseModel):
         return hashlib.sha256(serialized).hexdigest()
 
 
-async def assign_scrape_group(session: AsyncSession, task_type: TaskType, payload: dict[str, object]) -> int | None:
+@dataclass
+class _PendingGroup:
+    group_id: int
+    media_file_ids: set[int]
+
+
+class ScrapeGroupBatch:
+    """记录尚未批量 INSERT 的成员, 使同批分集可以加入同一共享组."""
+
+    def __init__(self) -> None:
+        self._groups: dict[str, list[_PendingGroup]] = {}
+
+    def assign(self, key: str, media_file_id: int) -> int | None:
+        for group in self._groups.get(key, []):
+            if media_file_id not in group.media_file_ids:
+                group.media_file_ids.add(media_file_id)
+                return group.group_id
+        return None
+
+    def remember(self, key: str, group_id: int, media_file_ids: set[int]) -> None:
+        self._groups.setdefault(key, []).append(_PendingGroup(group_id, media_file_ids))
+
+
+async def assign_scrape_group(
+    session: AsyncSession, task_type: TaskType, payload: dict[str, object], *, batch: ScrapeGroupBatch
+) -> int | None:
     if task_type is not TaskType.SCRAPE:
         return None
     try:
@@ -46,6 +72,9 @@ async def assign_scrape_group(session: AsyncSession, task_type: TaskType, payloa
         return None
     # 既有文件的显式重刮不与新文件的直接关联快路共享结果.
     key = identity.key(new_file=media.status is MediaFileStatus.PENDING and media.metadata_id is None)
+    pending_id = batch.assign(key, identity.media_file_id)
+    if pending_id is not None:
+        return pending_id
     active_member = exists(
         select(Task.id).where(
             Task.scrape_group_id == ScrapeGroup.id,
@@ -62,11 +91,15 @@ async def assign_scrape_group(session: AsyncSession, task_type: TaskType, payloa
         # 同一个文件再次提交代表新一轮; 克隆旧载荷的显式重试也不得返回旧组结果.
         if any((member.payload or {}).get("media_file_id") == identity.media_file_id for member in members):
             continue
+        assert group.id is not None
+        media_ids = {value for member in members if type(value := (member.payload or {}).get("media_file_id")) is int}
+        batch.remember(key, group.id, {identity.media_file_id, *media_ids})
         return group.id
     group = ScrapeGroup(key=key)
     session.add(group)
     await session.flush()
     assert group.id is not None
+    batch.remember(key, group.id, {identity.media_file_id})
     return group.id
 
 

@@ -31,7 +31,7 @@ ORGANIZE 只整理范围内的 `MediaFile` 行: 缺省为该库全部索引, 显
 后继任务只经 `TaskResult.followups` 进入完成事务:
 
 - **动态后继**: handler 在执行期间才确定后继数量与 payload, 经 `TaskResult.followups` 返回. REFRESH→SCRAPE、RESCRAPE→SCRAPE / ACTOR_SCRAPE、SCRAPE→ACTOR_SCRAPE、ACTOR_SCRAPE→ACTOR_PUSH 都是这一形态. ACTOR_PUSH 只在 media server 已配置且 actor_scraping.auto_push 开启时产生, 优先级为 -1; 推送失败不回传父任务.
-- **统一完成事务**: worker 成功路径调用 `Repository.complete_task_with_followups` — 一个事务内完成父任务、创建子任务 (复用 `create_task` 的入队互斥)、写 `TaskLink` 边; 父完成与子创建原子, 失败路径不产生后继. 它与 `create_task` 同一把入队锁串行化, 因此两个父任务并发派生同一互斥键时只会复用同一行.
+- **统一完成事务**: worker 成功路径调用 `Repository.complete_task_with_followups` — 一个事务内完成父任务、创建子任务 (复用 `create_task` 的入队互斥)、写 `TaskLink` 边; 父完成与子创建原子, 失败路径不产生后继. 它与 `create_task` 同一把入队锁串行化, 因此两个父任务并发派生同一互斥键时只会复用同一行. 状态迁移一律为带源状态谓词的单条 UPDATE: 认领只认 QUEUED, 完成与运行中失败只认 RUNNING, 失败接受 QUEUED / RUNNING; 命中 0 行即状态已被并发改动, 不覆盖终态也不派生后继.
 - **`TaskLink`** 是父子边真值: `(parent_task_id, key)` 唯一, `key` 须在父节点内区分后继 (fan-out 带实体 id); 完成事务对同 key 只留第一条. 删除任务时清理其边, 不删除另一端任务.
 - **链聚合**: `tasks.root_task_id` 记录链根 (根指向自己), 一棵链一次 `list_tasks_by_root` 取回. 任务列表默认只显示链根, `child_count` / `child_status` 是直接后继的数量与状态分布, 折叠节点据此显示.
 - **筛选与 roots_only 正交**: `GET /tasks` 带 status / type 筛选时在 SQL 中匹配**全部**任务 (含子任务), 再 `DISTINCT COALESCE(root_task_id, id)` 还原链根行, 因此「父已 DONE、子排队中」时仍能看到父根行. 裸任务 (root 为空) 按自身 id 精确匹配.
@@ -101,7 +101,7 @@ handler 之间复用的阶段逻辑, 不是一条可跳步的总管线:
 
 `execute_file_operations` 是落盘执行单元, 仅 ORGANIZE 经 `apply_file_operations` 调用. 不变量:
 
-- **整理 = 复制到库路径**: 优先用 Resource 已有文件, 缺失才现场 `acquire`; 复制哪些类型由 `Library.copy_resources` (或 payload 覆盖) 决定 (见 [data-model.md](data-model.md)). 目标路径上已有的产物一律按本次内容覆盖, NFO 同理, 不判断是否已存在; fanart 没有刮削来源, 内容取 thumb, 因此随 thumb 一同重写, 该路径上的自备背景图会被覆盖, 也没有单独的关闭途径.
+- **整理 = 复制到库路径**: 优先用 Resource 已有文件, 缺失才现场 `acquire`; 复制哪些类型由 `Library.copy_resources` (或 payload 覆盖) 决定 (见 [data-model.md](data-model.md)). 目标路径上已有的产物一律按本次内容覆盖, 落盘按新文件处理 (临时文件加改名, 权限与 ACL 取自库目录而非 Resource), NFO 同理, 不判断是否已存在; fanart 没有刮削来源, 内容取 thumb, 因此随 thumb 一同重写, 该路径上的自备背景图会被覆盖, 也没有单独的关闭途径.
 - **封面角标**: `watermark.enabled` 时 poster / thumb 副本按源文件 FileInfo 与条目类型叠 PNG; Resource 原图与 fanart 不修改.
 - **海报缺失**: 有码与无码在 `scraping.crop_poster` 开启时从已落盘 thumb 裁剪兜底; 其余类型不裁.
 - **目标占用**: 判定分为四态: 空闲 / 已就位 / 被占用 / 无法判定. 源与目标已是同一文件 (含硬链同一 inode) 时视为就位, 只跳过视频落盘, 附属文件照常重写; 被占用时跳过该文件, 不改名、不覆盖、不移动, 视频与字幕一视同仁, 由调用方按冲突记账, 冲突条目 (源路径 + 被占用的目标路径; 字幕冲突的 `path` 记字幕源路径, 不记视频源路径) 写进任务结果供界面显示, 且 `conflicts` 恒为 `conflicted` 条数的前缀 (差额只留在任务日志里), 冲突不自动解决, 未落盘的行留在源路径, 由用户自行处理. 无法判定 (stat 失败, 或两者在两次读取之间被替换) 按失败记账并带上 stat 的错误说明, 不得计入冲突或放宽为空闲. 存在性与占用判定都经 `existing_disk_path` (跟随符号链接; 读不出状态时按不存在处理, 不抛异常): 目标位置是断链符号链接时按空闲处理, MOVE 会替换它, SYMLINK 因 EEXIST 记失败. 判定与落盘之间还有窗口, MOVE / COPY 期间目标被外部写入仍会覆盖, 这条保证是尽力而为.

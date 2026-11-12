@@ -804,6 +804,7 @@ export const ActorUserTagsRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Ids',
             description: '演员 ID 列表'
@@ -813,6 +814,7 @@ export const ActorUserTagsRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'User Tag Ids',
             description: '用户标签 ID 列表'
@@ -2105,6 +2107,7 @@ export const FacetBatchRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Facet Ids',
             description: '分类 ID 列表'
@@ -2198,6 +2201,7 @@ export const FacetMergeRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Source Ids',
             description: '待合并的来源 facet id 列表'
@@ -2474,6 +2478,7 @@ export const FeedItemBatchRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Ids'
         }
@@ -5482,6 +5487,12 @@ export const MetadataBatchDeleteResponseSchema = {
             type: 'integer',
             title: 'Missing',
             description: '不存在的 id 数量'
+        },
+        skipped: {
+            type: 'integer',
+            title: 'Skipped',
+            description: '请求内重复的 id 数量; 已去重',
+            default: 0
         }
     },
     type: 'object',
@@ -5499,6 +5510,7 @@ export const MetadataBatchIdsRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Ids',
             description: 'Metadata ID 列表'
@@ -5518,6 +5530,7 @@ export const MetadataBatchScrapeRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Ids',
             description: 'Metadata ID 列表'
@@ -5561,6 +5574,12 @@ export const MetadataBatchScrapeResponseSchema = {
             type: 'integer',
             title: 'Missing',
             description: '不存在的 id 数量'
+        },
+        skipped: {
+            type: 'integer',
+            title: 'Skipped',
+            description: '请求内重复的 id 数量; 已去重',
+            default: 0
         },
         task_ids: {
             items: {
@@ -5704,11 +5723,283 @@ export const MetadataFieldSchema = {
     title: 'MetadataField'
 } as const;
 
+export const MetadataListItemSchema = {
+    properties: {
+        id: {
+            type: 'integer',
+            title: 'Id'
+        },
+        number: {
+            type: 'string',
+            title: 'Number'
+        },
+        content_type: {
+            $ref: '#/components/schemas/ContentType'
+        },
+        title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Title'
+        },
+        actors: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Actors',
+            default: []
+        },
+        studio: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Studio'
+        },
+        publisher: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Publisher'
+        },
+        release: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Release'
+        },
+        runtime: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Runtime'
+        },
+        tags: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Tags',
+            default: []
+        },
+        series: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Series'
+        },
+        plot: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Plot'
+        },
+        directors: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Directors',
+            default: []
+        },
+        poster_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Poster Url'
+        },
+        thumb_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Thumb Url'
+        },
+        trailer_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Trailer Url'
+        },
+        extrafanart: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Extrafanart',
+            default: []
+        },
+        score: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Score'
+        },
+        vr: {
+            type: 'boolean',
+            title: 'Vr',
+            default: false
+        },
+        poster_urls: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Poster Urls',
+            default: []
+        },
+        thumb_urls: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Thumb Urls',
+            default: []
+        },
+        trailer_urls: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Trailer Urls',
+            default: []
+        },
+        extrafanart_urls: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Extrafanart Urls',
+            default: {}
+        },
+        scores: {
+            additionalProperties: {
+                type: 'number'
+            },
+            type: 'object',
+            title: 'Scores',
+            default: {}
+        },
+        external_ids: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'External Ids',
+            default: {}
+        },
+        source_urls: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Source Urls',
+            default: {}
+        },
+        locked_fields: {
+            items: {
+                $ref: '#/components/schemas/MetadataField'
+            },
+            type: 'array',
+            title: 'Locked Fields',
+            default: []
+        },
+        file_count: {
+            type: 'integer',
+            title: 'File Count',
+            default: 0
+        },
+        file_phase: {
+            $ref: '#/components/schemas/FilePhaseSummary'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        updated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: [
+        'id',
+        'number',
+        'content_type'
+    ],
+    title: 'MetadataListItem',
+    description: '列表与语义检索的条目: 不含 raw / field_sources, 详情才返回全量.'
+} as const;
+
 export const MetadataListResponseSchema = {
     properties: {
         items: {
             items: {
-                $ref: '#/components/schemas/MetadataResponse'
+                $ref: '#/components/schemas/MetadataListItem'
             },
             type: 'array',
             title: 'Items'
@@ -5761,6 +6052,7 @@ export const MetadataMergeEntriesRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Source Ids',
             description: '待合并的 Metadata ID 列表; 按顺序补入 raw 快照'
@@ -6233,18 +6525,6 @@ export const MetadataResponseSchema = {
             title: 'Source Urls',
             default: {}
         },
-        field_sources: {
-            additionalProperties: true,
-            type: 'object',
-            title: 'Field Sources',
-            default: {}
-        },
-        raw: {
-            additionalProperties: true,
-            type: 'object',
-            title: 'Raw',
-            default: {}
-        },
         locked_fields: {
             items: {
                 $ref: '#/components/schemas/MetadataField'
@@ -6252,26 +6532,6 @@ export const MetadataResponseSchema = {
             type: 'array',
             title: 'Locked Fields',
             default: []
-        },
-        nfo_sync: {
-            anyOf: [
-                {
-                    $ref: '#/components/schemas/NfoSyncResult'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        },
-        poster_sync: {
-            anyOf: [
-                {
-                    $ref: '#/components/schemas/PosterSyncResult'
-                },
-                {
-                    type: 'null'
-                }
-            ]
         },
         file_count: {
             type: 'integer',
@@ -6304,6 +6564,38 @@ export const MetadataResponseSchema = {
                 }
             ],
             title: 'Updated At'
+        },
+        field_sources: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Field Sources',
+            default: {}
+        },
+        raw: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Raw',
+            default: {}
+        },
+        nfo_sync: {
+            anyOf: [
+                {
+                    $ref: '#/components/schemas/NfoSyncResult'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        poster_sync: {
+            anyOf: [
+                {
+                    $ref: '#/components/schemas/PosterSyncResult'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',
@@ -6312,7 +6604,8 @@ export const MetadataResponseSchema = {
         'number',
         'content_type'
     ],
-    title: 'MetadataResponse'
+    title: 'MetadataResponse',
+    description: '详情与单条写接口的全量条目: 在列表项之上补 raw / field_sources.'
 } as const;
 
 export const MetadataSortFieldSchema = {
@@ -6337,6 +6630,7 @@ export const MetadataUserTagsRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Ids',
             description: 'Metadata ID 列表'
@@ -6346,6 +6640,7 @@ export const MetadataUserTagsRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'User Tag Ids',
             description: '用户标签 ID 列表'
@@ -6367,6 +6662,39 @@ export const MetadataUserTagsRequestSchema = {
         'action'
     ],
     title: 'MetadataUserTagsRequest'
+} as const;
+
+export const MetadataUserTagsResponseSchema = {
+    properties: {
+        changed: {
+            type: 'integer',
+            title: 'Changed',
+            description: '至少一处挂载关系发生变更的条目数'
+        },
+        unchanged: {
+            type: 'integer',
+            title: 'Unchanged',
+            description: '已处于目标态、未修改的条目数'
+        },
+        missing: {
+            type: 'integer',
+            title: 'Missing',
+            description: '不存在的条目 id 数'
+        },
+        skipped: {
+            type: 'integer',
+            title: 'Skipped',
+            description: '请求内重复的条目 id 数量; 已去重',
+            default: 0
+        }
+    },
+    type: 'object',
+    required: [
+        'changed',
+        'unchanged',
+        'missing'
+    ],
+    title: 'MetadataUserTagsResponse'
 } as const;
 
 export const MosaicSchema = {
@@ -9049,6 +9377,7 @@ export const SelectionRequestSchema = {
                 type: 'integer'
             },
             type: 'array',
+            maxItems: 1000,
             minItems: 1,
             title: 'Media File Ids',
             description: '选中的媒体文件 ID; 必须属于该库'
@@ -9355,7 +9684,7 @@ export const SemanticHitInfoSchema = {
         'similarity'
     ],
     title: 'SemanticHitInfo',
-    description: '语义检索的命中图片: 与列表项按 id 对应, 不扩展 ``MetadataResponse`` 本身.'
+    description: '语义检索的命中图片: 与列表项按 id 对应, 不扩展列表项模型本身.'
 } as const;
 
 export const SemanticIndexResultSchema = {
@@ -10025,6 +10354,7 @@ export const TaskBatchRequestSchema = {
                         type: 'integer'
                     },
                     type: 'array',
+                    maxItems: 1000,
                     minItems: 1
                 },
                 {

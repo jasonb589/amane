@@ -91,7 +91,9 @@ async def test_purge_clears_task_history_but_keeps_unfinished(purge_env):
     failed = await repo.create_task(TaskType.CLEANUP, CleanupPayload())
     queued = await repo.create_task(TaskType.CLEANUP, CleanupPayload())
     assert done.id is not None and failed.id is not None and queued.id is not None
-    await repo.complete_task(done.id)
+    claimed = await repo.claim_next_task()
+    assert claimed is not None and claimed.id == done.id
+    assert await repo.complete_task(done.id)
     await repo.fail_task(failed.id, error="boom")
 
     handler = PurgeHandler(repo, store)

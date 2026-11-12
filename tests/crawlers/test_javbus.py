@@ -88,27 +88,39 @@ async def test_search_reports_other_failures(query: str, routes: dict[str, Route
     assert excinfo.value.http_status == status
 
 
-@pytest.mark.parametrize(
-    ("cover", "expected"),
-    [
-        ("/pics/cover/abc_b.jpg", "https://www.javbus.com/pics/thumb/abc.jpg"),
-        ("/imgs/cover/n1103_b.jpg", "https://www.javbus.com/pics/thumb/n1103.jpg"),
-        ("/imgs/cover/n1103.jpg?width=800", "https://www.javbus.com/pics/thumb/n1103.jpg"),
-        ("https://images.example/imgs/cover/n1103_b.jpg?token=x", "https://www.javbus.com/pics/thumb/n1103.jpg"),
-        (None, None),
-        ("", None),
-        ("/pics/cover/abc.png", None),
-        ("/pics/cover/abc.jpg/extra", None),
-        ("/pics/thumb/abc.jpg", None),
-    ],
-)
-def test_cover_path_derives_poster_from_javbus_thumbnail_root(cover: str | None, expected: str | None) -> None:
+# 海报根必须与封面根同源: 跨根拼出的地址是另一部作品的海报, 站上照样 200, 无法在下载期兜底.
+POSTER_CASES: list[tuple[str | None, str | None]] = [
+    ("/pics/cover/939o_b.jpg", "https://www.javbus.com/pics/thumb/939o.jpg"),
+    ("/imgs/cover/wsm_b.jpg", "https://www.javbus.com/imgs/thumbs/wsm.jpg"),
+    # 已展开成绝对地址、带查询串, 以及没有 _b 后缀的封面
+    ("https://www.javbus.com/imgs/cover/22nk_b.jpg?v=1", "https://www.javbus.com/imgs/thumbs/22nk.jpg"),
+    ("/pics/cover/9ma0.jpg", "https://www.javbus.com/pics/thumb/9ma0.jpg"),
+    ("/imgs/cover/n1103.jpg?width=800", "https://www.javbus.com/imgs/thumbs/n1103.jpg"),
+    ("https://images.example/imgs/cover/n1103_b.jpg?token=x", "https://www.javbus.com/imgs/thumbs/n1103.jpg"),
+    # 认不出的根与形态不猜: 猜错只会把别的作品写成自己的海报
+    ("/img/cover/abc_b.jpg", None),
+    ("/pics/thumb/abc.jpg", None),
+    ("/pics/cover/abc.png", None),
+    ("/pics/cover/abc.jpg/extra", None),
+    ("", None),
+    (None, None),
+]
+
+
+@pytest.mark.parametrize(("cover", "expected"), POSTER_CASES)
+def test_poster_root_follows_cover_root(cover: str | None, expected: str | None) -> None:
     assert poster_url_for("https://www.javbus.com", cover) == expected
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cover", ["/pics/cover/n1103_b.jpg", "/imgs/cover/n1103_b.jpg?width=800"])
-async def test_detail_keeps_original_cover_and_normalizes_uncensored_poster(cover: str) -> None:
+@pytest.mark.parametrize(
+    ("cover", "expected"),
+    [
+        ("/pics/cover/n1103_b.jpg", "https://www.javbus.com/pics/thumb/n1103.jpg"),
+        ("/imgs/cover/n1103_b.jpg?width=800", "https://www.javbus.com/imgs/thumbs/n1103.jpg"),
+    ],
+)
+async def test_detail_keeps_original_cover_and_normalizes_uncensored_poster(cover: str, expected: str) -> None:
     detail = (
         '<html><body><h3>010123-001 Title</h3><span class="header">識別碼:</span><span>010123-001</span>'
         f'<a class="bigImage" href="{cover}"></a></body></html>'
@@ -119,4 +131,4 @@ async def test_detail_keeps_original_cover_and_normalizes_uncensored_poster(cove
 
     assert metadata is not None
     assert metadata.thumb_urls == [f"https://www.javbus.com{cover}"]
-    assert metadata.poster_urls == ["https://www.javbus.com/pics/thumb/n1103.jpg"]
+    assert metadata.poster_urls == [expected]

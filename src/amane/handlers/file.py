@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import structlog
 
@@ -376,35 +377,25 @@ def _is_landscape(path: Path) -> bool:
     return size is not None and size[0] > size[1]
 
 
-def _copy_into_library(src: Path, dst: Path) -> None:
-    """复制到媒体库, 元数据复制失败不算失败.
+def _write_into_library(source: Path, target: Path) -> None:
+    """按新文件落盘库内产物: 模式位与 ACL 由目标目录决定, 不继承源文件.
 
-    成功路径保持 copy2 的全部行为 (Windows 的 CopyFile2 与其余平台的 copyfile + copystat).
-    网盘 / FUSE 挂载 (CloudDrive2 等) 常对 utime、chmod 返回 EPERM: copy2 在内容写入之后
-    抛错, 而元数据缺失不影响产物可用, 不应让整个整理任务失败.
-    内容失败时记录两次尝试的原文, 并原样抛出回退那次的错误.
+    源在 data 目录, 那里通常只授予容器用户访问; 带上源的元数据会把这张 ACL 搬进媒体库,
+    媒体服务器因此读不到产物. 临时文件加改名也让目标已存在时同样按新文件重写, 重跑整理
+    即可修好旧产物.
     """
+    tmp = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
     try:
-        shutil.copy2(src, dst)
-        return
-    except OSError as first:
-        # 内容可能已经写好, 重拷一次以区分内容失败与元数据失败: 内容失败会在此再次抛出.
-        try:
-            shutil.copyfile(src, dst)
-        except OSError as second:
-            # 回退复制经 CRT 打开文件, Win32 码会被压成 EINVAL, 两次的原文都要留下.
-            logger.error(
-                "library copy failed",
-                src=str(src),
-                dst=str(dst),
-                copy2_error=str(first),
-                copyfile_error=str(second),
-            )
-            raise
-    try:
-        shutil.copystat(src, dst)
+        shutil.copyfile(source, tmp)
+        tmp.replace(target)
     except OSError as exc:
-        logger.debug("copy metadata skipped", src=str(src), dst=str(dst), error=str(exc))
+        logger.error("library write failed", source=str(source), target=str(target), error=str(exc))
+        raise
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.debug("temp file cleanup skipped", path=str(tmp), error=str(exc))
 
 
 @in_thread
@@ -429,14 +420,14 @@ def _place_library_images(
         # 横版候选 (目前只有素人 MGStage 给出) 同时作为缩略图与背景图: 播放器的 thumb 与
         # fanart 都是横版槽位, 两张图保持一致; 没有横版候选时退回封面副本.
         thumb_source = poster_wide_local if poster_wide_local is not None else thumb_local
-        _copy_into_library(thumb_source, paths.thumb)
+        _write_into_library(thumb_source, paths.thumb)
         paths.fanart.parent.mkdir(parents=True, exist_ok=True)
-        _copy_into_library(thumb_source, paths.fanart)
+        _write_into_library(thumb_source, paths.fanart)
 
     if DownloadableResource.poster in kinds:
         if poster_local is not None:
             paths.poster.parent.mkdir(parents=True, exist_ok=True)
-            _copy_into_library(poster_local, paths.poster)
+            _write_into_library(poster_local, paths.poster)
         elif thumb_local is not None and config is not None and config.scraping.crop_poster:
             mode = resolve_crop_mode(
                 config.scraping.poster_crop_mode,
@@ -446,7 +437,7 @@ def _place_library_images(
             if mode == "none":
                 # 不裁剪: 直接用已有的封面副本作为海报 (此处库内只有这张可用).
                 if paths.thumb.exists():
-                    shutil.copy2(paths.thumb, paths.poster)
+                    _write_into_library(paths.thumb, paths.poster)
             else:
                 crop_poster(
                     paths.thumb,
@@ -458,12 +449,12 @@ def _place_library_images(
 
     if trailer_local is not None and DownloadableResource.trailer in kinds:
         paths.trailer.parent.mkdir(parents=True, exist_ok=True)
-        _copy_into_library(trailer_local, paths.trailer)
+        _write_into_library(trailer_local, paths.trailer)
 
     if extrafanart_targets and DownloadableResource.extrafanart in kinds:
         paths.extrafanart_dir.mkdir(parents=True, exist_ok=True)
         for name, p in extrafanart_targets:
-            _copy_into_library(p, paths.extrafanart_dir / name)
+            _write_into_library(p, paths.extrafanart_dir / name)
 
     # 叠加水印 (thumb / poster).
     wm = config.watermark if config is not None else WatermarkConfig()

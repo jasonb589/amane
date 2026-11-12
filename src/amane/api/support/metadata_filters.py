@@ -8,7 +8,8 @@ from typing import Annotated
 
 from fastapi import HTTPException, Query
 
-from ...parsing import DEFINITION_VALUES, ContentType, Mosaic
+from ...parsing import ContentType, Mosaic, canonical_definition
+from ...utils.collections import unique_ids
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,33 @@ class MetadataFilters:
         )
 
 
+# 列表 GET 的 id 组上限: 单个 IN 列表的表达式深度随 id 数增长, 各组累计的 AND 条件同样占深度.
+_MAX_IDS_PER_GROUP = 100
+_MAX_IDS_TOTAL = 200
+
+
+def _enforce_id_limits(filters: MetadataFilters) -> None:
+    """超限返回 422; 按去重后的数量计, 重复参数不会放大查询."""
+    groups = {
+        "actor_id": filters.actor_id,
+        "director_id": filters.director_id,
+        "tag_id": filters.tag_id,
+        "studio_id": filters.studio_id,
+        "publisher_id": filters.publisher_id,
+        "series_id": filters.series_id,
+        "user_tag_id": filters.user_tag_id,
+        "library_id": filters.library_id,
+    }
+    total = 0
+    for name, ids in groups.items():
+        count = len(unique_ids(ids))
+        if count > _MAX_IDS_PER_GROUP:
+            raise HTTPException(status_code=422, detail=f"{name} 最多 {_MAX_IDS_PER_GROUP} 个 id")
+        total += count
+    if total > _MAX_IDS_TOTAL:
+        raise HTTPException(status_code=422, detail=f"筛选参数 id 合计最多 {_MAX_IDS_TOTAL} 个")
+
+
 async def parse_metadata_filters(
     actor_id: Annotated[list[int] | None, Query(description="Filter by actor facet id(s); AND")] = None,
     director_id: Annotated[list[int] | None, Query(description="Filter by director facet id(s); AND")] = None,
@@ -71,13 +99,15 @@ async def parse_metadata_filters(
     uncensored: Annotated[
         bool | None, Query(description="Filter by uncensored number (own content type or linked file marker)")
     ] = None,
-    definition: Annotated[str | None, Query(description="Filter by linked file definition (8K/4K/1080p/…)")] = None,
+    definition: Annotated[
+        str | None, Query(description="Filter by linked file definition (8K/4K/1440p/1080p/720p/480p; SD/HD aliases)")
+    ] = None,
     content_type: Annotated[ContentType | None, Query(description="Filter by number content type")] = None,
     saved_query_id: Annotated[
         int | None, Query(description="Saved query preset id; AND with other filters via SQL subquery")
     ] = None,
 ) -> MetadataFilters:
-    return MetadataFilters(
+    filters = MetadataFilters(
         actor_id=actor_id,
         director_id=director_id,
         tag_id=tag_id,
@@ -95,11 +125,15 @@ async def parse_metadata_filters(
         content_type=content_type,
         saved_query_id=saved_query_id,
     )
+    _enforce_id_limits(filters)
+    return filters
 
 
 def require_known_definition(definition: str | None) -> str | None:
+    """已合并的旧档位名 (SD / HD) 归一到现档位后照常筛选."""
     if definition is None:
         return None
-    if definition not in DEFINITION_VALUES:
+    canonical = canonical_definition(definition)
+    if canonical is None:
         raise HTTPException(status_code=422, detail=f"未知分辨率: {definition}")
-    return definition
+    return canonical
