@@ -20,7 +20,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 
-RUN uv sync --no-dev --frozen --no-editable
+RUN uv sync --python /usr/local/bin/python --no-managed-python --no-python-downloads \
+    --no-dev --frozen --no-editable
 
 # 海报人脸识别 (可选): opencv-headless 有 cp37-abi3 预编译 wheel, Python 3.14 / amd64 / arm64 都无需编译.
 # 必须装在 uv sync 之后 (venv 已就绪); 它不进入 lock, 只是镜像内的可选依赖.

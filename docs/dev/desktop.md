@@ -70,7 +70,7 @@ macOS UI argv (`AmaneUI --base-url http://127.0.0.1:PORT [--token <token>] [--wa
 
 自定义镜像发布使用 `just bump custom`, 版本写入 `_custom_version.py`, 不修改产品版本. 公开说明遵守 `AGENTS.md`, 完整记录留存仓库外; `-custom.N` 仅由 `custom-image.yml` 构建, 不触发 CLI、桌面包或上游镜像发布, 构建不上传摘要与记录附件.
 
-`Dockerfile` 的前端阶段使用构建机平台, 只将 `web/dist` 静态文件复制到各架构镜像; Python 与系统依赖仍按目标平台安装, 不复制构建机的 Node 原生模块.
+`Dockerfile` 的前端阶段使用构建机平台, 只复制 `web/dist`; Python 与系统依赖按目标平台安装. 依赖同步使用基础镜像的解释器并禁止托管下载, 避免桌面打包的 `only-managed` 配置选择缺少依赖 wheel 的 Python 版本.
 
 macOS: `scripts/build_macos_app.sh` (`just macos-app`), 需要 Swift 工具链 — PyInstaller 打成 onedir 后再组装 `.app`, `AmaneUI` 包成 `Contents/Resources/AmaneUI.app`, Info.plist 补 `LSUIElement` / `LSMultipleInstancesProhibited` / `CFBundleIconFile`. 打包对解释器与依赖的来源有硬要求: 系统 Python 及其 wheel 变体、源码构建都以打包机的 macOS 为部署目标, 产物只能在同版本及以上的系统启动. 解释器固定为 uv 托管版本 (`[tool.uv]` 的 `python-preference`), 依赖由 `scripts/build_macos_app.sh` 按 `MACOSX_DEPLOYMENT_TARGET` 与 `--python-platform` 重装; 用系统解释器建过的 `.venv` 需删除重建. Windows: `scripts/build_windows_app.ps1` (`just windows-app`), **必须在 Windows 上运行** (PyInstaller 与 Native AOT 都不能从 macOS 交叉), 需要 .NET 8 SDK + 能链 Native AOT 的 MSVC.
 
