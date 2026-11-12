@@ -73,7 +73,7 @@
 
 **r18dev** — 未配 PG 直接 skip; dump 图片补全后是 DMM CDN, 见 [crawlers.md](crawlers.md).
 
-**amazon / tenhow** — 第二段只补海报: `sites/amazon.py::_search_title` 使用前序原文标题, 缺标题可用严格番号检索; `sites/tenhow.py::_actor_names` 补充前序原文演员名, 目录发现目标演员即停止扩展. Amazon 必须匹配商品, Tenhow 必须匹配 DMM CID; 缺失或冲突的封面不以邻近条目代替. 图片候选交由下载管线比较像素, 两源均不覆盖文字元数据.
+**amazon / tenhow** — 第二段只补海报: `sites/amazon.py::_search_titles` 采用前序原题, 基础检索未命中才补充不同原题、标题短句与零售番号, 匹配仍依据完整原题与卷次; 页面、年龄确认与详情请求共享单次预算, 两个入口均不可访问即停止关键词扩展. `sites/tenhow.py::_actor_names` 补充前序原文演员名, 目录发现目标演员即停止扩展. Amazon 必须匹配商品, Tenhow 必须匹配 DMM CID; 缺失或冲突的封面不以邻近条目代替. 图片候选交由下载管线比较像素, 两源均不覆盖文字元数据.
 
 **prestige / faleno / dahlia / giga** — 单厂牌, 对每个候选 SKU 都发 API 请求, 不纳入默认表; faleno / dahlia 同属一个 WordPress `works` 主题 (共用 `sites/wp_works.py`), faleno.jp 兼发 maryGOLD 与 JimmyScandal, 发行商按番号前缀判定. **giga** 的检索与商品页要求年龄确认会话 (经 `/cookie_set.php` 领取) 与站内 Referer, 缺任一项都只回年龄确认页; 确认态是出站通道 cookie 罐里的一份会话, 未确认的请求会覆盖它, 因此该来源同一时刻只允许一个请求在途 (领取与取页都在内). **xcity.jp** 与 DMM 重叠且年龄墙严格, 同样不纳入; 检索与详情要求站内 Referer, 检索结果行没有品番, 只能按详情页确认.
 

@@ -11,6 +11,7 @@ import json
 import re
 import time
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, override
@@ -55,6 +56,10 @@ _MIN_RATIO = 0.6
 _PLACEHOLDER_IDS = frozenset({"01RmK+J4pJL", "01mI9NDJJTL"})
 _MAX_KEYWORDS = 3
 """标题与番号共用的检索词预算."""
+_MAX_FALLBACK_KEYWORDS = 3
+"""基础检索未命中时, 补充不同原题、标题短句与零售番号写法."""
+_MAX_PAGE_REQUESTS = 14
+"""一次刮削的页面请求上限, 包含年龄验证重试与详情页; HTTP 自身重试仍由出站层管理."""
 
 #: DMM / FANZA 商品标题里的促销与渠道噪声: 原样搜亚马逊会把正经条目挤出结果页.
 _NOISE_TOKENS = (
@@ -82,9 +87,11 @@ _SEPARATOR_RE = re.compile(r"[|｜/／]+")
 _CJK_RE = re.compile("[\u3040-\u30ff\u4e00-\u9fff]")
 _NUMBER_RE = re.compile(r"(?<![a-z0-9_])([0-9]{0,3}[a-z]{2,12})[- ]?([0-9]{2,7})(?![a-z0-9_])", re.IGNORECASE)
 _VOLUME_RE = re.compile(r"([前後上下])\s*[編篇巻]|(?:第\s*)?([0-9]+)\s*([巻話章])")
+_LATIN_VOLUME_RE = re.compile(r"\b(?:vol(?:ume)?|part)\.?\s*(\d+)\b", re.IGNORECASE)
 #: 真正的年龄门: 跳转 ``/age_check/`` 或带 ``driver-verify`` 的表单. 成人分区结果页里那个
 #: ``Age Verification`` 只是 18 禁弹窗 (``black-curtain-popover``) 的标题, 不能当拦截判据.
 _GATE_RE = re.compile(r'driver-verify|/age_check/|name="agecheck"', re.IGNORECASE)
+_CAPTCHA_RE = re.compile(r"/errors/validateCaptcha|<title[^>]*>\s*Robot Check|name=[\"']amzn-captcha", re.IGNORECASE)
 #: 黑幕弹窗 ("page contains adult material ... Are you over 18?"): 未点「Yes」前成人卡片只给占位图.
 _CURTAIN_RE = re.compile(r"black-curtain-popover|s-black-curtain", re.IGNORECASE)
 #: 点「Yes」走的保存接口; ``returnUrl`` 是点了之后要回跳的页面.
@@ -99,7 +106,7 @@ _NUMBER_ONLY_SCORE = 0.2
 """番号单独命中的底分: 低于任何标题命中, 用来把「不带标题但确实是本片」的结果排在后面."""
 
 #: 取日文原题的来源顺序: 日亚只能按原文检索, 拿译文 (中文/拼音) 搜必然 0 条.
-_RAW_TITLE_ORDER = ("r18dev:jp", "dmm", "avbase", "javbus", "official")
+_RAW_TITLE_ORDER = ("r18dev:jp", "dmm", "avbase", "javbus", "official", "avwikidb")
 
 _MAX_SEARCH_ATTEMPTS = 3
 """单个检索词的尝试次数: 亚马逊的 /age_check/ 年龄门是概率性的, 换一次请求常常就正常."""
@@ -156,11 +163,57 @@ def _norm(text: str) -> str:
     return _NOISE_RE.sub("", unicodedata.normalize("NFKC", text or "").lower())
 
 
+def _fallback_keywords(titles: Sequence[str], number: str, initial: Sequence[str]) -> list[str]:
+    """补充具有不同搜索语义的候选词; 匹配始终使用完整原题."""
+    seen = {unicodedata.normalize("NFKC", term).casefold() for term in initial}
+    candidates = [_clean_title_number(title, number) for title in titles[1:]]
+    for title in titles:
+        cleaned = _clean(title)
+        if len(_norm(cleaned)) >= 24:
+            parts = re.split(r"[!！?？。…〜～]+", cleaned)
+            stem = next((part.strip() for part in parts if len(_norm(part)) >= 8), "")
+            if stem and stem != cleaned:
+                candidates.append(stem)
+    match = _NUMBER_RE.fullmatch(unicodedata.normalize("NFKC", number).strip())
+    if match is not None:
+        prefix, digits = match.groups()
+        retail_prefix = prefix.lstrip("0123456789").upper()
+        retail_digits = str(int(digits)).zfill(3)
+        candidates.extend((f"{retail_prefix}-{retail_digits}", f"{retail_prefix}{retail_digits}"))
+    terms: list[str] = []
+    for candidate in candidates:
+        key = unicodedata.normalize("NFKC", candidate).casefold()
+        if len(_norm(candidate)) < 4 or key in seen:
+            continue
+        seen.add(key)
+        terms.append(candidate)
+        if len(terms) >= _MAX_FALLBACK_KEYWORDS:
+            break
+    return terms
+
+
+def _clean_title_number(title: str, number: str) -> str:
+    """前序目录站在标题前附加的本片番号不进入标题检索词."""
+    cleaned = _clean(title)
+    prefix = _NUMBER_RE.match(cleaned)
+    wanted = _NUMBER_RE.fullmatch(unicodedata.normalize("NFKC", number).strip())
+    if (
+        prefix is not None
+        and wanted is not None
+        and prefix[1].casefold() == wanted[1].casefold()
+        and int(prefix[2]) == int(wanted[2])
+    ):
+        cleaned = cleaned[prefix.end() :].strip(" -:：")
+    return cleaned
+
+
 def _volumes(title: str) -> dict[str, set[str]]:
     values: dict[str, set[str]] = {}
     for part, digits, unit in _VOLUME_RE.findall(unicodedata.normalize("NFKC", title)):
         key = ("前後" if part in {"前", "後"} else "上下") if part else unit
         values.setdefault(key, set()).add(part or str(int(digits)))
+    for digits in _LATIN_VOLUME_RE.findall(unicodedata.normalize("NFKC", title)):
+        values.setdefault("volume", set()).add(str(int(digits)))
     return values
 
 
@@ -193,7 +246,7 @@ def _match_score(number: str, wanted: str, found: str) -> float:
         prefix, digits = number_match.groups()
         numbers = _NUMBER_RE.findall(unicodedata.normalize("NFKC", found))
         same_prefix = [value for stem, value in numbers if stem.casefold() == prefix.casefold()]
-        number_hit = digits in same_prefix
+        number_hit = any(int(value) == int(digits) for value in same_prefix)
         if same_prefix and not number_hit:
             return 0.0
     if _GOODS_RE.search(found) and not _DISC_RE.search(found):
@@ -228,16 +281,47 @@ def _search_title(partial: AggregatedMetadata | None, number: str = "") -> str:
             if isinstance(value, str) and len(_norm(value)) >= 4:
                 return value.strip()
         for site, entry in raw.items():
-            if not site.endswith(":jp") or not isinstance(entry, dict):
+            if not isinstance(entry, dict):
                 continue
             value = entry.get("title")
-            if isinstance(value, str) and len(_norm(value)) >= 4:
+            if (
+                isinstance(value, str)
+                and len(_norm(value)) >= 4
+                and (site.endswith(":jp") or re.search(r"[\u3041-\u3096\u30a1-\u30fa]", value))
+            ):
                 return value.strip()
         title = (partial.title or "").strip()
         if title:
             return title
     candidate = (number or "").strip()
     return candidate if _CJK_RE.search(candidate) else ""
+
+
+def _search_titles(partial: AggregatedMetadata | None, number: str) -> list[str]:
+    primary = _clean_title_number(_search_title(partial, number), number)
+    titles = [primary] if primary else []
+    seen = {_norm(primary)}
+    if partial is None:
+        return titles
+    for site in (*_RAW_TITLE_ORDER, *partial.raw):
+        entry = partial.raw.get(site)
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("title")
+        if not isinstance(value, str):
+            continue
+        value = _clean_title_number(value, number)
+        normalized = _norm(value)
+        if len(normalized) < 4 or normalized in seen:
+            continue
+        # 未知来源须有日文证据, 避免拿前序中文译文扩展日亚检索.
+        if site not in _RAW_TITLE_ORDER and not re.search(r"[\u3041-\u3096\u30a1-\u30fa]", value):
+            continue
+        seen.add(normalized)
+        titles.append(value.strip())
+        if len(titles) >= 3:
+            break
+    return titles
 
 
 def _parse_results(html: str) -> list[tuple[str, str, str]]:
@@ -251,7 +335,11 @@ def _parse_results(html: str) -> list[tuple[str, str, str]]:
             node for node in card.css("h2") if node.xpath("ancestor::*[@data-asin][1]/@data-asin").get() == asin
         ]
         title = next(
-            (node.xpath("normalize-space(.)").get("") for node in headings if node.xpath("normalize-space(.)").get()),
+            (
+                node.attrib.get("aria-label", "").strip() or node.xpath("normalize-space(.)").get("")
+                for node in headings
+                if node.attrib.get("aria-label", "").strip() or node.xpath("normalize-space(.)").get()
+            ),
             "",
         )
         images = [node for node in card.css("img") if node.xpath("ancestor::*[@data-asin][1]/@data-asin").get() == asin]
@@ -334,7 +422,10 @@ class _SearchState:
 
     unlock_attempts: int = 0
     saw_page: bool = False
-    last_error: RequestError | None = None
+    last_error: SourceError | None = None
+    requests: int = 0
+    candidates: int = 0
+    matched: int = 0
 
 
 class AmazonCrawler(Crawler):
@@ -401,21 +492,35 @@ class AmazonCrawler(Crawler):
         del options
         started = time.monotonic()
         state = _SearchState()
-        title = _search_title(query.partial_result, query.number)
+        titles = _search_titles(query.partial_result, query.number)
+        title = titles[0] if titles else ""
         terms = _keywords(title, query.number)
         if not terms:
             return None
 
+        terms.extend(_fallback_keywords(titles, query.number, terms))
         for term in terms:
-            hit = await self._lookup(term, title, query.number, state)
+            hit = await self._lookup(term, title, query.number, state, titles=titles)
             if hit is None:
+                if state.last_error is not None and not state.saw_page:
+                    # 两个入口都不可访问时换关键词没有作用, 不放大短时限流的请求量.
+                    self.logger.info(
+                        "amazon access unavailable",
+                        number=query.number,
+                        requests=state.requests,
+                        reason=str(state.last_error.reason),
+                        http_status=state.last_error.http_status,
+                    )
+                    raise state.last_error
+                if state.requests >= _MAX_PAGE_REQUESTS:
+                    break
                 continue
             asin, image_id = hit
             # 结果页的成人卡片是懒加载占位图; 真封面从详情页或 ASIN 主图接口补.
             poster_urls = (
                 [*_poster_urls(image_id), f"https://m.media-amazon.com/images/P/{asin}.jpg"]
                 if image_id
-                else await self._cover_urls(asin)
+                else await self._cover_urls(asin, state=state)
             )
             if not poster_urls:
                 continue
@@ -426,6 +531,7 @@ class AmazonCrawler(Crawler):
                 number=query.number,
                 cover="original" if image_id else "main-image",
                 duration_s=round(time.monotonic() - started, 2),
+                requests=state.requests,
             )
             return MediaMetadata(
                 number=query.number,
@@ -433,26 +539,39 @@ class AmazonCrawler(Crawler):
                 source_url=self._page_url(f"/dp/{asin}"),
                 external_id=asin,
             )
+        self.logger.info(
+            "amazon search exhausted",
+            number=query.number,
+            terms=len(terms),
+            requests=state.requests,
+            candidates=state.candidates,
+            matched=state.matched,
+            reason=str(state.last_error.reason) if state.last_error is not None else "not_listed",
+        )
         if state.last_error is not None:
             raise state.last_error
         if state.saw_page:
-            # 结果页拿到了却没有可用候选: 这个番号在日亚根本没有在售条目, 不是抓取故障.
-            # 用独立原因上报, 通知与统计据此区分「站点没卖」和「抓取坏了」.
-            raise SourceError(FailureReason.NOT_LISTED, detail=query.number)
+            raise SourceError(FailureReason.NOT_LISTED, detail=f"{query.number}: 未匹配到日亚商品")
         return None
 
-    async def _lookup(self, term: str, title: str, number: str, state: _SearchState) -> tuple[str, str] | None:
+    async def _lookup(
+        self, term: str, title: str, number: str, state: _SearchState, *, titles: Sequence[str] = ()
+    ) -> tuple[str, str] | None:
         """用一个检索词搜一次结果页, 返回 (asin, 图片 ID).
 
         先走移动版: 成人条目在那里直接给真封面, 没有黑幕占位图. 移动版没命中才回桌面版,
         桌面版要处理黑幕 (点一次「Yes」并把跳回来的正文直接吃掉).
         """
         for mobile in (True, False):
+            if state.requests >= _MAX_PAGE_REQUESTS:
+                return None
             path = (_MOBILE_SEARCH_PATH if mobile else _SEARCH_PATH).format(term=quote(term, safe=""))
             url = self._page_url(path)
             try:
-                html = await self._fetch_page(url)
-            except RequestError as exc:
+                html = await self._fetch_page(url, state=state)
+            except SourceError as exc:
+                if exc.reason is FailureReason.PARSE_ERROR:
+                    raise
                 state.last_error = exc
                 continue
             if html is None:
@@ -462,28 +581,42 @@ class AmazonCrawler(Crawler):
                 # 成人区的卡片在年龄门未确认前只给 60x40 占位图. 资格跟着这一次请求链走,
                 # 单靠 cookie 落地再重取并不可靠 (实测重取回来还是占位图), 所以先吃跳回来的正文.
                 state.unlock_attempts += 1
-                unlocked = await self._unlock(url)
+                unlocked = await self._unlock(url, state=state)
                 if unlocked is not None and _parse_results(unlocked):
                     html = unlocked
                 else:
                     try:
-                        html = await self._fetch_page(url)
-                    except RequestError as exc:
+                        html = await self._fetch_page(url, state=state)
+                    except SourceError as exc:
                         state.last_error = exc
                         continue
                     if html is None:
                         continue
-            hit = self._best(html, term, title, number)
+            hit = self._best(html, term, title, number, titles=titles, state=state)
             if hit is not None:
+                state.matched += 1
                 return hit
         return None
 
-    def _best(self, html: str, term: str, title: str, number: str) -> tuple[str, str] | None:
+    def _best(
+        self,
+        html: str,
+        term: str,
+        title: str,
+        number: str,
+        *,
+        titles: Sequence[str] = (),
+        state: _SearchState | None = None,
+    ) -> tuple[str, str] | None:
         """一页结果里挑最像的那条; 没有可用的返回 None."""
         results = _parse_results(html)
+        if state is not None:
+            state.candidates += len(results)
         best: tuple[float, str, str] | None = None
         for asin, image_id, found in results:
-            score = _match_score(number, title, found)
+            if any(_volume_conflict(wanted, found) for wanted in (titles or (title,))):
+                continue
+            score = max(_match_score(number, wanted, found) for wanted in (titles or (title,)))
             if score <= 0:
                 continue
             if best is None or score > best[0]:
@@ -494,10 +627,14 @@ class AmazonCrawler(Crawler):
         _score, asin, image_id = best
         return asin, image_id
 
-    async def _fetch_page(self, url: str) -> str | None:
+    async def _fetch_page(self, url: str, *, state: _SearchState | None = None) -> str | None:
         """读取页面正文; 年龄门按预算重试, 网络错误交由检索入口尝试下一地址."""
         self._require_page_url(url)
         for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
+            if state is not None:
+                if state.requests >= _MAX_PAGE_REQUESTS:
+                    return None
+                state.requests += 1
             try:
                 # 故意用 get_text 而不是 get_html: 通用拦截启发式把结果页里的 "Age Verification"
                 # 弹窗标题当成年龄门 (成人分区每页都有那个 black-curtain 弹窗), 会把正常页面判死.
@@ -505,6 +642,10 @@ class AmazonCrawler(Crawler):
             except RequestError as exc:
                 self.logger.debug("amazon search failed", error=str(exc))
                 raise
+            if _CAPTCHA_RE.search(html):
+                raise SourceError(FailureReason.HTTP_ERROR, detail="Amazon 要求验证码, 检索页面不可用", url=url)
+            if not html.strip():
+                raise SourceError(FailureReason.EMPTY_RESPONSE, detail=url)
             if not _GATE_RE.search(html):
                 return html
             # 真正的年龄门 (/age_check/) 是概率性的: 同一 URL 换一次请求往往就正常,
@@ -514,9 +655,13 @@ class AmazonCrawler(Crawler):
             self.logger.debug("amazon age gate, retry", attempt=attempt, url=url)
         return None
 
-    async def _unlock(self, return_url: str) -> str | None:
+    async def _unlock(self, return_url: str, *, state: _SearchState | None = None) -> str | None:
         """点一次黑幕弹窗的「Yes」, 返回跳回的结果页正文 (失败返回 None)."""
         self._require_page_url(return_url)
+        if state is not None:
+            if state.requests >= _MAX_PAGE_REQUESTS:
+                return None
+            state.requests += 1
         url = self._page_url(_ELIGIBILITY_PATH.format(quote(return_url, safe="")))
         try:
             text = await self.client.get_text(url, cookies=self.cookies or None, headers=self.headers or None)
@@ -526,9 +671,9 @@ class AmazonCrawler(Crawler):
         self.logger.debug("amazon black curtain unlocked", url=return_url)
         return text
 
-    async def _cover_urls(self, asin: str) -> list[str]:
+    async def _cover_urls(self, asin: str, *, state: _SearchState | None = None) -> list[str]:
         """结果页只有占位图时的候选封面: 详情页原图优先, 退到按 ASIN 直取主图."""
-        image_id = await self._detail_image(asin)
+        image_id = await self._detail_image(asin, state=state)
         if image_id:
             return _poster_urls(image_id)
         # 详情页现在常回 JS 空壳 (200 但无 data-old-hires); 按 ASIN 取主图这条总是有货,
@@ -542,15 +687,15 @@ class AmazonCrawler(Crawler):
             f"https://tenhow.net/images/{asin}.jpg",
         ]
 
-    async def _detail_image(self, asin: str) -> str | None:
+    async def _detail_image(self, asin: str, *, state: _SearchState | None = None) -> str | None:
         """详情页取真封面 ID: ``data-old-hires`` → 主图 JSON → ``landingImage`` 的 src.
 
         详情页有时回 200 的 JS 空壳 (一个图像字段都没有): 换入口再试, 全空才放弃.
         """
         for path in _DETAIL_PATHS:
             try:
-                html = await self._fetch_page(self._page_url(path.format(asin=asin)))
-            except RequestError:
+                html = await self._fetch_page(self._page_url(path.format(asin=asin)), state=state)
+            except SourceError:
                 continue
             if html is None:
                 continue
@@ -564,7 +709,7 @@ class AmazonCrawler(Crawler):
 def _image_from_detail(html: str) -> str | None:
     """仅从商品主图及主图库取图, 不采用推荐商品或背面图片."""
     page = Selector(text=html)
-    main_nodes = page.css("#landingImage, #imgBlkFront, #main-image")
+    main_nodes = page.css("#landingImage, #imgBlkFront, #main-image, #imgTagWrapperId img")
     for node in main_nodes:
         if image := _image_on_node(node, original_only=True):
             return image

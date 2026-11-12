@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from html import escape
 from typing import Any
 from unittest.mock import AsyncMock
@@ -18,12 +19,14 @@ from amane.crawlers.sites.amazon import (
     _GATE_RE,
     AmazonCrawler,
     _clean,
+    _fallback_keywords,
     _image_from_detail,
     _keywords,
     _match_score,
     _parse_results,
     _poster_urls,
     _search_title,
+    _search_titles,
     _title_matches,
 )
 from amane.net.errors import FailureKind, FailureReason, RequestError, RequestFailure, SourceError
@@ -206,7 +209,7 @@ def _card(asin: str, title: str, image_id: str = "81HITJP") -> str:
 class _StubClient:
     """按顺序应答: 元素为异常时抛出, 否则当页面正文."""
 
-    def __init__(self, items: list[object]) -> None:
+    def __init__(self, items: Sequence[object]) -> None:
         self._items = list(items)
         self.calls: list[str] = []
 
@@ -354,9 +357,9 @@ async def test_fetch_skips_invalid_number_without_title(number: str) -> None:
     [
         (
             "禁欲の果て 3日間 相沢みなみ アイデアポケット",
-            ["禁欲の果て 3日間 相沢みなみ アイデアポケット", "禁欲の果て 3日間 相沢みなみ", "ABC-001"],
+            ["禁欲の果て 3日間 相沢みなみ アイデアポケット", "禁欲の果て 3日間 相沢みなみ", "ABC-001", "ABC001"],
         ),
-        (None, ["ABC-001"]),
+        (None, ["ABC-001", "ABC001"]),
     ],
 )
 @pytest.mark.asyncio
@@ -398,7 +401,7 @@ async def test_fetch_retries_when_age_gate_blocks() -> None:
 @pytest.mark.asyncio
 async def test_fetch_raises_when_age_gate_persists() -> None:
     gate = '<form name="agecheck" action="/age_check/"></form>'
-    client = _StubClient([gate, gate, gate])
+    client = _StubClient([gate] * 6)
     crawler = AmazonCrawler(client)  # type: ignore[arg-type]
     query = SearchQuery("IPZZ-034", content_type=ContentType.CENSORED)
     query.partial_result = AggregatedMetadata(number="IPZZ-034", title="BEAUTY VENUS VIII")
@@ -407,7 +410,7 @@ async def test_fetch_raises_when_age_gate_persists() -> None:
         await crawler.fetch(query)
 
     assert excinfo.value.reason is FailureReason.AGE_VERIFICATION
-    assert len(client.calls) == 3
+    assert len(client.calls) == 6
 
 
 def test_age_verification_modal_is_not_a_gate() -> None:
@@ -688,7 +691,7 @@ async def test_search_failures_preserve_network_reason() -> None:
     with pytest.raises(RequestError) as error:
         await crawler.fetch(query)
     assert error.value.reason is FailureReason.TIMEOUT
-    assert len(client.calls) == 4
+    assert len(client.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -852,3 +855,105 @@ async def test_invalid_base_does_not_fall_back_to_official_site(base_url: str) -
     assert error.value.reason is FailureReason.PARSE_ERROR
     assert error.value.detail == "Amazon 页面地址不属于配置站点"
     web.get_text.assert_not_awaited()
+
+
+def test_original_titles_use_japanese_raw_snapshot_before_translated_aggregate() -> None:
+    partial = AggregatedMetadata(
+        "ABC-001",
+        title="已翻译标题",
+        raw={"r18dev:zh_cn": {"title": "彼女との秘密"}, "other": {"title": "中文译名"}},
+    )
+    assert _search_titles(partial, "ABC-001") == ["彼女との秘密"]
+
+
+def test_fallback_keywords_keep_different_uncensored_title_and_retail_code() -> None:
+    titles = ["完全拘束強●アクメ 女優名", "ABC-001 完全拘束強制アクメ 女優名"]
+    initial = [titles[0], "ABC-001"]
+    assert _fallback_keywords(titles, "ABC-001", initial) == ["完全拘束強制アクメ 女優名", "ABC001"]
+
+
+@pytest.mark.asyncio
+async def test_age_gate_on_mobile_does_not_prevent_desktop_hit() -> None:
+    gate = '<form name="agecheck" action="/age_check/"></form>'
+    client = _StubClient([gate] * 3 + [_card("B00TEST001", "ABC-001 [DVD]")])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    result = await crawler.fetch(SearchQuery("ABC-001"))
+    assert result is not None and result.external_id == "B00TEST001"
+    assert "/s?k=" in client.calls[-1] and "/gp/aw" not in client.calls[-1]
+    assert len(client.calls) == 4
+
+
+@pytest.mark.parametrize(
+    "partial",
+    [
+        AggregatedMetadata(
+            "ABC-001",
+            title="完全拘束強●アクメ 女優名",
+            raw={
+                "dmm": {"title": "完全拘束強●アクメ 女優名"},
+                "javbus": {"title": "ABC-001 完全拘束強制アクメ 女優名"},
+            },
+        ),
+        AggregatedMetadata("ABC-001", title="彼女との秘密"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_fallback_search_uses_alternate_title_or_separatorless_retail_code(partial: AggregatedMetadata) -> None:
+    term = "完全拘束強制アクメ 女優名" if partial.raw else "ABC001"
+    web = AsyncMock()
+    calls: list[str] = []
+
+    async def search(url: str, **kwargs: object) -> str:
+        calls.append(parse_qs(urlsplit(url).query)["k"][0])
+        return _card("B00TEST001", f"{term} ABC-001 [DVD]") if calls[-1] == term else "<html>no results</html>"
+
+    web.get_text.side_effect = search
+    result = await AmazonCrawler(HttpClient(web=web)).fetch(SearchQuery("ABC-001", partial_result=partial))
+    assert result is not None and result.external_id == "B00TEST001"
+    assert calls[-1] == term and "ABC-001" in calls[:-1]
+    assert len(calls) <= 7
+
+
+@pytest.mark.parametrize("code", ["ABC001", "ABC00001", "ＡＢＣ－００００１"])
+def test_number_match_accepts_equivalent_zero_padding(code: str) -> None:
+    assert _match_score("ABC-001", "", f"{code} [DVD]") > 0
+
+
+def test_alternate_titles_cannot_override_explicit_volume_conflict() -> None:
+    crawler = AmazonCrawler(HttpClient(web=AsyncMock()))
+    html = _card("B00TEST001", "彼女との秘密 vol.2 [DVD]")
+    assert (
+        crawler._best(
+            html,
+            "彼女との秘密",
+            "彼女との秘密 vol.1",
+            "ABC-001",
+            titles=[
+                "彼女との秘密 vol.1",
+                "彼女との秘密",
+            ],
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "page",
+    ['<title>Robot Check</title><form action="/errors/validateCaptcha"></form>', "   "],
+)
+@pytest.mark.asyncio
+async def test_challenge_and_empty_pages_are_reported_as_access_failures(page: str) -> None:
+    client = _StubClient([page, page])
+    crawler = AmazonCrawler(client)  # type: ignore[arg-type]
+    with pytest.raises(SourceError) as excinfo:
+        await crawler.fetch(SearchQuery("ABC-001"))
+    assert excinfo.value.reason in {FailureReason.HTTP_ERROR, FailureReason.EMPTY_RESPONSE}
+    assert len(client.calls) == 2
+
+
+def test_parse_results_uses_accessible_heading_title_when_text_is_empty() -> None:
+    page = (
+        '<div data-asin="B00TEST001"><h2 aria-label="彼女との秘密 [DVD]"></h2>'
+        '<img class="s-image" src="https://m.media-amazon.com/images/I/81HITJP.jpg"></div>'
+    )
+    assert _parse_results(page) == [("B00TEST001", "81HITJP", "彼女との秘密 [DVD]")]

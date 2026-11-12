@@ -199,3 +199,11 @@ def test_detail_image_falls_back_from_malformed_dynamic_json() -> None:
         '<img id="landingImage" data-a-dynamic-image="{broken" src="https://m.media-amazon.com/images/I/81MAIN01.jpg">'
     )
     assert _image_from_detail(markup) == "81MAIN01"
+
+
+def test_detail_main_wrapper_without_legacy_image_id_still_supplies_original() -> None:
+    markup = (
+        '<div id="recommendations"><img src="https://m.media-amazon.com/images/I/81WRONG1.jpg"></div>'
+        '<div id="imgTagWrapperId"><img data-old-hires="https://m.media-amazon.com/images/I/81MAIN01.jpg"></div>'
+    )
+    assert _image_from_detail(markup) == "81MAIN01"
