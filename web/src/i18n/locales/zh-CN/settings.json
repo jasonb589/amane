@@ -151,7 +151,7 @@
             "xcity": "xcity",
             "fc2ppv_db": "FC2PPV-DB",
             "javarchive": "JavArchive",
-            "avwikidb": "AVWikiDB（演员识别）"
+            "avwikidb": "AVWikiDB"
           },
           "$": {
             "options": {
@@ -189,7 +189,7 @@
               "xcity": "xcity",
               "fc2ppv_db": "FC2PPV-DB",
               "javarchive": "JavArchive",
-              "avwikidb": "AVWikiDB（演员识别）"
+              "avwikidb": "AVWikiDB"
             }
           }
         }
@@ -250,7 +250,7 @@
             "xcity": "xcity",
             "fc2ppv_db": "FC2PPV-DB",
             "javarchive": "JavArchive",
-            "avwikidb": "AVWikiDB（演员识别）"
+            "avwikidb": "AVWikiDB"
           },
           "$": {
             "options": {
@@ -288,7 +288,7 @@
               "xcity": "xcity",
               "fc2ppv_db": "FC2PPV-DB",
               "javarchive": "JavArchive",
-              "avwikidb": "AVWikiDB（演员识别）"
+              "avwikidb": "AVWikiDB"
             }
           }
         }
@@ -359,7 +359,7 @@
           "xcity": "xcity",
           "fc2ppv_db": "FC2PPV-DB",
           "javarchive": "JavArchive",
-          "avwikidb": "AVWikiDB（演员识别）"
+          "avwikidb": "AVWikiDB"
         },
         "$": {
           "base_url": {
@@ -503,7 +503,7 @@
             "xcity": "xcity",
             "fc2ppv_db": "FC2PPV-DB",
             "javarchive": "JavArchive",
-            "avwikidb": "AVWikiDB（演员识别）"
+            "avwikidb": "AVWikiDB"
           },
           "$": {
             "options": {
@@ -541,7 +541,7 @@
               "xcity": "xcity",
               "fc2ppv_db": "FC2PPV-DB",
               "javarchive": "JavArchive",
-              "avwikidb": "AVWikiDB（演员识别）"
+              "avwikidb": "AVWikiDB"
             }
           }
         }
