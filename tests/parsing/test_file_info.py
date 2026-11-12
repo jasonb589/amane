@@ -17,6 +17,7 @@ from amane.parsing import (
     parse_file_info,
     split_number,
 )
+from amane.parsing.file_info import normalize_onepondo_number
 
 
 class _Case(NamedTuple):
@@ -27,6 +28,31 @@ class _Case(NamedTuple):
     definition: str | None = None
     number: str | None = None
     content_type: ContentType | None = None
+
+
+@pytest.mark.parametrize(
+    ("number", "expected"),
+    [
+        ("011516_227", "011516_227"),
+        (" 1pondo_011516_227 ", "011516_227"),
+        ("1PONDO-011516-227", "011516_227"),
+        ("1pondo.tv_111226_001", "111226_001"),
+        ("一本道-111226-001", "111226_001"),
+        ("１ＰＯＮＤＯ－０１１５１６＿２２７", "011516_227"),
+        ("022924_001", "022924_001"),
+        ("011516-227", None),
+        ("011516_27", None),
+        ("011516_0227", None),
+        ("011516_000", None),
+        ("022926_001", None),
+        ("133226_001", None),
+        ("1pondo_011516_227_extra", None),
+        ("caribbeancom_011516_227", None),
+        ("", None),
+    ],
+)
+def test_onepondo_directory_identity(number: str, expected: str | None) -> None:
+    assert normalize_onepondo_number(number) == expected
 
 
 CASES: list[object] = [
@@ -218,6 +244,11 @@ CASES: list[object] = [
     _Case("/media/010115-001.mp4", number="010115-001", content_type=ContentType.UNCENSORED),
     _Case("/media/010115_001.mp4", number="010115_001", content_type=ContentType.UNCENSORED),
     _Case("/media/010115_01.mp4", number="010115_01", content_type=ContentType.UNCENSORED),
+    _Case("/media/1PONDO-011516-227-CD2.mp4", cd=2, number="011516_227", content_type=ContentType.UNCENSORED),
+    _Case(
+        "/media/1pondo.tv_111226_001_4K.mp4", definition="4K", number="111226_001", content_type=ContentType.UNCENSORED
+    ),
+    _Case("/media/一本道-011516-227/video.mp4", number="011516_227", content_type=ContentType.UNCENSORED),
     _Case("/media/010115-001/video.mp4", number="010115-001", content_type=ContentType.UNCENSORED),
     _Case("/media/38-068.mp4", number="38-068", content_type=ContentType.WESTERN),
     _Case("/media/欧美/T38-068.mp4", number="T38-068", content_type=ContentType.WESTERN),

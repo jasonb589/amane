@@ -4892,19 +4892,19 @@ export type ScrapingConfig = {
      * Content Routes
      */
     content_routes?: {
-        [key in ContentType]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in ContentType]?: Array<'1pondo' | 'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
     };
     /**
      * Field Priority
      */
     field_priority?: {
-        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in MetadataField]?: Array<'1pondo' | 'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
     };
     /**
      * Field Blacklist
      */
     field_blacklist?: {
-        [key in MetadataField]?: Array<'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
+        [key in MetadataField]?: Array<'1pondo' | 'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'xchina' | 'xcity'>;
     };
     /**
      * Field Language
@@ -5325,7 +5325,7 @@ export type SiteConfig = {
  *
  * 爬虫站点名称 (影片与演员源共用).
  */
-export type SiteName = 'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'wikipedia' | 'xchina' | 'xcity';
+export type SiteName = '1pondo' | 'airav' | 'amazon' | 'avbase' | 'avsox' | 'avwikidb' | 'caribbean' | 'dahlia' | 'dmm' | 'faleno' | 'fc2' | 'fc2club' | 'fc2ppv_db' | 'fc2ppvdb' | 'freejavbt' | 'getchu' | 'gfriends' | 'giga' | 'iqqtv' | 'jav321' | 'javarchive' | 'javbus' | 'javdb' | 'javlibrary' | 'javtxt' | 'kin8' | 'mgstage' | 'minnano' | 'official' | 'prestige' | 'r18dev' | 'tenhow' | 'theporndb' | 'wikipedia' | 'xchina' | 'xcity';
 
 /**
  * SiteOutcomeKind

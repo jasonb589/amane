@@ -24,6 +24,7 @@ from .javtxt import JavtxtCrawler
 from .kin8 import Kin8Crawler
 from .mgstage import MGStageCrawler
 from .official import OfficialCrawler
+from .onepondo import OnePondoCrawler
 from .prestige import PrestigeCrawler
 from .r18dev import R18DevCrawler
 from .tenhow import TenhowCrawler
@@ -58,6 +59,7 @@ __all__ = [
     "Kin8Crawler",
     "MGStageCrawler",
     "OfficialCrawler",
+    "OnePondoCrawler",
     "PrestigeCrawler",
     "R18DevCrawler",
     "TenhowCrawler",

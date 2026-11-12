@@ -117,6 +117,7 @@
         },
         "$": {
           "options": {
+            "1pondo": "一本道",
             "airav": "airav",
             "amazon": "Amazon",
             "avbase": "avbase",
@@ -155,6 +156,7 @@
           },
           "$": {
             "options": {
+              "1pondo": "一本道",
               "airav": "airav",
               "amazon": "Amazon",
               "avbase": "avbase",
@@ -216,6 +218,7 @@
         },
         "$": {
           "options": {
+            "1pondo": "一本道",
             "airav": "airav",
             "amazon": "Amazon",
             "avbase": "avbase",
@@ -254,6 +257,7 @@
           },
           "$": {
             "options": {
+              "1pondo": "一本道",
               "airav": "airav",
               "amazon": "Amazon",
               "avbase": "avbase",
@@ -325,6 +329,7 @@
         "label": "站点配置",
         "description": "按站点单独设置",
         "options": {
+          "1pondo": "一本道",
           "airav": "airav",
           "amazon": "Amazon",
           "avbase": "avbase",
@@ -469,6 +474,7 @@
         },
         "$": {
           "options": {
+            "1pondo": "一本道",
             "airav": "airav",
             "amazon": "Amazon",
             "avbase": "avbase",
@@ -507,6 +513,7 @@
           },
           "$": {
             "options": {
+              "1pondo": "一本道",
               "airav": "airav",
               "amazon": "Amazon",
               "avbase": "avbase",

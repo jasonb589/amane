@@ -1,0 +1,77 @@
+# Capture (2026-11-13): httpx.get("https://www.1pondo.tv/dyn/phpauto/movie_details/movie_id/111226_001.json", follow_redirects=True).content
+# Gallery: httpx.get("https://www.1pondo.tv/dyn/dla/json/movie_gallery/111226_001.json", follow_redirects=True).content
+# Complete HTTP 200 responses; SHA-256: {"111226_001.json": "c00405f7cc92d1f061976c705a2163f30f2f2440a968982a953df81190960dee", "gallery-111226_001.json": "b8d08f226e1ceaac9716326e7e597c2d3a450c0af29e701b51c7bc09b701a8e5"}
+site = "1pondo"
+
+[fetch]
+number = "111226_001"
+requests = 2
+
+[[fetch.responses]]
+url_contains = "/movie_details/movie_id/111226_001.json"
+method = "get_json"
+file = "111226_001.json"
+
+[[fetch.responses]]
+url_contains = "/dyn/dla/json/movie_gallery/111226_001.json"
+method = "get_json"
+file = "gallery-111226_001.json"
+
+[fetch.expected]
+number = "111226_001"
+title = "騎乗位タイムトライアル！ 田中莉乃"
+actors = [
+    { name = "田中莉乃", gender = "female" },
+]
+plot = "自然な笑顔が魅力の田中莉乃さん。スタッフからも思わず「本当に美人ですね！」と声が出るほど、華やかさと親しみやすさをあわせ持つ美女です。\nそんな莉乃さんに、セックスの体位について質問。「どんな体位が得意？」と聞かれると、迷わず返ってきた答えは「騎乗位！」。そのひと言をきっかけに、今回は騎乗位タイムトライアル企画へ挑戦することに！\n簡単なルール説明を受けた後、まずは本番に向けてしっかり準備。チンポを手で丁寧に刺激しながら、亀頭へ舌を這わせてじっくりと興奮を高めていきます。莉乃さんの巧みな攻めに反応し、みるみるうちに力強く反り立っていくチンポ。\nそして、いよいよ騎乗位でタイムトライアルスタート！\n時間内に射精させようと、最初はゆっくりとしたテンポで腰を動かしながら様子をうかがい、徐々にスピードアップ。上下だけでなく、前後左右へと動きに変化をつけながら、相手の反応を見て巧みに攻めていきます。\n得意と語るだけあって、腰使いは見応え十分。時間が進むにつれて動きにも力が入り、企画とはいえ莉乃さん自身もどんどん本気モードへ。果たして、このまま制限時間内に見事フィニッシュへ導くことができるのか!?\nそれとも、惜しくも時間切れとなり、恒例の罰ゲームを受けることになってしまうのか！？\n結果はぜひ本編で確かめてください！\n田中莉乃さんの自然な笑顔と美しさはもちろん、得意の騎乗位で見せる腰使い、時間制限ならではの緊張感、そして徐々に本気になっていく表情の変化まで楽しめる今作。何と言ってもプロポーションがヤバ過ぎです！"
+release = "2026-11-12"
+runtime = 32
+series = "騎乗位タイムトライアル！"
+studio = "一本道"
+score_between = [
+    0,
+    5,
+]
+tags = [
+    "AV女優",
+    "美脚",
+    "モデル系",
+    "パイパン",
+    "美尻",
+    "スレンダー",
+    "美乳",
+    "手コキ",
+    "中出し",
+    "生ハメ",
+    "クンニ",
+    "フェラ",
+    "1080p",
+    "60fps",
+]
+thumb_urls = [
+    "https://www.1pondo.tv/moviepages/111226_001/images/str.jpg",
+    "https://www.1pondo.tv/assets/sample/111226_001/str.jpg",
+    "https://www.1pondo.tv/moviepages/111226_001/images/thum_b.jpg",
+]
+poster_urls = [
+    "https://www.1pondo.tv/moviepages/111226_001/images/str.jpg",
+    "https://www.1pondo.tv/assets/sample/111226_001/str.jpg",
+    "https://www.1pondo.tv/moviepages/111226_001/images/thum_b.jpg",
+]
+extrafanart = [
+    "https://www.1pondo.tv/dyn/dla/images/movie_gallery/sample/111226_001/0670f5a41c7de747a743713d5dffb5e5.jpg",
+    "https://www.1pondo.tv/dyn/dla/images/movie_gallery/sample/111226_001/a08e978c6ddba7ad81a00a489dde6eea.jpg",
+    "https://www.1pondo.tv/dyn/dla/images/movie_gallery/sample/111226_001/465cab61fe60ad7459532466eb652235.jpg",
+    "https://www.1pondo.tv/dyn/dla/images/movie_gallery/sample/111226_001/8ff67e4252a20894ee2a2cc67806f95f.jpg",
+]
+trailer_urls = [
+    "https://smovie.1pondo.tv/sample/movies/111226_001/1080p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/111226_001/720p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/111226_001/480p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/111226_001/360p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/111226_001/240p.mp4",
+]
+external_id = "35646"
+source_url = "https://www.1pondo.tv/movies/111226_001/"
+publisher_is_none = true
+directors = []

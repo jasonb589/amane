@@ -1,0 +1,78 @@
+# Capture (2026-11-13): httpx.get("https://www.1pondo.tv/dyn/phpauto/movie_details/movie_id/011516_227.json", follow_redirects=True).content
+# Gallery: httpx.get("https://www.1pondo.tv/dyn/phpauto/movie_galleries/movie_id/011516_227.json", follow_redirects=True).content
+# Complete HTTP 200 responses; SHA-256: {"011516_227.json": "c11f3e6764f2160ef69b1059a974bba86d8f1c0be84422631e42765a1c82cc98", "gallery-legacy-011516_227.json": "827775c89c4aab98fa62dd7a521b78ca086c23fb96ea5c3d4bfff8e200e1710e"}
+site = "1pondo"
+
+[fetch]
+number = "1PONDO-011516-227"
+requests = 2
+
+[[fetch.responses]]
+url_contains = "/movie_details/movie_id/011516_227.json"
+method = "get_json"
+file = "011516_227.json"
+
+[[fetch.responses]]
+url_contains = "/dyn/phpauto/movie_galleries/movie_id/011516_227.json"
+method = "get_json"
+file = "gallery-legacy-011516_227.json"
+
+[fetch.expected]
+number = "011516_227"
+title = "働きウーマン 〜ファミレスの性処理ウェイトレス〜"
+actors = [
+    { name = "真琴りょう", gender = "female" },
+]
+plot = "元レースクィーンの長身美女、真琴りょうが一本道人気シリーズ「働きウーマン 」にファミレスの店長に扮して登場！\r\nスラリと伸びた長い手脚に見事にくびれたウエストラインのスーパースレンダーボディ。\r\n笑顔がチャーミングなことから店長を務めながらお店の看板ウェイトレスとしてお客様には大人気なのですが。。。。\r\nこのお店はお客さんのクレームが半端じゃあないのです！\r\nそんないいがかりとも言えるクレームにカラダを張った神様のような謝罪対応で大忙しのりょうさん。\r\n食べ物が熱いといいがかりをつけるお客には口でフェラヌキ謝罪、テーブルが安定していないと文句をつけるお客には脚コキ謝罪。\r\n半いいがかりとも言えるクレームにあらゆるカラダを張った対応に大忙しの真琴りょう店長。\r\n超〜クレーマーの対応に悪戦苦闘する真琴りょうは見逃せません！\r\n\r\n\r\n"
+release = "2016-01-15"
+runtime = 63
+series = "働きウーマン"
+studio = "一本道"
+score_between = [
+    0,
+    5,
+]
+tags = [
+    "AV女優",
+    "美脚",
+    "熟女/人妻",
+    "長身",
+    "痴女",
+    "口内発射",
+    "スレンダー",
+    "美乳",
+    "手コキ",
+    "69",
+    "中出し",
+    "生ハメ",
+    "クンニ",
+    "フェラ",
+    "1080p",
+    "60fps",
+]
+thumb_urls = [
+    "https://www.1pondo.tv/moviepages/011516_227/images/str.jpg",
+    "https://www.1pondo.tv/assets/sample/011516_227/str.jpg",
+    "https://www.1pondo.tv/moviepages/011516_227/images/thum_b.jpg",
+]
+poster_urls = [
+    "https://www.1pondo.tv/moviepages/011516_227/images/str.jpg",
+    "https://www.1pondo.tv/assets/sample/011516_227/str.jpg",
+    "https://www.1pondo.tv/moviepages/011516_227/images/thum_b.jpg",
+]
+extrafanart = [
+    "https://www.1pondo.tv/assets/sample/011516_227/popu/1.jpg",
+    "https://www.1pondo.tv/assets/sample/011516_227/popu/2.jpg",
+    "https://www.1pondo.tv/assets/sample/011516_227/popu/3.jpg",
+]
+trailer_urls = [
+    "https://smovie.1pondo.tv/sample/movies/011516_227/1080p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/011516_227/720p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/011516_227/480p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/011516_227/360p.mp4",
+    "https://smovie.1pondo.tv/sample/movies/011516_227/240p.mp4",
+]
+external_id = "3340"
+source_url = "https://www.1pondo.tv/movies/011516_227/"
+publisher_is_none = true
+directors = []

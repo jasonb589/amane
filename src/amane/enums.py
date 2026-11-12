@@ -4,6 +4,7 @@ from enum import StrEnum
 class SiteName(StrEnum):
     """爬虫站点名称 (影片与演员源共用)."""
 
+    ONEPONDO = "1pondo"
     AIRAV = "airav"
     AMAZON = "amazon"
     AVBASE = "avbase"

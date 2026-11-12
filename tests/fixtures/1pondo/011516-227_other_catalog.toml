@@ -1,0 +1,8 @@
+# No HTTP: a bare hyphenated ID belongs to another catalog, even if an underscore ID exists.
+site = "1pondo"
+
+[fetch]
+number = "011516-227"
+requests = 0
+responses = []
+expected_none = true

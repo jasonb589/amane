@@ -14,6 +14,7 @@ import re
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import TypedDict
@@ -186,6 +187,15 @@ _DMM_CONCAT = re.compile(r"([A-Z]{2,})00(\d{3})")
 #: 抢在 ``_DMM_CONCAT`` 之前返回.
 _TMA_NUMBER = re.compile(r"(?<![A-Z0-9])T\d{2}-?\d{3,}")
 _SIX_DIGIT_CATALOG = re.compile(r"(?<!\d)\d{6}[-_]\d{2,4}(?!\d)")
+_ONEPONDO_NUMBER = re.compile(
+    r"(?:(?P<prefix>1PONDO(?:\.TV)?|一本道)[-_.\s]*)?"
+    r"(?P<date>[0-9]{6})(?P<separator>[-_])(?P<serial>[0-9]{3})",
+    re.IGNORECASE,
+)
+_ONEPONDO_PREFIX_NUMBER = re.compile(
+    r"(?<![A-Z0-9])(?:1PONDO(?:\.TV)?|一本道)[-_.\s]*[0-9]{6}[-_][0-9]{3}(?![A-Z0-9])",
+    re.IGNORECASE,
+)
 _WESTERN_PROBE = re.compile(r"([A-Z0-9_]{2,})[-_.]+2?0?(\d{2}[-_.]\d{2}[-_.]\d{2})")
 _WESTERN_PARSE = re.compile(r"([A-Z0-9-]{2,})[-_.]+2?0?(\d{2}[-_.]\d{2}[-_.]\d{2})")
 # 连接符与全角字符须先按 FC2 结构归一; 通用字母前缀规则会把前缀里的 2 当作分隔内容删除.
@@ -469,6 +479,21 @@ def is_amateur(number: str) -> bool:
     return infer_content_type(number) == ContentType.AMATEUR
 
 
+def normalize_onepondo_number(number: str) -> str | None:
+    """一本道目录号; 裸短横线号属于其它目录, 仅明确站点前缀允许转换分隔符."""
+    match = _ONEPONDO_NUMBER.fullmatch(unicodedata.normalize("NFKC", number).strip())
+    if match is None or (match["separator"] == "-" and match["prefix"] is None):
+        return None
+    digits = match["date"]
+    try:
+        date(2000 + int(digits[4:]), int(digits[:2]), int(digits[2:4]))
+    except ValueError:
+        return None
+    if int(match["serial"]) == 0:
+        return None
+    return f"{digits}_{match['serial']}"
+
+
 # 站点 genre 的惯用写法, 判定要求整体相等: 含 VR 字样的其它标签 (VRっぽい / 8K VR) 不命中.
 VR_TAGS = frozenset({"vr", "vr専用", "8kvr", "ハイクオリティvr", "vr専用作品", "vr作品"})
 
@@ -628,6 +653,8 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     # 第二段商品号可以只有一位, 必须在通用尾标剥离之前读取.
     if m := _HEYDOUGA_NUMBER.search(normalized):
         return f"HEYDOUGA-{m[1]}-{m[2]}", ContentType.UNCENSORED
+    if (m := _ONEPONDO_PREFIX_NUMBER.search(normalized)) and (number := normalize_onepondo_number(m.group())):
+        return number, ContentType.UNCENSORED
     if "MYWIFE" in c and re.search(r"NO\.\d*", c):
         return f"Mywife No.{re.findall(r'NO\.(\d*)', c)[0]}", ContentType.CENSORED
     if m := re.search(r"CW3D2D?BD-?\d{2,}", c):

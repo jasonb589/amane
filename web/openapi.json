@@ -10045,6 +10045,7 @@
                   "javdb"
                 ],
                 "uncensored": [
+                  "1pondo",
                   "javdb",
                   "javbus",
                   "avsox",
@@ -10069,6 +10070,18 @@
                 "title": "zh_cn"
               },
               "site_config": {
+                "1pondo": {
+                  "cookie": {},
+                  "languages": [
+                    "zh",
+                    "ja",
+                    "en"
+                  ],
+                  "official_routes": {},
+                  "rate_limit": 2.0,
+                  "use_browser": "auto",
+                  "use_proxy": true
+                },
                 "airav": {
                   "cookie": {},
                   "languages": [
@@ -15889,6 +15902,7 @@
               "items": {
                 "type": "string",
                 "enum": [
+                  "1pondo",
                   "airav",
                   "amazon",
                   "avbase",
@@ -15938,6 +15952,7 @@
               "items": {
                 "type": "string",
                 "enum": [
+                  "1pondo",
                   "airav",
                   "amazon",
                   "avbase",
@@ -15987,6 +16002,7 @@
               "items": {
                 "type": "string",
                 "enum": [
+                  "1pondo",
                   "airav",
                   "amazon",
                   "avbase",
@@ -16675,6 +16691,7 @@
       "SiteName": {
         "type": "string",
         "enum": [
+          "1pondo",
           "airav",
           "amazon",
           "avbase",

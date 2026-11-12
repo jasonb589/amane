@@ -63,6 +63,8 @@
 
 **caribbeancom.com** — 首页是年龄确认页, 连通性探测使用官网确认链接指向的 `/index2.htm`; 详情页独立解析, 真正拦截仍须上报. `caribbeancompr.com` 属于 Premium 目录, 不作为该来源的替换入口.
 
+**1pondo.tv** — `sites/onepondo.py::OnePondoCrawler` 使用公开 JSON 目录, 仅纳入无码缺省路由; 显式持久化的路由保持原样. `parsing/file_info.py::normalize_onepondo_number` 共用目录号边界: 裸番号必须保留下划线与三位序号, 只有明确站点前缀允许转换短横线, 不补零. 新旧画廊仅输出同一影片的公开原图; 横版封面交由图片管线裁剪, 剧照失败保留已确认的影片资料并记录原因.
+
 **getchu.com** — 美少女游戏 / 同人 / 动画周边, 商品是数字 id; 里番靠路径关键词分类, 所以是里番第一源.
 
 **kin8tengoku.com** — 单厂牌, 不纳入默认表. 番号 `KIN8-####` 的类型归欧美链 (第一源 theporndb, 按 4 位 `movie_id` 对齐), `release` 恒为空; 番号须带 `kin8` / `kin8tengoku` 前缀, 数字段 1–9999 补零为 4 位拼详情页, 越界或无前缀不发 HTTP. 页是 Next.js 应用, 可解析的只剩 `og:` 元标签与 CSS-module 类名.

@@ -41,6 +41,7 @@ from .sites import (
     Kin8Crawler,
     MGStageCrawler,
     OfficialCrawler,
+    OnePondoCrawler,
     PrestigeCrawler,
     R18DevCrawler,
     TenhowCrawler,
@@ -79,6 +80,7 @@ registry.register(ThePornDBCrawler)
 registry.register(OfficialCrawler)
 registry.register(AmazonCrawler)
 registry.register(CaribbeanCrawler)
+registry.register(OnePondoCrawler)
 registry.register(TenhowCrawler)
 registry.register(XchinaCrawler)
 
@@ -121,6 +123,7 @@ __all__ = [
     "MetadataField",
     "MinnanoActorCrawler",
     "OfficialCrawler",
+    "OnePondoCrawler",
     "PrestigeCrawler",
     "R18DevCrawler",
     "SiteName",

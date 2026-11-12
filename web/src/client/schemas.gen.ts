@@ -3191,6 +3191,7 @@ export const HotSettingsSchema = {
                         'javdb'
                     ],
                     uncensored: [
+                        '1pondo',
                         'javdb',
                         'javbus',
                         'avsox',
@@ -3215,6 +3216,18 @@ export const HotSettingsSchema = {
                     title: 'zh_cn'
                 },
                 site_config: {
+                    '1pondo': {
+                        cookie: {},
+                        languages: [
+                            'zh',
+                            'ja',
+                            'en'
+                        ],
+                        official_routes: {},
+                        rate_limit: 2,
+                        use_browser: 'auto',
+                        use_proxy: true
+                    },
                     airav: {
                         cookie: {},
                         languages: [
@@ -9142,6 +9155,7 @@ export const ScrapingConfigSchema = {
                 items: {
                     type: 'string',
                     enum: [
+                        '1pondo',
                         'airav',
                         'amazon',
                         'avbase',
@@ -9191,6 +9205,7 @@ export const ScrapingConfigSchema = {
                 items: {
                     type: 'string',
                     enum: [
+                        '1pondo',
                         'airav',
                         'amazon',
                         'avbase',
@@ -9240,6 +9255,7 @@ export const ScrapingConfigSchema = {
                 items: {
                     type: 'string',
                     enum: [
+                        '1pondo',
                         'airav',
                         'amazon',
                         'avbase',
@@ -9943,6 +9959,7 @@ export const SiteConfigSchema = {
 export const SiteNameSchema = {
     type: 'string',
     enum: [
+        '1pondo',
         'airav',
         'amazon',
         'avbase',

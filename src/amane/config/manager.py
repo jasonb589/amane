@@ -83,6 +83,7 @@ _DEFAULT_CONTENT_ROUTES: dict[ContentType, list[SiteName]] = {
         SiteName.AVWIKIDB,
     ],
     ContentType.UNCENSORED: [
+        SiteName.ONEPONDO,
         SiteName.JAVDB,
         SiteName.JAVBUS,
         SiteName.AVSOX,

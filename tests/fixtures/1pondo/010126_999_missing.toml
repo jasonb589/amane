@@ -1,0 +1,14 @@
+# Capture (2026-11-13): httpx.get("https://www.1pondo.tv/dyn/phpauto/movie_details/movie_id/010126_999.json", follow_redirects=True).content
+# Complete HTTP 404 response; SHA-256: 3134ec47c2ba3dd6c22afdbbea4c7c8f8b945d46b501a9d6952212e6666bdf64
+site = "1pondo"
+
+[fetch]
+number = "010126_999"
+requests = 1
+expected_none = true
+
+[[fetch.responses]]
+url_contains = "/movie_details/movie_id/010126_999.json"
+method = "get_json"
+file = "010126_999.html"
+status = 404

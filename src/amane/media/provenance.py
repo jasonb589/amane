@@ -35,6 +35,7 @@ class ImageProvenance(BaseModel):
         if not self.source_url:
             return "来源未知"
         source = {
+            "1pondo": "一本道",
             "amazon": "Amazon",
             "tenhow": "Tenhow",
             "dmm": "DMM",
@@ -87,6 +88,8 @@ def _source(url: str, raw: Mapping[str, object] | None) -> str:
         return "dmm"
     if host == "tenhow.net" or host.endswith(".tenhow.net"):
         return "tenhow"
+    if host == "1pondo.tv" or host.endswith(".1pondo.tv"):
+        return "1pondo"
     if host in {
         "m.media-amazon.com",
         "images-na.ssl-images-amazon.com",

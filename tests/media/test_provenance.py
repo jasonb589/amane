@@ -153,6 +153,8 @@ async def test_remote_photo_can_use_original_cached_dimensions(resource_store: R
         ("https://images-na.ssl-images-amazon.com/images/I/81TEST001.jpg", {}, "Amazon 原生海报"),
         ("https://www.tenhow.net/images/B00TEST001.jpg", {}, "Tenhow 原生海报"),
         ("https://pics.dmm.co.jp/mono/movie/adult/x/xps.jpg", {}, "DMM 原生海报"),
+        ("https://www.1pondo.tv/assets/sample/111226_001/str.jpg", {}, "一本道 原生海报"),
+        ("https://1pondo.tv.evil.example/cover.jpg", {}, "1pondo.tv.evil.example 原生海报"),
         (
             "https://cdn.example/cover.jpg",
             {"javarchive": {"poster_urls": ["https://cdn.example/cover.jpg"]}},
@@ -194,6 +196,17 @@ async def test_thumb_fallback_reports_actual_horizontal_image(resource_store: Re
     info = await resolve_image_provenance(thumb, resource_store, kind="thumb")
     assert info.label == "DMM 高清横图 · 2184×1477"
     assert not info.cropped
+
+
+@pytest.mark.asyncio
+async def test_onepondo_horizontal_cover_crop_keeps_source(resource_store: ResourceStore, tmp_path: Path) -> None:
+    thumb = "https://www.1pondo.tv/assets/sample/111226_001/str.jpg"
+    output = await materialize_images(
+        [], [thumb], [], resource_store, cast("WebClient", FakeClient({thumb: (960, 540)})), HotSettings(), tmp_path
+    )
+    info = await resolve_image_provenance(output.poster_urls[0], resource_store)
+    assert info.source == "1pondo" and info.cropped and not info.upscaled
+    assert "一本道 横图裁剪" in info.label and "源图 960×540" in info.label
 
 
 @pytest.mark.asyncio
