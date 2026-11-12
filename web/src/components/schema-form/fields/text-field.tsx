@@ -6,6 +6,7 @@ import type { TextJSONSchema } from "../schema/types";
 import { useFieldDomId } from "./dict-entry-form";
 import { FieldChrome } from "./field-chrome";
 import { fieldError } from "./field-error";
+import type { RenderTextFieldAction } from "./text-field-action";
 
 /**
  * Generic text input field. Also serves as the fallback for unrecognized schema types.
@@ -25,7 +26,9 @@ export function TextField({
   schema,
   form,
   variant,
-}: FieldProps<TextJSONSchema>) {
+  action,
+  resetVersion = 0,
+}: FieldProps<TextJSONSchema> & { action?: RenderTextFieldAction; resetVersion?: number }) {
   const id = useFieldDomId(name);
   const nullable = isNullable(schema);
   const multiline = schema["x-long"] === true;
@@ -63,6 +66,12 @@ export function TextField({
                 style={{ flex: 1 }}
               />
             )}
+            {action?.({
+              value: typeof field.state.value === "string" ? field.state.value : "",
+              getValue: () => field.state.value,
+              onChange: (value) => field.handleChange(value),
+              resetVersion,
+            })}
             {nullable && field.state.value != null && (
               <Button
                 type="button"

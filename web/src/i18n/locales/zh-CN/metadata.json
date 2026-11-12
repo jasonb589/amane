@@ -409,6 +409,13 @@
     "loadImages": "加载图片",
     "loadAllImages": "加载全部图片"
   },
+  "translate": {
+    "button": "翻译",
+    "ready": "译文已填入, 检查后保存即可同步 NFO",
+    "unchanged": "当前内容已是目标语言, 无需翻译",
+    "draftChanged": "内容已被修改或重置, 保留当前输入",
+    "failed": "翻译失败, 原文已保留"
+  },
   "lock": {
     "manage": "字段锁定",
     "all": "全部锁定",

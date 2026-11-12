@@ -6092,6 +6092,35 @@ export type ToolSummary = {
 };
 
 /**
+ * TranslateTextRequest
+ */
+export type TranslateTextRequest = {
+    /**
+     * Field
+     */
+    field: 'title' | 'plot';
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
+ * TranslateTextResponse
+ */
+export type TranslateTextResponse = {
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Changed
+     */
+    changed: boolean;
+    target_lang: Language;
+};
+
+/**
  * TrashSummaryResponse
  *
  * 回收目录历史内容: 展开即产出清单, 面板套用同一套审查与删除.
@@ -9823,6 +9852,31 @@ export type GetDbSchemaResponses = {
 };
 
 export type GetDbSchemaResponse = GetDbSchemaResponses[keyof GetDbSchemaResponses];
+
+export type TranslateMetadataTextData = {
+    body: TranslateTextRequest;
+    path?: never;
+    query?: never;
+    url: '/api/translations';
+};
+
+export type TranslateMetadataTextErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TranslateMetadataTextError = TranslateMetadataTextErrors[keyof TranslateMetadataTextErrors];
+
+export type TranslateMetadataTextResponses = {
+    /**
+     * Successful Response
+     */
+    200: TranslateTextResponse;
+};
+
+export type TranslateMetadataTextResponse = TranslateMetadataTextResponses[keyof TranslateMetadataTextResponses];
 
 export type GetPathTemplateSchemaData = {
     body?: never;

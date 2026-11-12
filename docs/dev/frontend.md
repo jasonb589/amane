@@ -75,6 +75,8 @@ Settings、任务提交、定时创建、metadata 编辑共用 `components/schem
 
 `SchemaForm` 双模式 `patch` (dirty 门控, 只提交 diff) / `create` (完整值); dirty 保存条用 `affix` 固定于视口底, 编辑弹窗里必须抬到 Modal 之上. 空值编码统一经 `schema-form/encode.ts` (按 Create / 列 schema 判空), `x-frozen-keys` 必须保留全部 key; 不允许对着 PATCH partial schema 编码, 手写 Library / Feed 表单经同一个编码器出 body. 任务与定时提交用 `DiscriminatedSchemaForm`; 短枚举共用 `EnumToggle`, 定时 cron 用 `CronPicker` (产出 5-field, 与后端 croniter 一致).
 
+影片编辑通过 `SchemaForm.textActions` 为标题与剧情附加翻译按钮, 只处理当前输入; 返回时校验草稿版本与当前值, 修改、重置或关闭窗口后不得覆盖新草稿. 后端翻译契约见 [llm.md](llm.md).
+
 ## 对话通道
 
 `/` 的实现边界见 [agent.md](agent.md). 前端四点: 对话经 AG-UI (`@ag-ui/client` + `@assistant-ui/react-ag-ui`), 不经 hey-api 也不经 `/ws`, 且 `@ag-ui/client` 必须停留在 0.0.x —— react-ag-ui 的 peer 依赖为 `^0.0.59`, 1.x 调整了 `Message` 内容部件的类型, 与之不兼容; 请求统一经由 `lib/api-token.ts` 的 `apiFetch` (纯透传, 只把 401 转成登录门); 读 assistant-ui 线程状态的 hook (`useAuiState` / `useAgUi*`) 须在 `AssistantRuntimeProvider` 之内 — 持有 provider 的那个组件读不到, 要另起子组件; 展示只认回放行 — `lib/agent/trace.ts::foldTrace` 的产物直接渲染, 本页发起的回合也跟随 `.../agui/events` (从 `after_seq` 接上, 回合未收尾时重开), 运行时的消息虽同步同一份 fold 但不参与渲染, 因此直播与刷新同形, 决不允许另建一份消息状态.

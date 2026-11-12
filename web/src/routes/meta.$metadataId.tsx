@@ -66,6 +66,7 @@ import { MetadataFanartStrip } from "@/components/media/metadata-fanart-strip";
 import { FilePhaseBadges, FilePhaseOverlay } from "@/components/media/file-phase-badges";
 import { PosterCropDialog } from "@/components/media/poster-crop-dialog";
 import { MergeDialog } from "@/components/metadata/merge-dialog";
+import { METADATA_TRANSLATION_ACTIONS } from "@/components/metadata/translate-field-button";
 import { type JSONSchemaObject, resolveSchema } from "@/components/schema-form/schema";
 import { SchemaForm } from "@/components/schema-form/schema-form";
 import { extractErrorMessage } from "@/lib/api-error";
@@ -1017,10 +1018,12 @@ function TitleDetailPage() {
       >
         {editSchema ? (
           <SchemaForm
+            key={id}
             schema={editSchema}
             prefix="editor"
             i18nPrefix="metadata"
             fieldLayout="grid"
+            textActions={METADATA_TRANSLATION_ACTIONS}
             actionsPlacement="affix"
             values={(() => {
               const bag: Record<string, unknown> = { ...item };

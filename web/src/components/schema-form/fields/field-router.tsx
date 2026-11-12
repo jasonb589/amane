@@ -28,6 +28,7 @@ import { ObjectArrayField } from "./object-array-field";
 import { PathField } from "./path-field";
 import { SimpleArrayField } from "./simple-array-field";
 import { TextField } from "./text-field";
+import type { RenderTextFieldAction } from "./text-field-action";
 
 const TAG = "FieldRouter";
 
@@ -54,6 +55,8 @@ interface FieldRouterProps {
    * be added when a use case appears.
    */
   variant?: FieldVariant;
+  textAction?: RenderTextFieldAction;
+  resetVersion?: number;
 }
 
 export function FieldRouter({
@@ -63,6 +66,8 @@ export function FieldRouter({
   i18nPath,
   i18nPrefix = "settings:fields",
   variant,
+  textAction,
+  resetVersion,
 }: FieldRouterProps) {
   const effectiveI18nPath = i18nPath ?? name;
   const { label, description } = useSchemaI18n(effectiveI18nPath, schema, i18nPrefix);
@@ -83,7 +88,7 @@ export function FieldRouter({
 
   if (isText(schema)) {
     devLog.info(TAG, `→ TextField: ${name}`);
-    return <TextField schema={schema} {...basic} />;
+    return <TextField schema={schema} {...basic} action={textAction} resetVersion={resetVersion} />;
   }
 
   if (isPath(schema)) {

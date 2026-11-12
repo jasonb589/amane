@@ -106,6 +106,7 @@ PartialMetadata = create_partial_model(
         "locked_fields",
     ),
     json_schema_extras={
+        "plot": anyof_extras({"x-long": True}),
         "extrafanart_urls": anyof_extras(kv({"v-x-long": True})),
         "release": anyof_extras(
             {

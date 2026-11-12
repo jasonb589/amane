@@ -6175,7 +6175,8 @@ export const MetadataPartialSchema = {
         plot: {
             anyOf: [
                 {
-                    type: 'string'
+                    type: 'string',
+                    'x-long': true
                 },
                 {
                     type: 'null'
@@ -11382,6 +11383,55 @@ export const ToolSummarySchema = {
     ],
     title: 'ToolSummary',
     description: '目录索引里的一条: 够选工具, 不够直接构造复杂入参.'
+} as const;
+
+export const TranslateTextRequestSchema = {
+    properties: {
+        field: {
+            type: 'string',
+            enum: [
+                'title',
+                'plot'
+            ],
+            title: 'Field'
+        },
+        text: {
+            type: 'string',
+            maxLength: 50000,
+            minLength: 1,
+            title: 'Text'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: [
+        'field',
+        'text'
+    ],
+    title: 'TranslateTextRequest'
+} as const;
+
+export const TranslateTextResponseSchema = {
+    properties: {
+        text: {
+            type: 'string',
+            title: 'Text'
+        },
+        changed: {
+            type: 'boolean',
+            title: 'Changed'
+        },
+        target_lang: {
+            $ref: '#/components/schemas/Language'
+        }
+    },
+    type: 'object',
+    required: [
+        'text',
+        'changed',
+        'target_lang'
+    ],
+    title: 'TranslateTextResponse'
 } as const;
 
 export const TrashSummaryResponseSchema = {

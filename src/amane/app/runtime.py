@@ -257,6 +257,7 @@ class AppRuntime:
     image_token: str | None = None
     translation_cache: TranslationCache | None = None
     translation_coalescer: TranslationCoalescer | None = None
+    manual_translations: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(2))
     r18_db: R18Database | None = None
     agent_service: AgentService | None = None
     plugin_manager: PluginManager | None = None

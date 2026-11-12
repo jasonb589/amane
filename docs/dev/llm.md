@@ -24,6 +24,7 @@
 - **缓存语义不变**: `Metadata.raw` 仍存**源语言**站点快照; 译文是派生值, 写入 `Metadata` 标量字段.
 - **独立限速**: LLM 端点用自己的 `AsyncLimiter`, 与站点 host 限速器隔离.
 - **覆盖范围**: `llm.enabled` 控制 `translate_fields` 中的标题 / 剧情 / 标签; `llm.translate_western_tags` 独立控制欧美标签并采用独立目标语言. `src/amane/app/runtime.py::build_handlers` 在任一开关启用时构造共享翻译器, `ScrapeHandler._translate_metadata` 分别执行, 欧美标签只翻译一次. 现存条目按库内类型判定, 与元数据缓存开关无关; 新条目按任务类型判定. 独立标签翻译跳过锁定字段并保留机器识别的 VR 标签; 原始站点快照与其他字段不受该开关影响.
+- **编辑草稿**: `api/routes/translations.py::translate_metadata_text` 复用模型、提示词、字段目标语言与会话缓存, 不要求启用自动翻译. 请求只返回标题或剧情的译文, Metadata 与 NFO 经编辑保存统一提交; 客户端由请求关闭, 上游无有效译文返回 502, 已是目标语言保留输入.
 
 ## 自定义提示词
 

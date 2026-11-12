@@ -189,12 +189,14 @@ def build_translator(
     field_prompts: Mapping[MetadataField, str] | None = None,
     cache: TranslationCache | None = None,
     coalescer: TranslationCoalescer | None = None,
+    http_client: AsyncClient | None = None,
 ) -> LLMTranslator | None:
     """未启用或缺密钥时返回 ``None``. ``cache`` 与 ``coalescer`` 热重载时复用同一实例."""
     if not enabled or not api_key:
         return None
     # 翻译路径自建传输客户端 (proxy + 超时) 并交给 provider; 助理不传, 由 pydantic-ai 构造默认客户端.
-    http_client = AsyncClient(proxy=proxy, timeout=Timeout(_TIMEOUT), follow_redirects=True)
+    if http_client is None:
+        http_client = AsyncClient(proxy=proxy, timeout=Timeout(_TIMEOUT), follow_redirects=True)
     return LLMTranslator(
         build_model(api_type, base_url=base_url, api_key=api_key, model=model, http_client=http_client),
         cache,

@@ -35,6 +35,7 @@ HTTP 宿主与 DI 在 `app.py` / `deps.py` / `middleware.py` / `spa.py`; `routes
 | `agent` | `/agent` | 会话 CRUD / 标题 / trace / AG-UI; 见 [agent.md](agent.md) |
 | `saved-queries` | `/saved-queries` | 查询预设 CRUD / 结果 / 批量; 见 [agent.md](agent.md) |
 | `tools` | `/tools` | 外部智能体的工具索引、单工具入参与派发; 见 [agent.md](agent.md)「外部接入」 |
+| `translations` | `/translations` | 标题与剧情草稿翻译; 保存与缓存边界见 [llm.md](llm.md) |
 | `bootstrap` | `/agent-guide` | 免鉴权的接入引导, 固定文本; 豁免见 `middleware.py::_TOKEN_EXEMPT` |
 | `ws` | `/ws` | EventBus 广播 |
 

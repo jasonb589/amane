@@ -1,11 +1,12 @@
 import { Box, Button, Group, SimpleGrid, Stack } from "@mantine/core";
 import { useForm } from "@tanstack/react-form";
-import { useCallback, useId, useMemo, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { UnsavedChangesBar } from "@/components/common/unsaved-changes-bar";
 import { isRecord } from "@/lib/utils";
 import { encodeFormBody } from "./encode";
 import { FieldRouter } from "./fields";
+import type { RenderTextFieldAction } from "./fields/text-field-action";
 import type { JSONSchemaObject } from "./schema";
 import {
   createSchemaValidator,
@@ -151,6 +152,8 @@ interface SchemaFormProps {
    * - `grid`: consecutive short scalars share a 2-col row on `sm+`.
    */
   fieldLayout?: "stack" | "grid";
+  /** 仅为指定文本字段附加动作; 转换后的值仍通过表单 diff 保存. */
+  textActions?: Readonly<Record<string, RenderTextFieldAction>>;
 }
 
 export function SchemaForm({
@@ -165,9 +168,11 @@ export function SchemaForm({
   submitLabel,
   submitDisabled = false,
   fieldLayout = "stack",
+  textActions,
 }: SchemaFormProps) {
   const { t } = useTranslation("common");
   const formId = useId();
+  const [resetVersion, setResetVersion] = useState(0);
   const properties = useMemo(() => schema.properties ?? {}, [schema.properties]);
   const isCreate = mode === "create";
   const rows = useMemo(
@@ -234,6 +239,7 @@ export function SchemaForm({
   });
 
   const handleReset = useCallback(() => {
+    setResetVersion((version) => version + 1);
     form.reset(defaultValues);
   }, [form, defaultValues]);
 
@@ -292,6 +298,8 @@ export function SchemaForm({
         schema={fieldSchema}
         form={form}
         i18nPrefix={i18nPrefix}
+        textAction={textActions?.[key]}
+        resetVersion={resetVersion}
       />
     ));
     const rowStyle =

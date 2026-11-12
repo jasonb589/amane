@@ -436,6 +436,13 @@
     "loadImages": "Load images",
     "loadAllImages": "Load all images"
   },
+  "translate": {
+    "button": "Translate",
+    "ready": "Translation inserted. Review and save to sync the NFO",
+    "unchanged": "The text already matches the target language",
+    "draftChanged": "The draft changed or was reset. Your current input was preserved",
+    "failed": "Translation failed. The original text was preserved"
+  },
   "lock": {
     "manage": "Field Locks",
     "all": "Lock All",
