@@ -1,0 +1,26 @@
+name: maintenance
+
+on:
+  push:
+    branches: [maintenance-restore]
+
+env:
+  DO_RESTORE: "0"
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare registry client
+        if: env.DO_RESTORE == '1'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+      - name: Maintain package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/restore-original.py
